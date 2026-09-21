@@ -1,0 +1,145 @@
+name: CI
+
+# This is the only build environment there is: docs/windows-port.md sets out that nothing is
+# compiled locally, so a green run here is what "done" means for every milestone.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
+jobs:
+  build:
+    name: Build, test and measure
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      # The eight upstream kernels, built twice from the same sources: a static library the
+      # NativeAOT link pulls in, and a DLL the test run loads at run time.
+      - name: Build C kernels
+        run: |
+          cmake -S native/kernels -B build/kernels -G "Visual Studio 17 2022" -A x64
+          cmake --build build/kernels --config Release
+
+      - name: Locate kernel binaries
+        id: kernels
+        shell: pwsh
+        run: |
+          $static = Get-ChildItem build/kernels -Recurse -Filter compositor_kernels.lib |
+                    Where-Object { $_.FullName -like '*static*' } | Select-Object -First 1
+          $shared = Get-ChildItem build/kernels -Recurse -Filter compositor_kernels.dll |
+                    Select-Object -First 1
+          if (-not $static) { throw "compositor_kernels.lib not found" }
+          if (-not $shared) { throw "compositor_kernels.dll not found" }
+          "static=$($static.FullName)" >> $env:GITHUB_OUTPUT
+          "shared=$($shared.FullName)" >> $env:GITHUB_OUTPUT
+          "Static $($static.Length) bytes, shared $($shared.Length) bytes" | Write-Host
+
+      - name: Restore
+        run: dotnet restore Compositor_korean_win.sln
+
+      # The Core layer touches nothing but System.* and the kernels, so it tests without a backend
+      # and without a display — which is what keeps the test suite honest as the shell grows.
+      - name: Test
+        run: >
+          dotnet test tests/Compositor_korean_win.Core.Tests/Compositor_korean_win.Core.Tests.csproj
+          --configuration Release
+          --no-restore
+          -p:KernelSharedPath="${{ steps.kernels.outputs.shared }}"
+          --logger "trx;LogFileName=core-tests.trx"
+          --results-directory build/test-results
+
+      - name: Publish (NativeAOT, single file)
+        run: >
+          dotnet publish src/Compositor_korean_win.Shell/Compositor_korean_win.Shell.csproj
+          --configuration Release
+          --runtime win-x64
+          --no-restore
+          -p:KernelLibraryPath="${{ steps.kernels.outputs.static }}"
+          --output build/publish
+
+      # M0 closes on figures, not on a screenshot. The runner has no GPU and no display, so this
+      # is WARP with the window hidden: a floor, not a target.
+      - name: Self-test and measure
+        id: selftest
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $exe = "build/publish/Compositor_korean_win.exe"
+          & $exe --selftest --image assets/m0-test.png --report build/m0-report.json
+          "exit=$LASTEXITCODE" >> $env:GITHUB_OUTPUT
+
+      - name: Report
+        shell: pwsh
+        run: |
+          $exe = Get-Item build/publish/Compositor_korean_win.exe -ErrorAction SilentlyContinue
+          $shipped = Get-ChildItem build/publish -File |
+                     Where-Object { $_.Extension -in '.exe', '.dll' }
+
+          "## M0 — 기반 검증" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+
+          if (Test-Path build/m0-report.json) {
+            $report = Get-Content build/m0-report.json -Raw | ConvertFrom-Json
+
+            "| 항목 | 값 |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            "|---|---|" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            "| 단일 exe | {0:N0} KB |" -f ($report.exeBytes / 1KB) | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            "| 첫 프레임까지 | {0:N1} ms |" -f $report.timeToFirstFrameMs | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            "| 최대 작업 집합 | {0:N1} MB |" -f ($report.peakWorkingSetBytes / 1MB) | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            "| 관리 힙 | {0:N0} KB |" -f ($report.managedHeapBytes / 1KB) | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            "| 드라이버 | $($report.driver) / $($report.featureLevel) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            "| 선택된 픽셀 포맷 | **$($report.chosenFormat)** |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            "| RGBA 렌더 타깃 | $($report.r8g8b8a8.renderTarget) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            "| BGRA 렌더 타깃 | $($report.b8g8r8a8.renderTarget) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            "| WIC 디코드 | $($report.wicDecoded) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            "| 창 표시·프레젠트 | $($report.windowPresented) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            "| C 커널 ABI | $($report.kernelAbi) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+
+            if ($report.failures.Count -gt 0) {
+              "### 실패" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              $report.failures | ForEach-Object { "- $_" | Out-File -Append $env:GITHUB_STEP_SUMMARY }
+            }
+          } else {
+            "자체 검사가 보고서를 남기지 못했습니다." | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          }
+
+          "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          "### 배포물" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          "배포 폴더의 파일 $($shipped.Count)개, 합계 {0:N0} KB" -f (($shipped | Measure-Object Length -Sum).Sum / 1KB) |
+            Out-File -Append $env:GITHUB_STEP_SUMMARY
+          $shipped | ForEach-Object { "- ``$($_.Name)`` {0:N0} KB" -f ($_.Length / 1KB) | Out-File -Append $env:GITHUB_STEP_SUMMARY }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m0-build
+          path: |
+            build/publish/**
+            build/m0-report.json
+            build/test-results/**
+          if-no-files-found: warn
+
+      - name: Fail if the self-test did not pass
+        if: steps.selftest.outputs.exit != '0'
+        shell: pwsh
+        run: |
+          if (Test-Path build/m0-report.json) { Get-Content build/m0-report.json -Raw | Write-Host }
+          throw "self-test exited with $('${{ steps.selftest.outputs.exit }}')"

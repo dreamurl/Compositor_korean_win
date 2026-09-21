@@ -1,0 +1,28 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Compositor_korean_win.Core", "src\Compositor_korean_win.Core\Compositor_korean_win.Core.csproj", "{1A1A1A1A-0000-4000-8000-000000000001}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Compositor_korean_win.Shell", "src\Compositor_korean_win.Shell\Compositor_korean_win.Shell.csproj", "{1A1A1A1A-0000-4000-8000-000000000002}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Compositor_korean_win.Core.Tests", "tests\Compositor_korean_win.Core.Tests\Compositor_korean_win.Core.Tests.csproj", "{1A1A1A1A-0000-4000-8000-000000000003}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{1A1A1A1A-0000-4000-8000-000000000001}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1A1A1A1A-0000-4000-8000-000000000001}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1A1A1A1A-0000-4000-8000-000000000001}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1A1A1A1A-0000-4000-8000-000000000001}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1A1A1A1A-0000-4000-8000-000000000002}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1A1A1A1A-0000-4000-8000-000000000002}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1A1A1A1A-0000-4000-8000-000000000002}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1A1A1A1A-0000-4000-8000-000000000002}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1A1A1A1A-0000-4000-8000-000000000003}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1A1A1A1A-0000-4000-8000-000000000003}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1A1A1A1A-0000-4000-8000-000000000003}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1A1A1A1A-0000-4000-8000-000000000003}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

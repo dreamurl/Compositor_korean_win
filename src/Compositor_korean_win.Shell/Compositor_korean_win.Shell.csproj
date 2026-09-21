@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <RootNamespace>Compositor_korean_win.Shell</RootNamespace>
+    <AssemblyName>Compositor_korean_win</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Warnings stay warnings here: this project's surface is other people's
+         interop signatures. Core, which this port owns outright, treats them as errors. -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Korean is the default; English is carried alongside it from M6 on. -->
+    <NeutralLanguage>ko-KR</NeutralLanguage>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <!-- Single self-contained exe, no runtime install, no JIT warm-up. M0 measures what this costs. -->
+  <PropertyGroup>
+    <PublishAot>true</PublishAot>
+    <StripSymbols>true</StripSymbols>
+    <InvariantTimezone>true</InvariantTimezone>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <TrimMode>full</TrimMode>
+    <IlcOptimizationPreference>Size</IlcOptimizationPreference>
+    <IlcFoldIdenticalMethodBodies>true</IlcFoldIdenticalMethodBodies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Compositor_korean_win.Core\Compositor_korean_win.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Vortice.Direct2D1" Version="3.8.3" />
+    <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
+  </ItemGroup>
+
+  <!--
+    The C kernels are linked straight in: [LibraryImport("compositor_kernels")] binds at link time,
+    so the shipped executable carries no kernel DLL beside it. KernelLibraryPath is set by CI after
+    CMake builds the static library; without it the build falls back to loading a DLL at run time.
+  -->
+  <ItemGroup Condition="'$(KernelLibraryPath)' != ''">
+    <DirectPInvoke Include="compositor_kernels" />
+    <NativeLibrary Include="$(KernelLibraryPath)" />
+  </ItemGroup>
+
+</Project>

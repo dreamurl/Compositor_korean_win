@@ -5,6 +5,11 @@ DerivedData/
 *.xcarchive
 *.dmg
 
+# .NET build output (windows port)
+bin/
+obj/
+*.user
+
 # Xcode per-user state
 xcuserdata/
 *.xcuserstate

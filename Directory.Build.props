@@ -1,0 +1,12 @@
+<Project>
+
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <!-- Upstream is MIT and its notice has to travel with anything shipped. -->
+    <Company>Compositor_korean_win contributors</Company>
+    <Copyright>Portions © Wonder Assembly LLC, MIT. See LICENSE and THIRD-PARTY-NOTICES.md.</Copyright>
+  </PropertyGroup>
+
+</Project>

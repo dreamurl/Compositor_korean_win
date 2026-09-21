@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Compositor_korean_win.Core.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Compositor_korean_win.Core\Compositor_korean_win.Core.csproj" />
+  </ItemGroup>
+
+  <!--
+    The test run is plain CoreCLR, so [LibraryImport("compositor_kernels")] resolves at run time and
+    needs the DLL beside the test binaries. CI sets KernelSharedPath after CMake builds it.
+  -->
+  <ItemGroup Condition="'$(KernelSharedPath)' != ''">
+    <None Include="$(KernelSharedPath)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
+</Project>
