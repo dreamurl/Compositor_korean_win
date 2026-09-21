@@ -46,4 +46,25 @@ public static partial class Kernels
     /// <summary>Half-open bounds of nonzero alpha, as left, top, right, bottom.</summary>
     [LibraryImport(Library, EntryPoint = "brush_alpha_bounds")]
     public static partial void BrushAlphaBounds(nint bytes, nuint width, nuint height, nuint stride, nint bounds);
+
+    /// <summary>Copies the alpha channel out into an 8-bit grey bitmap.</summary>
+    [LibraryImport(Library, EntryPoint = "layer_extract_alpha")]
+    public static partial void LayerExtractAlpha(nint rgba, nuint rgbaStride,
+                                                 nint gray, nuint grayStride, nuint width, nuint height);
+
+    /// <summary>
+    /// Divides the alpha back out of every pixel and sets alpha to full.
+    /// </summary>
+    /// <remarks>
+    /// Half of a clipping group: making the base opaque is what lets the layers clipped to it
+    /// composite at full strength instead of half-covering it. Pair it with
+    /// <see cref="LayerRestoreAlpha"/>.
+    /// </remarks>
+    [LibraryImport(Library, EntryPoint = "layer_unpremultiply_opaque")]
+    public static partial void LayerUnpremultiplyOpaque(nint rgba, nuint stride, nuint width, nuint height);
+
+    /// <summary>Puts a saved alpha channel back, premultiplying the colour by it again.</summary>
+    [LibraryImport(Library, EntryPoint = "layer_restore_alpha")]
+    public static partial void LayerRestoreAlpha(nint rgba, nuint stride,
+                                                 nint alpha, nuint alphaStride, nuint width, nuint height);
 }

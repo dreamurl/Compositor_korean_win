@@ -17,7 +17,7 @@ namespace Compositor_korean_win.Core;
 /// object heap fragmentation and GC pauses.</item>
 /// </list>
 /// </remarks>
-public sealed unsafe class PixelBuffer
+public sealed unsafe class PixelBuffer : IDisposable
 {
     private nint _scan0;
     private int _references = 1;
@@ -131,4 +131,11 @@ public sealed unsafe class PixelBuffer
 
     /// <summary>How many holders this buffer has. For tests and diagnostics.</summary>
     public int ReferenceCount => Volatile.Read(ref _references);
+
+    /// <summary>Gives up a share, so a buffer can be held by <c>using</c>.</summary>
+    /// <remarks>
+    /// Disposing is releasing: it says this holder is finished, not that the pixels are gone. They
+    /// go when the last holder does.
+    /// </remarks>
+    void IDisposable.Dispose() => Release();
 }
