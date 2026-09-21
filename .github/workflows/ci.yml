@@ -31,25 +31,16 @@ jobs:
           global-json-file: global.json
 
       # The eight upstream kernels, built twice from the same sources: a static library the
-      # NativeAOT link pulls in, and a DLL the test run loads at run time.
+      # NativeAOT link pulls in, and a DLL the test run loads at run time. The script finds the
+      # C++ toolchain with vswhere, so it keeps working when the runner image moves to a newer
+      # Visual Studio.
       - name: Build C kernels
-        run: |
-          cmake -S native/kernels -B build/kernels -G "Visual Studio 17 2022" -A x64
-          cmake --build build/kernels --config Release
-
-      - name: Locate kernel binaries
         id: kernels
         shell: pwsh
         run: |
-          $static = Get-ChildItem build/kernels -Recurse -Filter compositor_kernels.lib |
-                    Where-Object { $_.FullName -like '*static*' } | Select-Object -First 1
-          $shared = Get-ChildItem build/kernels -Recurse -Filter compositor_kernels.dll |
-                    Select-Object -First 1
-          if (-not $static) { throw "compositor_kernels.lib not found" }
-          if (-not $shared) { throw "compositor_kernels.dll not found" }
-          "static=$($static.FullName)" >> $env:GITHUB_OUTPUT
-          "shared=$($shared.FullName)" >> $env:GITHUB_OUTPUT
-          "Static $($static.Length) bytes, shared $($shared.Length) bytes" | Write-Host
+          ./native/kernels/build.ps1 -OutputDirectory build/kernels
+          "static=$(Resolve-Path build/kernels/static/compositor_kernels.lib)" >> $env:GITHUB_OUTPUT
+          "shared=$(Resolve-Path build/kernels/shared/compositor_kernels.dll)" >> $env:GITHUB_OUTPUT
 
       - name: Restore
         run: dotnet restore Compositor_korean_win.sln
