@@ -7,6 +7,9 @@ using static Vortice.Direct2D1.D2D1;
 using static Vortice.Direct3D11.D3D11;
 using static Vortice.DXGI.DXGI;
 
+// Direct2D has a FeatureLevel of its own, and it is not the Direct3D one this file means.
+using FeatureLevel = Vortice.Direct3D.FeatureLevel;
+
 namespace Compositor_korean_win.Shell;
 
 /// <summary>
