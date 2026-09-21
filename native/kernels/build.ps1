@@ -80,8 +80,13 @@ foreach ($source in $sources) {
 # /MT matches NativeAOT, which links the static CRT. Warnings stay warnings: these files
 # are upstream's, and silencing one would mean diverging from a source meant to be
 # refreshable.
+#
+# _USE_MATH_DEFINES is what MSVC wants before <math.h> will define M_PI, which HealPixels.c uses.
+# Setting it here rather than adding an #include to that file keeps the eight upstream sources
+# byte-identical to their originals, so they can be refreshed with a copy.
 $compile = @(
     "/c", "/nologo", "/O2", "/W3", "/fp:precise", "/MT", "/std:c11", "/utf-8"
+    "/D_USE_MATH_DEFINES", "/D_CRT_SECURE_NO_WARNINGS"
     "/I", $kernels
     "/Fo:$objects\"
 ) + $sources
