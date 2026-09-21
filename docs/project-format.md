@@ -1,5 +1,14 @@
 # Compositor project format, versions 1–6
 
+> **This file stops at version 6, but the format does not.** Upstream's `ProjectStore.swift`
+> reads versions 1–7 and writes 7 for new saves. Version 7 adds an optional `adjustment` record
+> to a layer — an adjustment layer, with settings for Hue/Saturation, Levels, Curves, Exposure,
+> Gradient Map and Grain — and a layer may also carry `maskPlacement` (where a mask that was
+> moved apart from its layer sits), `maskLinked` (absent means linked) and `shape` (a shape
+> layer's recipe, so it can be redrawn when scaled). None of those are described below. The
+> Windows port implements all of 1–7; `src/Compositor_korean_win.Core/Format` is the reference
+> for what is actually read and written.
+
 A `.comp` file is a macOS document package containing `manifest.json` and an `images/` directory of `<layer UUID>.png` assets.
 
 The manifest identifies `com.compositor.project`, version `6` for new saves (versions `1`–`5` remain readable), and the sRGB working space. It stores document UUID, pixel dimensions, active layer UUID, and layers in bottom-to-top order. Each layer stores its UUID, name, visibility, transform (origin, size, clockwise rotation, flips, sampling), and optional image filename. Blank layers have no image asset.
