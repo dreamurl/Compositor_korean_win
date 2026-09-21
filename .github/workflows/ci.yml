@@ -131,6 +131,7 @@ jobs:
           path: |
             build/publish/**
             build/m0-report.json
+            build/*.png
             build/test-results/**
           if-no-files-found: warn
 

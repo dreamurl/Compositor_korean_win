@@ -27,17 +27,35 @@ internal static class RenderCheck
         public override string ToString() => $"max {Max}, mean {Mean:F2} over {Pixels} pixels";
     }
 
-    internal sealed record Result(Difference Exact, Difference Resampled, string BackendName);
+    internal sealed record Result(Difference Exact, Difference Placement, Difference Resampled,
+                                  string BackendName);
 
     public static Result Run(GraphicsDevice device, string? imageFolder)
     {
         using var software = new SoftwareRenderBackend();
         using var hardware = new Direct2DBackend(device);
 
-        Difference exact = Compare(Scene(scaled: false), software, hardware, imageFolder, "exact");
-        Difference resampled = Compare(Scene(scaled: true), software, hardware, imageFolder, "resampled");
+        Difference exact = Measure(software, hardware, imageFolder, "exact", () => Scene(scaled: false));
+        Difference placement = Measure(software, hardware, imageFolder, "placement", PlacementOnly);
+        Difference resampled = Measure(software, hardware, imageFolder, "resampled", () => Scene(scaled: true));
 
-        return new Result(exact, resampled, hardware.Name);
+        return new Result(exact, placement, resampled, hardware.Name);
+    }
+
+    /// <summary>Builds a scene, compares it, and releases the pixels it allocated.</summary>
+    private static Difference Measure(IRenderBackend software, IRenderBackend hardware,
+                                      string? imageFolder, string name,
+                                      Func<(CanvasDocument Document, List<PixelBuffer> Owned)> build)
+    {
+        (CanvasDocument document, List<PixelBuffer> owned) = build();
+        try
+        {
+            return Compare(document, software, hardware, imageFolder, name);
+        }
+        finally
+        {
+            foreach (PixelBuffer buffer in owned) buffer.Release();
+        }
     }
 
     private static Difference Compare(CanvasDocument document, IRenderBackend software,
@@ -83,12 +101,47 @@ internal static class RenderCheck
     /// a mask read from the wrong channel, a folder mask that stops at its own folder, a clipping
     /// group that thickens the base's edge.
     /// </remarks>
-    private static CanvasDocument Scene(bool scaled)
+    /// <summary>
+    /// One layer, scaled and turned, in Normal with nothing else.
+    /// </summary>
+    /// <remarks>
+    /// Worth separating out. A raised average over the whole scene could be a resampling filter
+    /// that differs by design, or a half-pixel offset that does not — and only one of those is a
+    /// defect. With a single layer and no blending, whatever shows up here is the placement.
+    /// </remarks>
+    private static (CanvasDocument, List<PixelBuffer>) PlacementOnly()
+    {
+        const int Size = 128;
+        PixelBuffer image = Checkerboard(Size, Size);
+
+        var document = new CanvasDocument
+        {
+            Id = Guid.NewGuid(),
+            Width = Size,
+            Height = Size,
+            Layers = new EquatableList<ImageLayer>(
+            [
+                new ImageLayer
+                {
+                    Id = Guid.NewGuid(),
+                    Name = "Placed",
+                    Image = image,
+                    Transform = Place(0, 0, Size, Size, scaled: true),
+                },
+            ]),
+        };
+
+        return (document, [image]);
+    }
+
+    private static (CanvasDocument, List<PixelBuffer>) Scene(bool scaled)
     {
         const int Size = 128;
         var layers = new List<ImageLayer>();
+        var owned = new List<PixelBuffer>();
 
         PixelBuffer backdrop = Checkerboard(Size, Size);
+        owned.Add(backdrop);
         layers.Add(new ImageLayer
         {
             Id = Guid.NewGuid(),
@@ -108,11 +161,13 @@ internal static class RenderCheck
 
         for (int i = 0; i < modes.Length; i++)
         {
+            PixelBuffer blob = Blob(16, 16, (byte)(30 + i * 28));
+            owned.Add(blob);
             layers.Add(new ImageLayer
             {
                 Id = Guid.NewGuid(),
                 Name = modes[i].ToString(),
-                Image = Blob(16, 16, (byte)(30 + i * 28)),
+                Image = blob,
                 Transform = Place(i * 16, 8, 16, 16, scaled),
                 BlendMode = modes[i],
                 Opacity = 0.8,
@@ -120,14 +175,19 @@ internal static class RenderCheck
         }
 
         // A masked layer, a folder with a mask over two layers, and a clipping group.
+        PixelBuffer masked = Solid(48, 32, 255, 64, 0), maskedRamp = Ramp(48, 32);
+        PixelBuffer folderRamp = Ramp(Size, Size), inFolder = Solid(40, 24, 0, 200, 255);
+        PixelBuffer clipBase = Blob(56, 40, 200), clipStripes = Stripes(56, 40);
+        owned.AddRange([masked, maskedRamp, folderRamp, inFolder, clipBase, clipStripes]);
+
         Guid folderId = Guid.NewGuid();
         layers.Add(new ImageLayer
         {
             Id = Guid.NewGuid(),
             Name = "Masked",
-            Image = Solid(48, 32, 255, 64, 0),
+            Image = masked,
             Transform = Place(8, 48, 48, 32, scaled),
-            Mask = new LayerMask { Coverage = Ramp(48, 32) },
+            Mask = new LayerMask { Coverage = maskedRamp },
         });
 
         layers.Add(new ImageLayer
@@ -136,13 +196,13 @@ internal static class RenderCheck
             Name = "Folder",
             IsGroup = true,
             Transform = Place(0, 0, Size, Size, scaled),
-            Mask = new LayerMask { Coverage = Ramp(Size, Size) },
+            Mask = new LayerMask { Coverage = folderRamp },
         });
         layers.Add(new ImageLayer
         {
             Id = Guid.NewGuid(),
             Name = "In folder",
-            Image = Solid(40, 24, 0, 200, 255),
+            Image = inFolder,
             Transform = Place(64, 48, 40, 24, scaled),
             ParentId = folderId,
         });
@@ -152,25 +212,27 @@ internal static class RenderCheck
         {
             Id = baseId,
             Name = "Clip base",
-            Image = Blob(56, 40, 200),
+            Image = clipBase,
             Transform = Place(16, 84, 56, 40, scaled),
         });
         layers.Add(new ImageLayer
         {
             Id = Guid.NewGuid(),
             Name = "Clipped",
-            Image = Stripes(56, 40),
+            Image = clipStripes,
             Transform = Place(16, 84, 56, 40, scaled),
             MaskSourceId = baseId,
         });
 
-        return new CanvasDocument
+        var document = new CanvasDocument
         {
             Id = Guid.NewGuid(),
             Width = Size,
             Height = Size,
             Layers = new EquatableList<ImageLayer>(layers),
         };
+
+        return (document, owned);
     }
 
     /// <summary>

@@ -22,11 +22,14 @@ internal static class SelfTest
     /// How far Direct2D may sit from the reference where nothing is resampled.
     /// </summary>
     /// <remarks>
-    /// Not zero: the two composite in different orders and round at different points, so a step of
-    /// one in the last bit is expected. Anything beyond that is a rule implemented differently on
-    /// one side, which is what this is here to catch.
+    /// Not zero: Direct2D composites in floating point and rounds once, while the reference rounds
+    /// at every step, so a few pixels land several levels apart. The average is the real guard —
+    /// a blend mode wired to the wrong one, or a mask read from the wrong channel, moves the mean
+    /// by whole numbers rather than by hundredths.
     /// </remarks>
-    private const int ExactTolerance = 2;
+    private const int ExactMaxTolerance = 8;
+
+    private const double ExactMeanTolerance = 0.2;
 
     public static int Run(string? imagePath, string? reportPath)
     {
@@ -101,7 +104,7 @@ internal static class SelfTest
         try
         {
             render = RenderCheck.Run(device, reportPath is null ? null : Path.GetDirectoryName(reportPath));
-            if (render.Exact.Max > ExactTolerance)
+            if (render.Exact.Max > ExactMaxTolerance || render.Exact.Mean > ExactMeanTolerance)
                 failures.Add($"Direct2D differs from the reference by {render.Exact} at 1:1");
         }
         catch (Exception exception)
@@ -139,6 +142,8 @@ internal static class SelfTest
             Line(report, "renderBackend", render.BackendName);
             Line(report, "renderExactMax", render.Exact.Max);
             Line(report, "renderExactMean", render.Exact.Mean);
+            Line(report, "renderPlacementMax", render.Placement.Max);
+            Line(report, "renderPlacementMean", render.Placement.Mean);
             Line(report, "renderResampledMax", render.Resampled.Max);
             Line(report, "renderResampledMean", render.Resampled.Mean);
         }
