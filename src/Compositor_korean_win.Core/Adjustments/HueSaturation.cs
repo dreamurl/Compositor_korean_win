@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 namespace Compositor_korean_win.Core;
 
@@ -216,13 +217,16 @@ public sealed class ColorRangeMapConverter<TValue> : JsonConverter<ColorRangeMap
     {
         if (reader.TokenType != JsonTokenType.StartArray) throw new JsonException("expected an array");
 
+        var keys = (JsonTypeInfo<ColorRange>)options.GetTypeInfo(typeof(ColorRange));
+        var values = (JsonTypeInfo<TValue>)options.GetTypeInfo(typeof(TValue));
+
         var entries = new List<KeyValuePair<ColorRange, TValue>>();
         while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
         {
-            var key = JsonSerializer.Deserialize<ColorRange>(ref reader, options);
+            ColorRange key = JsonSerializer.Deserialize(ref reader, keys);
             if (!reader.Read()) throw new JsonException("a key with no value");
-            var value = JsonSerializer.Deserialize<TValue>(ref reader, options)
-                        ?? throw new JsonException("a null value");
+            TValue value = JsonSerializer.Deserialize(ref reader, values)
+                           ?? throw new JsonException("a null value");
             entries.Add(new KeyValuePair<ColorRange, TValue>(key, value));
         }
 
@@ -231,11 +235,14 @@ public sealed class ColorRangeMapConverter<TValue> : JsonConverter<ColorRangeMap
 
     public override void Write(Utf8JsonWriter writer, ColorRangeMap<TValue> value, JsonSerializerOptions options)
     {
+        var keys = (JsonTypeInfo<ColorRange>)options.GetTypeInfo(typeof(ColorRange));
+        var values = (JsonTypeInfo<TValue>)options.GetTypeInfo(typeof(TValue));
+
         writer.WriteStartArray();
         foreach ((ColorRange key, TValue item) in value)
         {
-            JsonSerializer.Serialize(writer, key, options);
-            JsonSerializer.Serialize(writer, item, options);
+            JsonSerializer.Serialize(writer, key, keys);
+            JsonSerializer.Serialize(writer, item, values);
         }
         writer.WriteEndArray();
     }

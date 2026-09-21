@@ -11,6 +11,15 @@ namespace Compositor_korean_win.Core;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(ProjectManifest))]
 [JsonSerializable(typeof(ProjectHeader))]
+// The converters for EquatableList and ColorRangeMap look their element types up in this context,
+// so each one is listed here rather than left to be found through the property that uses it.
+[JsonSerializable(typeof(ProjectLayerRecord))]
+[JsonSerializable(typeof(LevelRange))]
+[JsonSerializable(typeof(CurvePoint))]
+[JsonSerializable(typeof(EquatableList<CurvePoint>))]
+[JsonSerializable(typeof(ColorRange))]
+[JsonSerializable(typeof(RangeAdjustment))]
+[JsonSerializable(typeof(HueBand))]
 internal sealed partial class ProjectJson : JsonSerializerContext;
 
 /// <summary>A project as it sits in memory: its manifest and the pixels the manifest names.</summary>

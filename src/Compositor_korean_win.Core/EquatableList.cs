@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 namespace Compositor_korean_win.Core;
 
@@ -79,23 +80,33 @@ public static class EquatableListExtensions
 }
 
 /// <summary>Reads and writes an <see cref="EquatableList{T}"/> as a plain JSON array.</summary>
+/// <remarks>
+/// Elements go through the metadata the serializer context already holds for <typeparamref name="T"/>
+/// rather than the reflecting overloads of <c>JsonSerializer</c>, which is what keeps this usable
+/// from a trimmed, AOT-compiled build. Every element type is listed on <c>ProjectJson</c>.
+/// </remarks>
 public sealed class EquatableListConverter<T> : JsonConverter<EquatableList<T>>
 {
     public override EquatableList<T> Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options)
     {
         if (reader.TokenType != JsonTokenType.StartArray) throw new JsonException("expected an array");
 
+        JsonTypeInfo<T> element = TypeInfo(options);
         var items = new List<T>();
         while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
-            items.Add(JsonSerializer.Deserialize<T>(ref reader, options)!);
+            items.Add(JsonSerializer.Deserialize(ref reader, element)!);
 
         return new EquatableList<T>(items);
     }
 
     public override void Write(Utf8JsonWriter writer, EquatableList<T> value, JsonSerializerOptions options)
     {
+        JsonTypeInfo<T> element = TypeInfo(options);
         writer.WriteStartArray();
-        foreach (T item in value) JsonSerializer.Serialize(writer, item, options);
+        foreach (T item in value) JsonSerializer.Serialize(writer, item, element);
         writer.WriteEndArray();
     }
+
+    private static JsonTypeInfo<T> TypeInfo(JsonSerializerOptions options) =>
+        (JsonTypeInfo<T>)options.GetTypeInfo(typeof(T));
 }
