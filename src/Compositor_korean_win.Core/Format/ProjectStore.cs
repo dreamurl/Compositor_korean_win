@@ -16,7 +16,6 @@ namespace Compositor_korean_win.Core;
 [JsonSerializable(typeof(ProjectLayerRecord))]
 [JsonSerializable(typeof(LevelRange))]
 [JsonSerializable(typeof(CurvePoint))]
-[JsonSerializable(typeof(EquatableList<CurvePoint>))]
 [JsonSerializable(typeof(ColorRange))]
 [JsonSerializable(typeof(RangeAdjustment))]
 [JsonSerializable(typeof(HueBand))]
@@ -58,6 +57,8 @@ public static class ProjectStore
 {
     private const string ManifestEntry = "manifest.json";
     private const string ImagesFolder = "images";
+
+    private static ReadOnlySpan<byte> Utf8Bom => [0xEF, 0xBB, 0xBF];
 
     /// <summary>Writes <paramref name="snapshot"/> to <paramref name="path"/> as a zip container.</summary>
     /// <remarks>
@@ -135,8 +136,13 @@ public static class ProjectStore
     {
         using (container)
         {
-            byte[] metadata = container.Read(ManifestEntry, ProjectLimits.MaximumManifestBytes)
+            byte[] stored = container.Read(ManifestEntry, ProjectLimits.MaximumManifestBytes)
                 ?? throw ProjectException.Invalid("no manifest.json");
+
+            // Foundation writes no byte-order mark, but plenty of editors and tools add one and a
+            // manifest is a text file people do open. Skipping it costs nothing.
+            ReadOnlySpan<byte> metadata = stored.AsSpan();
+            if (metadata.StartsWith(Utf8Bom)) metadata = metadata[Utf8Bom.Length..];
 
             // The header is read on its own first so an unreadable newer project reports its
             // version rather than a decoding failure.

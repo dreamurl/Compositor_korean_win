@@ -1,4 +1,6 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 namespace Compositor_korean_win.Core;
 
@@ -16,7 +18,7 @@ public sealed record CurvesSettings
     [JsonPropertyName("channel")] public LevelsChannel Channel { get; init; } = LevelsChannel.Rgb;
 
     [JsonPropertyName("channels")]
-    [JsonConverter(typeof(EquatableListConverter<EquatableList<CurvePoint>>))]
+    [JsonConverter(typeof(CurveChannelsConverter))]
     public EquatableList<EquatableList<CurvePoint>> Channels { get; init; } =
         new([Diagonal, Diagonal, Diagonal, Diagonal]);
 
@@ -78,5 +80,52 @@ public sealed record CurvesSettings
             for (int value = 0; value < 256; value++)
                 table[(channel - 1) * 256 + value] = (float)(Value(Value(value, channel), 0) / 255);
         return table;
+    }
+}
+
+/// <summary>Reads and writes the four curves as an array of arrays of handles.</summary>
+/// <remarks>
+/// A nested <see cref="EquatableListConverter{T}"/> would have to find metadata for the inner list,
+/// and registering that inner list with the serializer context makes the context treat it as an
+/// ordinary collection — which it cannot construct, since it is immutable. Writing the nesting out
+/// here keeps the only registered element type the one that is genuinely a value: CurvePoint.
+/// </remarks>
+public sealed class CurveChannelsConverter : JsonConverter<EquatableList<EquatableList<CurvePoint>>>
+{
+    public override EquatableList<EquatableList<CurvePoint>> Read(
+        ref Utf8JsonReader reader, Type type, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.StartArray) throw new JsonException("expected an array");
+
+        var handles = (JsonTypeInfo<CurvePoint>)options.GetTypeInfo(typeof(CurvePoint));
+        var channels = new List<EquatableList<CurvePoint>>();
+
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+        {
+            if (reader.TokenType != JsonTokenType.StartArray) throw new JsonException("expected a curve");
+
+            var points = new List<CurvePoint>();
+            while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+                points.Add(JsonSerializer.Deserialize(ref reader, handles));
+
+            channels.Add(new EquatableList<CurvePoint>(points));
+        }
+
+        return new EquatableList<EquatableList<CurvePoint>>(channels);
+    }
+
+    public override void Write(Utf8JsonWriter writer, EquatableList<EquatableList<CurvePoint>> value,
+                               JsonSerializerOptions options)
+    {
+        var handles = (JsonTypeInfo<CurvePoint>)options.GetTypeInfo(typeof(CurvePoint));
+
+        writer.WriteStartArray();
+        foreach (EquatableList<CurvePoint> channel in value)
+        {
+            writer.WriteStartArray();
+            foreach (CurvePoint point in channel) JsonSerializer.Serialize(writer, point, handles);
+            writer.WriteEndArray();
+        }
+        writer.WriteEndArray();
     }
 }

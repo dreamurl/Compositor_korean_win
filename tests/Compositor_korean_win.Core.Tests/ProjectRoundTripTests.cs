@@ -119,7 +119,7 @@ public class ProjectRoundTripTests
         string package = folder.File("FromMac.comp");
         Directory.CreateDirectory(Path.Combine(package, "images"));
         File.WriteAllText(Path.Combine(package, "manifest.json"),
-                          ProjectStore.ToJson(snapshot.Manifest), Encoding.UTF8);
+                          ProjectStore.ToJson(snapshot.Manifest), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         File.WriteAllBytes(Path.Combine(package, "images", ManifestValidator.ImageFileName(id)),
                            Png.Encode(pixels));
 
