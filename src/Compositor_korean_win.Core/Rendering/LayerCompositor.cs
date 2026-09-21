@@ -84,11 +84,15 @@ public static class LayerCompositor
     /// </summary>
     private static List<Item> RenderOrder(CanvasDocument document)
     {
-        var children = new Dictionary<Guid?, List<ImageLayer>>();
+        // Roots are kept apart rather than under a null key, which a dictionary will not take.
+        var roots = new List<ImageLayer>();
+        var children = new Dictionary<Guid, List<ImageLayer>>();
+
         foreach (ImageLayer layer in document.Layers)
         {
-            if (!children.TryGetValue(layer.ParentId, out List<ImageLayer>? siblings))
-                children[layer.ParentId] = siblings = [];
+            if (layer.ParentId is not Guid parent) { roots.Add(layer); continue; }
+            if (!children.TryGetValue(parent, out List<ImageLayer>? siblings))
+                children[parent] = siblings = [];
             siblings.Add(layer);
         }
 
@@ -99,7 +103,17 @@ public static class LayerCompositor
         void Visit(Guid? parent, bool visible, IReadOnlyList<MaskClip> clips, int depth)
         {
             if (depth > ProjectLimits.MaximumNesting) return;
-            if (!children.TryGetValue(parent, out List<ImageLayer>? siblings)) return;
+
+            List<ImageLayer> siblings;
+            if (parent is Guid id)
+            {
+                if (!children.TryGetValue(id, out List<ImageLayer>? found)) return;
+                siblings = found;
+            }
+            else
+            {
+                siblings = roots;
+            }
 
             foreach (ImageLayer layer in siblings)
             {
