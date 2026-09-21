@@ -125,6 +125,29 @@ internal static partial class Win32
     internal const uint PM_REMOVE = 0x0001;
     internal const uint WM_QUIT = 0x0012;
 
+    /// <summary>
+    /// How long this process has been alive, measured from when Windows created it.
+    /// </summary>
+    /// <remarks>
+    /// Taken from the kernel rather than from a timestamp in Main, because a good part of what M0
+    /// is measuring — the whole argument for NativeAOT over a framework-dependent build — happens
+    /// before the first managed line runs.
+    /// </remarks>
+    internal static TimeSpan ProcessUptime()
+    {
+        if (!GetProcessTimes(GetCurrentProcess(), out long created, out _, out _, out _))
+            return TimeSpan.Zero;
+
+        // Both are FILETIME: 100-nanosecond ticks since 1601-01-01, which is also DateTime's tick
+        // unit, so the difference needs no conversion.
+        return TimeSpan.FromTicks(DateTime.UtcNow.ToFileTimeUtc() - created);
+    }
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetProcessTimes(nint process, out long creation, out long exit,
+                                                out long kernel, out long user);
+
     /// <summary>Peak working set in bytes, for the memory figure M0 reports.</summary>
     internal static long PeakWorkingSet()
     {

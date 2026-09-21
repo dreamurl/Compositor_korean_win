@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -127,7 +126,7 @@ internal sealed unsafe class MainWindow : IDisposable
         context.EndDraw().CheckError();
         _device.Present();
 
-        TimeToFirstFrame ??= Stopwatch.GetElapsedTime(Program.Started);
+        TimeToFirstFrame ??= ProcessUptime();
     }
 
     /// <summary>Pumps every queued message. Returns false once the window has asked to quit.</summary>

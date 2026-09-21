@@ -10,10 +10,11 @@ namespace Compositor_korean_win.Shell;
 /// </summary>
 /// <remarks>
 /// docs/windows-port.md closes M0 on figures, not on a screenshot — bundle size, start-up time and
-/// memory, plus a decision on the shell and on channel order. CI has no display and no GPU, so this
-/// keeps the window hidden and runs over WARP; the numbers are a floor, and a machine with a GPU
-/// will do better. What it does exercise is the real path end to end: a Win32 window, a DXGI swap
-/// chain, a Direct2D device context, a WIC decode and a call into the C kernels.
+/// memory, plus a decision on the shell and on channel order. The window stays hidden so this runs
+/// on a machine with no desktop session, but nothing else is stubbed: it goes through a real Win32
+/// window, a DXGI swap chain, a Direct2D device context, a WIC decode and a call into the C
+/// kernels, and reports which driver it got, since the numbers mean different things on a GPU and
+/// on WARP.
 /// </remarks>
 internal static class SelfTest
 {
@@ -57,14 +58,15 @@ internal static class SelfTest
         }
 
         // Measuring the histogram proves the managed buffer and the native kernel agree on layout:
-        // a wrong stride or a wrong channel count shows up here as a bin total that is not the
-        // opaque pixel count.
+        // a wrong stride or a wrong channel count shows up here as a bin total that does not match.
+        // The kernel weights each pixel by its alpha, so the total to expect is the summed alpha,
+        // not the pixel count — a half-transparent pixel is half a pixel's worth of histogram.
         Histogram histogram = Histogram.Measure(image);
         double binTotal = 0;
         foreach (double bin in histogram.Channel(0)) binTotal += bin;
-        long opaquePixels = CountOpaque(image);
-        if (Math.Abs(binTotal - opaquePixels) > Math.Max(1.0, opaquePixels * 1e-6))
-            failures.Add($"histogram total {binTotal:F1} does not match {opaquePixels} opaque pixels");
+        double expected = TotalAlpha(image);
+        if (Math.Abs(binTotal - expected) > Math.Max(0.5, expected * 1e-6))
+            failures.Add($"histogram total {binTotal:F1} does not match summed alpha {expected:F1}");
 
         TimeSpan? firstFrame = null;
         bool windowed = false;
@@ -178,15 +180,15 @@ internal static class SelfTest
         return buffer;
     }
 
-    private static long CountOpaque(PixelBuffer buffer)
+    /// <summary>Summed alpha as a fraction of full opacity — what the kernel's bins add up to.</summary>
+    private static double TotalAlpha(PixelBuffer buffer)
     {
-        long count = 0;
+        long sum = 0;
         for (int y = 0; y < buffer.Height; y++)
         {
             Span<byte> row = buffer.Row(y);
-            for (int x = 0; x < buffer.Width; x++)
-                if (row[x * 4 + 3] != 0) count++;
+            for (int x = 0; x < buffer.Width; x++) sum += row[x * 4 + 3];
         }
-        return count;
+        return sum / 255.0;
     }
 }

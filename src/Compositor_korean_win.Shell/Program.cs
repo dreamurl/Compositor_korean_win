@@ -1,16 +1,9 @@
-using System.Diagnostics;
 using Vortice.DXGI;
 
 namespace Compositor_korean_win.Shell;
 
 internal static class Program
 {
-    /// <summary>
-    /// Taken before anything else runs, so "time to first frame" covers process start too — the
-    /// figure that decides whether NativeAOT is worth keeping.
-    /// </summary>
-    internal static readonly long Started = Stopwatch.GetTimestamp();
-
     [STAThread]
     private static int Main(string[] args)
     {

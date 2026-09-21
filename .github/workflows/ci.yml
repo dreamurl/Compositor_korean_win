@@ -74,9 +74,13 @@ jobs:
         shell: pwsh
         continue-on-error: true
         run: |
-          $exe = "build/publish/Compositor_korean_win.exe"
-          & $exe --selftest --image assets/m0-test.png --report build/m0-report.json
-          "exit=$LASTEXITCODE" >> $env:GITHUB_OUTPUT
+          # Start-Process, not the call operator: this is a GUI-subsystem executable, which
+          # PowerShell launches without waiting for, so $LASTEXITCODE would never be its own.
+          $arguments = @("--selftest", "--image", "assets/m0-test.png", "--report", "build/m0-report.json")
+          $process = Start-Process -FilePath "build/publish/Compositor_korean_win.exe" `
+                                   -ArgumentList $arguments -Wait -PassThru -NoNewWindow
+          "exit=$($process.ExitCode)" >> $env:GITHUB_OUTPUT
+          if ($process.ExitCode -ne 0) { Write-Host "self-test exited with $($process.ExitCode)" }
 
       - name: Report
         shell: pwsh
