@@ -56,12 +56,14 @@ jobs:
           --logger "trx;LogFileName=core-tests.trx"
           --results-directory build/test-results
 
+      # Restoring again rather than reusing the solution restore: the NativeAOT compiler and the
+      # win-x64 runtime pack only get pulled in once the RuntimeIdentifier is in play, which the
+      # solution-wide restore does not do.
       - name: Publish (NativeAOT, single file)
         run: >
           dotnet publish src/Compositor_korean_win.Shell/Compositor_korean_win.Shell.csproj
           --configuration Release
           --runtime win-x64
-          --no-restore
           -p:KernelLibraryPath="${{ steps.kernels.outputs.static }}"
           --output build/publish
 
