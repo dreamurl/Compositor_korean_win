@@ -22,9 +22,21 @@ namespace Compositor_korean_win.Shell;
 /// </remarks>
 internal static class RenderCheck
 {
-    internal readonly record struct Difference(int Max, double Mean, long Pixels)
+    /// <summary>
+    /// How far two renders are apart, split by whether the pixel sits on an edge.
+    /// </summary>
+    /// <remarks>
+    /// The split is what makes this measurement mean anything once resampling is involved. Two
+    /// different filters must disagree where an image has an edge, and there is no version of this
+    /// port that changes that. What they must not disagree about is anywhere else: if the geometry
+    /// is right, a flat area resamples to the same colour under any filter. So
+    /// <see cref="FlatMax"/> is the one to watch — a half-pixel offset, a transposed matrix or a
+    /// wrong centre would all light it up, while a different filter leaves it at zero.
+    /// </remarks>
+    internal readonly record struct Difference(int Max, double Mean, int FlatMax, double EdgeMean, long Pixels)
     {
-        public override string ToString() => $"max {Max}, mean {Mean:F2} over {Pixels} pixels";
+        public override string ToString() =>
+            $"max {Max}, mean {Mean:F2}, flat max {FlatMax}, edge mean {EdgeMean:F2} over {Pixels} pixels";
     }
 
     internal sealed record Result(Difference Exact, Difference Placement, Difference Resampled,
@@ -71,26 +83,65 @@ internal static class RenderCheck
             File.WriteAllBytes(Path.Combine(imageFolder, $"{name}-direct2d.png"), Png.Encode(actual));
         }
 
-        int max = 0;
-        long total = 0;
-        long samples = 0;
+        int max = 0, flatMax = 0;
+        long total = 0, samples = 0, edgeTotal = 0, edgeSamples = 0;
 
         for (int y = 0; y < reference.Height; y++)
         {
             Span<byte> a = reference.Row(y);
             Span<byte> b = actual.Row(y);
 
-            for (int i = 0; i < reference.Width * 4; i++)
+            for (int x = 0; x < reference.Width; x++)
             {
-                int difference = Math.Abs(a[i] - b[i]);
-                max = Math.Max(max, difference);
-                total += difference;
-                samples++;
+                bool edge = OnAnEdge(reference, x, y);
+
+                for (int channel = 0; channel < 4; channel++)
+                {
+                    int difference = Math.Abs(a[x * 4 + channel] - b[x * 4 + channel]);
+                    max = Math.Max(max, difference);
+                    total += difference;
+                    samples++;
+
+                    if (edge) { edgeTotal += difference; edgeSamples++; }
+                    else flatMax = Math.Max(flatMax, difference);
+                }
             }
         }
 
-        return new Difference(max, samples == 0 ? 0 : (double)total / samples,
+        return new Difference(max,
+                              samples == 0 ? 0 : (double)total / samples,
+                              flatMax,
+                              edgeSamples == 0 ? 0 : (double)edgeTotal / edgeSamples,
                               (long)reference.Width * reference.Height);
+    }
+
+    /// <summary>Whether anything around this pixel changes enough for a filter to matter.</summary>
+    private static bool OnAnEdge(PixelBuffer pixels, int x, int y)
+    {
+        const int Threshold = 24;
+        int low = 255, high = 0;
+
+        for (int dy = -1; dy <= 1; dy++)
+        {
+            int row = y + dy;
+            if (row < 0 || row >= pixels.Height) continue;
+            Span<byte> values = pixels.Row(row);
+
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                int column = x + dx;
+                if (column < 0 || column >= pixels.Width) continue;
+
+                for (int channel = 0; channel < 4; channel++)
+                {
+                    int value = values[column * 4 + channel];
+                    low = Math.Min(low, value);
+                    high = Math.Max(high, value);
+                }
+            }
+        }
+
+        return high - low > Threshold;
     }
 
     /// <summary>

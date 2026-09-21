@@ -31,6 +31,16 @@ internal static class SelfTest
 
     private const double ExactMeanTolerance = 0.2;
 
+    /// <summary>
+    /// How far the two may sit apart away from an edge, once resampling is in play.
+    /// </summary>
+    /// <remarks>
+    /// Near zero on purpose. Two filters disagree at edges and nowhere else, so anything here is
+    /// the placement being wrong — an offset, a transposed matrix, a centre taken from the wrong
+    /// corner — which a mean over the whole image would hide.
+    /// </remarks>
+    private const int FlatTolerance = 2;
+
     public static int Run(string? imagePath, string? reportPath)
     {
         var report = new StringBuilder();
@@ -106,6 +116,11 @@ internal static class SelfTest
             render = RenderCheck.Run(device, reportPath is null ? null : Path.GetDirectoryName(reportPath));
             if (render.Exact.Max > ExactMaxTolerance || render.Exact.Mean > ExactMeanTolerance)
                 failures.Add($"Direct2D differs from the reference by {render.Exact} at 1:1");
+
+            // Resampled, the two must still agree away from edges. That is the geometry, and it is
+            // not allowed to drift; the filters differ at edges by design and are only reported.
+            if (render.Placement.FlatMax > FlatTolerance)
+                failures.Add($"Direct2D is placed differently from the reference: {render.Placement}");
         }
         catch (Exception exception)
         {
@@ -144,6 +159,8 @@ internal static class SelfTest
             Line(report, "renderExactMean", render.Exact.Mean);
             Line(report, "renderPlacementMax", render.Placement.Max);
             Line(report, "renderPlacementMean", render.Placement.Mean);
+            Line(report, "renderPlacementFlatMax", render.Placement.FlatMax);
+            Line(report, "renderPlacementEdgeMean", render.Placement.EdgeMean);
             Line(report, "renderResampledMax", render.Resampled.Max);
             Line(report, "renderResampledMean", render.Resampled.Mean);
         }
