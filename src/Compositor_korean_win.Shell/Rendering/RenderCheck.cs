@@ -114,7 +114,7 @@ internal static class RenderCheck
                 Name = modes[i].ToString(),
                 Image = Blob(16, 16, (byte)(30 + i * 28)),
                 Transform = Place(i * 16, 8, 16, 16, scaled),
-                Blend = modes[i],
+                BlendMode = modes[i],
                 Opacity = 0.8,
             });
         }

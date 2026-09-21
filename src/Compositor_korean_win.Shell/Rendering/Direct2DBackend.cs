@@ -6,6 +6,7 @@ using Vortice.Direct2D1;
 using Vortice.Direct2D1.Effects;
 using Vortice.Mathematics;
 using AlphaMode = Vortice.DCommon.AlphaMode;
+using BlendEffect = Vortice.Direct2D1.Effects.Blend;
 using BlendMode = Vortice.Direct2D1.BlendMode;
 
 namespace Compositor_korean_win.Shell;
@@ -172,12 +173,12 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
                 using ID2D1Bitmap1 backdrop = CreateBitmap(_device.D2DContext, Width, Height, BitmapOptions.None);
                 backdrop.CopyFromBitmap(_target).CheckError();
 
-                using var blend = new Blend(_device.D2DContext) { Mode = ToBlendMode(draw.Blend) };
+                using var blend = new BlendEffect(_device.D2DContext) { Mode = ToBlendMode(draw.Blend) };
                 blend.SetInput(0, backdrop, true);
                 blend.SetInput(1, composed, true);
 
                 using var scope = new TargetScope(_device.D2DContext, _target);
-                _device.D2DContext.DrawImage(blend, InterpolationMode.NearestNeighbor, CompositeMode.Copy);
+                _device.D2DContext.DrawImage(blend, InterpolationMode.NearestNeighbor, CompositeMode.SourceCopy);
             }
             finally
             {
