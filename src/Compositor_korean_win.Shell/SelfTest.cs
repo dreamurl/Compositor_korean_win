@@ -18,6 +18,16 @@ namespace Compositor_korean_win.Shell;
 /// </remarks>
 internal static class SelfTest
 {
+    /// <summary>
+    /// How far Direct2D may sit from the reference where nothing is resampled.
+    /// </summary>
+    /// <remarks>
+    /// Not zero: the two composite in different orders and round at different points, so a step of
+    /// one in the last bit is expected. Anything beyond that is a rule implemented differently on
+    /// one side, which is what this is here to catch.
+    /// </remarks>
+    private const int ExactTolerance = 2;
+
     public static int Run(string? imagePath, string? reportPath)
     {
         var report = new StringBuilder();
@@ -84,6 +94,21 @@ internal static class SelfTest
             failures.Add("window/present failed: " + exception.Message);
         }
 
+        // M2 closes on a pixel comparison: the same document through Direct2D and through the
+        // reference rasteriser. Exact means 1:1 with Nearest, where nothing is resampled and the
+        // two should agree on arithmetic alone.
+        RenderCheck.Result? render = null;
+        try
+        {
+            render = RenderCheck.Run(device, reportPath is null ? null : Path.GetDirectoryName(reportPath));
+            if (render.Exact.Max > ExactTolerance)
+                failures.Add($"Direct2D differs from the reference by {render.Exact} at 1:1");
+        }
+        catch (Exception exception)
+        {
+            failures.Add("render check failed: " + exception.Message);
+        }
+
         long exeBytes = 0;
         string? exePath = Environment.ProcessPath;
         if (exePath is not null && File.Exists(exePath)) exeBytes = new FileInfo(exePath).Length;
@@ -109,6 +134,14 @@ internal static class SelfTest
         Line(report, "managedHeapBytes", GC.GetTotalMemory(forceFullCollection: false));
         Line(report, "pixelBufferLiveBytes", PixelBuffer.LiveBytes);
         Line(report, "pixelBufferLiveCount", PixelBuffer.LiveCount);
+        if (render is not null)
+        {
+            Line(report, "renderBackend", render.BackendName);
+            Line(report, "renderExactMax", render.Exact.Max);
+            Line(report, "renderExactMean", render.Exact.Mean);
+            Line(report, "renderResampledMax", render.Resampled.Max);
+            Line(report, "renderResampledMean", render.Resampled.Mean);
+        }
         Support(report, "r8g8b8a8", rgba);
         Support(report, "b8g8r8a8", bgra);
         Failures(report, failures);
