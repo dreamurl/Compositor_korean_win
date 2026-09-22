@@ -111,6 +111,12 @@ internal static class CanvasBench
             surface.Clear();
             LayerCompositor.DrawView(document, viewport, surface, backend);
         }
+
+        // Direct2D hands work to the driver and returns, so the clock has to be stopped after
+        // something has forced it through. Reading the surface does that. One window's worth of
+        // pixels copied back is counted in with the frames, which makes the figure an upper bound
+        // — the honest direction for a number nobody is allowed to pass or fail on.
+        surface.Read().Release();
         clock.Stop();
 
         return clock.Elapsed.TotalMilliseconds / Frames;
