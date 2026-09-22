@@ -48,10 +48,12 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
     private const Vortice.DXGI.Format SurfaceFormat = Vortice.DXGI.Format.R8G8B8A8_UNorm;
 
     private readonly DownsamplePyramid _pyramid = new();
+    private readonly UploadCache _uploads = new();
 
     public string Name => device.IsWarp ? "direct2d (warp)" : "direct2d";
 
-    public IRenderSurface CreateSurface(int width, int height) => new Surface(device, width, height);
+    public IRenderSurface CreateSurface(int width, int height) =>
+        new Surface(device, width, height, _pyramid, _uploads);
 
     /// <summary>
     /// A surface that draws straight onto the window's back buffer.
@@ -67,7 +69,7 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
         ID2D1Bitmap1 target = device.BackBuffer
             ?? throw new InvalidOperationException("no window has been bound");
 
-        return new Surface(device, target, width, height);
+        return new Surface(device, target, width, height, _pyramid, _uploads);
     }
 
     public PixelBuffer Downsample(PixelBuffer source, int level)
@@ -76,7 +78,11 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
         return PixelRegion.Copy(image, new PixelRect(0, 0, image.Width, image.Height));
     }
 
-    public void Dispose() => _pyramid.Dispose();
+    public void Dispose()
+    {
+        _uploads.Dispose();
+        _pyramid.Dispose();
+    }
 
     /// <summary>The blend modes, mapped onto Direct2D's effect. Normal never gets here.</summary>
     private static BlendMode ToBlendMode(LayerBlendMode mode) => mode switch
@@ -100,22 +106,28 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
     {
         private readonly GraphicsDevice _device;
         private readonly ID2D1Bitmap1 _target;
+        private readonly DownsamplePyramid _pyramid;
+        private readonly UploadCache _uploads;
         private readonly bool _ownsTarget;
         private readonly Stack<PixelRect> _clips = new();
         private ID2D1Bitmap1? _staging;
 
-        public Surface(GraphicsDevice device, int width, int height)
+        public Surface(GraphicsDevice device, int width, int height,
+                       DownsamplePyramid pyramid, UploadCache uploads)
             : this(device, CreateBitmap(device.D2DContext, width, height, BitmapOptions.Target),
-                   width, height)
+                   width, height, pyramid, uploads)
         {
             _ownsTarget = true;
         }
 
         /// <summary>Draws onto a target someone else owns — the window's back buffer.</summary>
-        public Surface(GraphicsDevice device, ID2D1Bitmap1 target, int width, int height)
+        public Surface(GraphicsDevice device, ID2D1Bitmap1 target, int width, int height,
+                       DownsamplePyramid pyramid, UploadCache uploads)
         {
             _device = device;
             _target = target;
+            _pyramid = pyramid;
+            _uploads = uploads;
             Width = width;
             Height = height;
         }
@@ -157,16 +169,31 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
         {
             if (!draw.Placement.IsDrawable || draw.Opacity <= 0) return;
 
-            // The layer's own mask lives in the same grid as its pixels, so it is multiplied in
-            // before anything is uploaded — exact, and it saves a pass on the GPU.
-            using PixelBuffer pixels = WithMask(draw);
-            using ID2D1Bitmap1 source = Upload(_device.D2DContext, pixels);
+            // Where the layer lands, and which of its own pixels feed that. Handing Direct2D the
+            // whole layer and letting it resample would upload four hundred megabytes a frame for
+            // a hundred-megapixel layer; this uploads the window's worth of pixels instead.
+            PixelRect area = LayerGeometry.Bounds(draw.Placement)
+                .Intersect(Clip ?? new PixelRect(0, 0, Width, Height));
+            if (area.IsEmpty) return;
+
+            int level = LayerGeometry.LevelFor(draw.Placement, draw.Source.Width);
+            PixelRect needed = LayerGeometry.Snap(
+                LayerGeometry.SourceRegion(area, draw.Placement, draw.Source.Width, draw.Source.Height),
+                1 << level, draw.Source.Width, draw.Source.Height);
+
+            using Piece piece = Resolve(draw, needed, level);
+            ID2D1Bitmap1 source = piece.Bitmap;
+            draw = draw with
+            {
+                Placement = LayerGeometry.Place(draw.Placement, needed,
+                                                draw.Source.Width, draw.Source.Height),
+            };
 
             bool plain = draw.Blend == LayerBlendMode.Normal && draw.Clips.Count == 0;
             if (plain)
             {
                 using var _ = new TargetScope(_device.D2DContext, _target, Clip);
-                DrawPlaced(_device.D2DContext, source, draw, pixels.Width, pixels.Height);
+                DrawPlaced(_device.D2DContext, source, draw, piece.Width, piece.Height);
                 return;
             }
 
@@ -176,7 +203,7 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
             using (var _ = new TargetScope(_device.D2DContext, layer))
             {
                 _device.D2DContext.Clear(new Color4(0f, 0f, 0f, 0f));
-                DrawPlaced(_device.D2DContext, source, draw, pixels.Width, pixels.Height);
+                DrawPlaced(_device.D2DContext, source, draw, piece.Width, piece.Height);
             }
 
             ID2D1Image composed = layer;
@@ -318,30 +345,118 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
             if (_ownsTarget) _target.Dispose();
         }
 
-        /// <summary>The layer's pixels with its own mask multiplied in.</summary>
-        private static PixelBuffer WithMask(LayerDraw draw)
+        /// <summary>One region of a layer's pixels, uploaded and ready to draw.</summary>
+        /// <remarks>
+        /// A cached piece belongs to the backend and outlives the draw; a piece built for this draw
+        /// alone — a masked layer, or a layer held as tiles — is released with it.
+        /// </remarks>
+        private readonly struct Piece(ID2D1Bitmap1 bitmap, int width, int height, bool owned) : IDisposable
         {
-            PixelBuffer pixels = draw.Source.Materialize(new PixelRect(0, 0, draw.Source.Width, draw.Source.Height));
-            if (draw.Mask is not PixelBuffer mask) return pixels;
+            public ID2D1Bitmap1 Bitmap { get; } = bitmap;
+            public int Width { get; } = width;
+            public int Height { get; } = height;
 
+            public void Dispose()
+            {
+                if (owned) Bitmap.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// The pixels for one draw: the region it needs, reduced to the level it needs, on the GPU.
+        /// </summary>
+        /// <remarks>
+        /// A plain layer with no mask is cached by buffer, level and region, so a frame that has
+        /// not moved re-uses what the last one uploaded. Panning changes the region and pays for a
+        /// new upload, which is a window's worth of pixels and not a document's.
+        /// </remarks>
+        private Piece Resolve(LayerDraw draw, PixelRect needed, int level)
+        {
+            bool cacheable = draw.Mask is null && draw.Source is BufferSource;
+            UploadCache.Key key = default;
+
+            if (cacheable)
+            {
+                key = new UploadCache.Key(((BufferSource)draw.Source).Buffer, level, needed);
+                if (_uploads.TryGet(key, out ID2D1Bitmap1? cached, out int cachedWidth, out int cachedHeight))
+                    return new Piece(cached, cachedWidth, cachedHeight, owned: false);
+            }
+
+            PixelBuffer pixels = Reduce(draw.Source, needed, level);
+            try
+            {
+                if (draw.Mask is PixelBuffer mask)
+                    ApplyMask(pixels, mask, needed, draw.Source.Width, draw.Source.Height);
+
+                ID2D1Bitmap1 bitmap = Upload(_device.D2DContext, pixels);
+                if (!cacheable) return new Piece(bitmap, pixels.Width, pixels.Height, owned: true);
+
+                _uploads.Put(key, bitmap, pixels.Width, pixels.Height);
+                return new Piece(bitmap, pixels.Width, pixels.Height, owned: false);
+            }
+            finally
+            {
+                pixels.Release();
+            }
+        }
+
+        /// <summary>
+        /// <paramref name="needed"/> of a source, halved <paramref name="level"/> times.
+        /// </summary>
+        /// <remarks>
+        /// A layer drawn whole goes through the shared pyramid, which keeps its halvings; anything
+        /// else is materialised and halved here. Both give the same pixels, because the box filter
+        /// reaches nothing outside its own block and the region is snapped to the halving grid.
+        /// </remarks>
+        private PixelBuffer Reduce(IPixelSource source, PixelRect needed, int level)
+        {
+            bool whole = needed.X == 0 && needed.Y == 0
+                         && needed.Width == source.Width && needed.Height == source.Height;
+
+            if (whole && source is BufferSource plain)
+            {
+                (PixelBuffer reduced, int _) = _pyramid.Reduced(plain.Buffer, level);
+                return reduced.Retain();
+            }
+
+            PixelBuffer region = source.Materialize(needed);
+            for (int i = 0; i < level && (region.Width > 1 || region.Height > 1); i++)
+            {
+                PixelBuffer next = DownsamplePyramid.Halve(region);
+                region.Release();
+                region = next;
+            }
+
+            return region;
+        }
+
+        /// <summary>
+        /// Multiplies a layer's own mask into one region of its pixels.
+        /// </summary>
+        /// <remarks>
+        /// The mask shares the layer's normalised extent rather than its pixel count — an unpainted
+        /// mask is a single pixel covering the whole layer — so the region's own offset has to go
+        /// through that normalisation rather than through the mask's dimensions.
+        /// </remarks>
+        private static void ApplyMask(PixelBuffer pixels, PixelBuffer mask, PixelRect region,
+                                      int sourceWidth, int sourceHeight)
+        {
             for (int y = 0; y < pixels.Height; y++)
             {
+                double v = (region.Y + (y + 0.5) * region.Height / pixels.Height) / sourceHeight;
+                Span<byte> coverage = mask.Row(Math.Clamp((int)(v * mask.Height), 0, mask.Height - 1));
                 Span<byte> row = pixels.Row(y);
-                // The mask shares the layer's normalised extent, which is not the same as its pixel
-                // count — an unpainted mask is a single pixel covering the whole layer.
-                Span<byte> coverage = mask.Row(Math.Min(mask.Height - 1, y * mask.Height / pixels.Height));
 
                 for (int x = 0; x < pixels.Width; x++)
                 {
-                    int level = coverage[Math.Min(mask.Width - 1, x * mask.Width / pixels.Width) * 4];
+                    double u = (region.X + (x + 0.5) * region.Width / pixels.Width) / sourceWidth;
+                    int level = coverage[Math.Clamp((int)(u * mask.Width), 0, mask.Width - 1) * 4];
                     if (level == 255) continue;
 
                     for (int channel = 0; channel < 4; channel++)
                         row[x * 4 + channel] = (byte)(row[x * 4 + channel] * level / 255);
                 }
             }
-
-            return pixels;
         }
 
         /// <summary>Coverage moved from the colour channels into alpha, where the effect reads it.</summary>

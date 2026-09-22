@@ -73,13 +73,12 @@ public sealed class SoftwareRenderBackend : IRenderBackend
             LayerTransform placement = draw.Placement;
             if (!placement.IsDrawable || draw.Opacity <= 0) return;
 
-            PixelRect area = Bounds(placement).Intersect(Clip);
+            PixelRect area = LayerGeometry.Bounds(placement).Intersect(Clip);
             if (area.IsEmpty) return;
 
-            // How many source pixels one document pixel covers, along the wider axis. A layer drawn
-            // smaller than its pixels reads from a halved copy instead of throwing most of them away.
-            double factor = placement.Size.Width / Math.Max(1, draw.Source.Width);
-            int level = draw.Placement.Sampling == LayerSampling.Nearest ? 0 : DownsamplePyramid.LevelFor(factor);
+            // A layer drawn smaller than its pixels reads from a halved copy instead of throwing
+            // most of them away.
+            int level = LayerGeometry.LevelFor(placement, draw.Source.Width);
 
             using var source = new SampledSource(draw.Source, pyramid, level, area, placement);
 
@@ -164,30 +163,6 @@ public sealed class SoftwareRenderBackend : IRenderBackend
 
         public void Dispose() => _pixels.Release();
 
-        /// <summary>The whole-pixel box the placement's four corners fall inside.</summary>
-        private static PixelRect Bounds(LayerTransform placement)
-        {
-            double minX = double.MaxValue, minY = double.MaxValue;
-            double maxX = double.MinValue, maxY = double.MinValue;
-
-            Point[] corners =
-            [
-                placement.PointAt(new Point(0, 0)), placement.PointAt(new Point(1, 0)),
-                placement.PointAt(new Point(0, 1)), placement.PointAt(new Point(1, 1)),
-            ];
-
-            foreach (Point corner in corners)
-            {
-                minX = Math.Min(minX, corner.X);
-                minY = Math.Min(minY, corner.Y);
-                maxX = Math.Max(maxX, corner.X);
-                maxY = Math.Max(maxY, corner.Y);
-            }
-
-            return PixelRect.FromBounds((int)Math.Floor(minX), (int)Math.Floor(minY),
-                                        (int)Math.Ceiling(maxX), (int)Math.Ceiling(maxY));
-        }
-
         /// <summary>
         /// Samples a buffer at pixel coordinates, treating everything outside as transparent.
         /// </summary>
@@ -266,9 +241,8 @@ public sealed class SoftwareRenderBackend : IRenderBackend
             _sourceWidth = source.Width;
             _sourceHeight = source.Height;
 
-            PixelRect needed = SourceRegion(area, placement, source.Width, source.Height);
-            int step = 1 << level;
-            needed = Snap(needed, step, source.Width, source.Height);
+            PixelRect needed = LayerGeometry.SourceRegion(area, placement, source.Width, source.Height);
+            needed = LayerGeometry.Snap(needed, 1 << level, source.Width, source.Height);
 
             bool whole = needed.X == 0 && needed.Y == 0
                          && needed.Width == source.Width && needed.Height == source.Height;
@@ -316,59 +290,5 @@ public sealed class SoftwareRenderBackend : IRenderBackend
             if (_owned) _pixels.Release();
         }
 
-        /// <summary>Which source pixels the drawn area can read.</summary>
-        private static PixelRect SourceRegion(PixelRect area, LayerTransform placement, int width, int height)
-        {
-            double cos = Math.Cos(placement.Radians), sin = Math.Sin(placement.Radians);
-            Point center = placement.Center;
-
-            double minU = double.MaxValue, minV = double.MaxValue;
-            double maxU = double.MinValue, maxV = double.MinValue;
-
-            ReadOnlySpan<int> xs = [area.X, area.Right, area.X, area.Right];
-            ReadOnlySpan<int> ys = [area.Y, area.Y, area.Bottom, area.Bottom];
-
-            for (int corner = 0; corner < 4; corner++)
-            {
-                double dx = xs[corner] - center.X, dy = ys[corner] - center.Y;
-                double localX = dx * cos + dy * sin;
-                double localY = -dx * sin + dy * cos;
-                if (placement.FlipX) localX = -localX;
-                if (placement.FlipY) localY = -localY;
-
-                double u = localX / placement.Size.Width + 0.5;
-                double v = localY / placement.Size.Height + 0.5;
-                minU = Math.Min(minU, u);
-                maxU = Math.Max(maxU, u);
-                minV = Math.Min(minV, v);
-                maxV = Math.Max(maxV, v);
-            }
-
-            return PixelRect.FromBounds(
-                (int)Math.Floor(Math.Clamp(minU, 0, 1) * width),
-                (int)Math.Floor(Math.Clamp(minV, 0, 1) * height),
-                (int)Math.Ceiling(Math.Clamp(maxU, 0, 1) * width),
-                (int)Math.Ceiling(Math.Clamp(maxV, 0, 1) * height));
-        }
-
-        /// <summary>
-        /// Pads by one reduced pixel for the final resample, then snaps out to the halving grid.
-        /// </summary>
-        private static PixelRect Snap(PixelRect region, int step, int width, int height)
-        {
-            if (region.IsEmpty) return new PixelRect(0, 0, Math.Min(step, width), Math.Min(step, height));
-
-            int left = region.X - step;
-            int top = region.Y - step;
-            int right = region.Right + step;
-            int bottom = region.Bottom + step;
-
-            left = Math.Max(0, left / step * step);
-            top = Math.Max(0, top / step * step);
-            right = Math.Min(width, (right + step - 1) / step * step);
-            bottom = Math.Min(height, (bottom + step - 1) / step * step);
-
-            return PixelRect.FromBounds(left, top, Math.Max(left + 1, right), Math.Max(top + 1, bottom));
-        }
     }
 }

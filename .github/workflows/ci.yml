@@ -110,6 +110,24 @@ jobs:
             "| C 커널 ABI | $($report.kernelAbi) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
             "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
 
+            if ($null -ne $report.canvasDocumentPixels) {
+              "### M3 — 캔버스" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 항목 | 값 |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "|---|---|" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 문서 크기 | {0:N0} 픽셀 |" -f $report.canvasDocumentPixels | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 창 크기 | {0:N0} 픽셀 |" -f $report.canvasViewPixels | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 한 프레임이 읽는 픽셀 | {0:N0} |" -f $report.canvasPixelsRead | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 창 픽셀의 4배 이내 | $($report.canvasWithinBudget) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 프레임 시간 (맞춤) | {0:N1} ms |" -f $report.canvasFittedFrameMs | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 프레임 시간 (100%) | {0:N1} ms |" -f $report.canvasFullSizeFrameMs | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 벤치 포함 최대 작업 집합 | {0:N1} MB |" -f ($report.canvasPeakWorkingSetBytes / 1MB) | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "프레임 시간은 GPU 없는 러너(WARP) 수치이므로 기록만 하고 판정에 쓰지 않는다." |
+                Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            }
+
             if ($report.failures.Count -gt 0) {
               "### 실패" | Out-File -Append $env:GITHUB_STEP_SUMMARY
               $report.failures | ForEach-Object { "- $_" | Out-File -Append $env:GITHUB_STEP_SUMMARY }

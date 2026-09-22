@@ -127,6 +127,28 @@ internal static class SelfTest
             failures.Add("render check failed: " + exception.Message);
         }
 
+        // Read before the canvas bench, which allocates a hundred megapixels on purpose. The
+        // counter is a high-water mark for the whole process, so M0's figure has to be taken while
+        // it still means what M0 measured.
+        long peakWorkingSet = Win32.PeakWorkingSet();
+
+        // M3 closes on what a frame of a hundred-megapixel document costs — recorded, not judged,
+        // because this is WARP (docs/windows-port.md §10.4) — and on the invariant underneath it.
+        CanvasBench.Result? canvas = null;
+        try
+        {
+            canvas = CanvasBench.Run(device, side: 10_000, width: 1280, height: 800);
+            if (!canvas.WithinBudget)
+            {
+                failures.Add($"a frame reads {canvas.PixelsRead} pixels for a window of "
+                             + $"{canvas.ViewPixels}: the cost is following the document");
+            }
+        }
+        catch (Exception exception)
+        {
+            failures.Add("canvas bench failed: " + exception.Message);
+        }
+
         long exeBytes = 0;
         string? exePath = Environment.ProcessPath;
         if (exePath is not null && File.Exists(exePath)) exeBytes = new FileInfo(exePath).Length;
@@ -136,7 +158,7 @@ internal static class SelfTest
             failures.Add($"{PixelBuffer.LiveCount} pixel buffers leaked");
 
         report.Append("{\n");
-        Line(report, "milestone", "M0");
+        Line(report, "milestone", "M3");
         Line(report, "shell", "win32-direct2d");
         Line(report, "driver", device.IsWarp ? "warp" : "hardware");
         Line(report, "featureLevel", device.FeatureLevel.ToString());
@@ -148,7 +170,7 @@ internal static class SelfTest
         Line(report, "imageHeight", image.Height);
         Line(report, "exeBytes", exeBytes);
         Line(report, "timeToFirstFrameMs", firstFrame?.TotalMilliseconds ?? -1);
-        Line(report, "peakWorkingSetBytes", Win32.PeakWorkingSet());
+        Line(report, "peakWorkingSetBytes", peakWorkingSet);
         Line(report, "managedHeapBytes", GC.GetTotalMemory(forceFullCollection: false));
         Line(report, "pixelBufferLiveBytes", PixelBuffer.LiveBytes);
         Line(report, "pixelBufferLiveCount", PixelBuffer.LiveCount);
@@ -163,6 +185,16 @@ internal static class SelfTest
             Line(report, "renderPlacementEdgeMean", render.Placement.EdgeMean);
             Line(report, "renderResampledMax", render.Resampled.Max);
             Line(report, "renderResampledMean", render.Resampled.Mean);
+        }
+        if (canvas is not null)
+        {
+            Line(report, "canvasDocumentPixels", canvas.DocumentPixels);
+            Line(report, "canvasViewPixels", canvas.ViewPixels);
+            Line(report, "canvasPixelsRead", canvas.PixelsRead);
+            Line(report, "canvasWithinBudget", canvas.WithinBudget);
+            Line(report, "canvasFittedFrameMs", canvas.FittedMs);
+            Line(report, "canvasFullSizeFrameMs", canvas.FullSizeMs);
+            Line(report, "canvasPeakWorkingSetBytes", canvas.PeakWorkingSetBytes);
         }
         Support(report, "r8g8b8a8", rgba);
         Support(report, "b8g8r8a8", bgra);
