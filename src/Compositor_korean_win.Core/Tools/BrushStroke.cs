@@ -28,6 +28,13 @@ public sealed record BrushSettings
     /// <summary>Takes the layer's pixels away instead of putting colour on them.</summary>
     public bool Erasing { get; init; }
 
+    /// <summary>
+    /// The stroke marks what to heal rather than what to paint; the pixels come from nearby.
+    /// </summary>
+    public bool Healing { get; init; }
+
+    public SpotHealingMode HealingMode { get; init; } = SpotHealingMode.ContentAware;
+
     [System.Text.Json.Serialization.JsonIgnore]
     public double Radius => Math.Max(0.5, Diameter / 2);
 }
@@ -143,6 +150,81 @@ public sealed class BrushStroke : IDisposable
         }
 
         _previous = point;
+    }
+
+    /// <summary>
+    /// Replaces what the stroke covered with texture from around it, once the stroke has ended.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The kernel is given a crop, not the layer: a blemish healed on a hundred-megapixel photograph
+    /// has no business reading a hundred megapixels. The crop is the painted area plus the distance
+    /// the patch search actually reaches (<see cref="SpotHeal.ReachFor"/>) — any tighter and healing
+    /// a blemish would only ever find the blemish.
+    /// </para>
+    /// <para>
+    /// It reads the layer's own pixels, never the wash the stroke was showing while it was painted:
+    /// healing is meant to look at what was there, and the stroke is only saying where.
+    /// </para>
+    /// </remarks>
+    public bool Heal(uint seed)
+    {
+        if (_tiles.Count == 0 || Dirty.IsEmpty) return false;
+
+        int reach = SpotHeal.ReachFor(Dirty);
+        PixelRect region = Dirty.Inflate(reach).Intersect(new PixelRect(0, 0, Width, Height));
+        if (region.IsEmpty) return false;
+
+        PixelBuffer crop = _base is PixelBuffer image
+            ? PixelRegion.Copy(image, region)
+            : PixelBuffer.Allocate(region.Width, region.Height);
+
+        try
+        {
+            var coverage = new byte[region.Width * region.Height];
+            foreach (Tile tile in _tiles.Values)
+            {
+                PixelRect overlap = tile.Rect.Intersect(region);
+                if (overlap.IsEmpty) continue;
+
+                for (int y = overlap.Y; y < overlap.Bottom; y++)
+                {
+                    for (int x = overlap.X; x < overlap.Right; x++)
+                    {
+                        byte level = tile.Coverage[(y - tile.Rect.Y) * tile.Rect.Width + (x - tile.Rect.X)];
+                        if (level == 0) continue;
+                        coverage[(y - region.Y) * region.Width + (x - region.X)] = level;
+                    }
+                }
+            }
+
+            if (!SpotHeal.Heal(crop, coverage, _settings.Opacity, _settings.HealingMode, seed)) return false;
+
+            // The tiles were showing paint; now they show what the kernel put there instead.
+            foreach (Tile tile in _tiles.Values)
+            {
+                PixelRect overlap = tile.Rect.Intersect(region);
+                if (overlap.IsEmpty) continue;
+
+                for (int y = overlap.Y; y < overlap.Bottom; y++)
+                {
+                    ReadOnlySpan<byte> healed = crop.Row(y - region.Y);
+                    Span<byte> target = tile.Pixels.Row(y - tile.Rect.Y);
+
+                    for (int x = overlap.X; x < overlap.Right; x++)
+                    {
+                        healed.Slice((x - region.X) * 4, 4)
+                              .CopyTo(target.Slice((x - tile.Rect.X) * 4, 4));
+                    }
+                }
+            }
+
+            return true;
+        }
+        finally
+        {
+            crop.Release();
+        }
     }
 
     /// <summary>The finished layer: its old pixels with the stroke's tiles laid over them.</summary>

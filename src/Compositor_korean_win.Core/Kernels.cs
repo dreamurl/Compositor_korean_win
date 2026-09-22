@@ -12,8 +12,9 @@ namespace Compositor_korean_win.Core;
 /// static library is linked straight into the executable and no <c>compositor_kernels.dll</c> ships.
 /// Under the test run, which is plain CoreCLR, the same name resolves to the DLL instead.
 ///
-/// M0 binds only what it needs to prove the boundary works. The rest arrive with the tools that
-/// use them, in M4 and M5.
+/// M0 bound only what it needed to prove the boundary works; M4 binds the rest — the magic wand,
+/// spot healing and content-aware fill, which are the three places where a C loop is not an
+/// optimisation but the difference between a tool and a hang.
 /// </remarks>
 public static partial class Kernels
 {
@@ -67,4 +68,46 @@ public static partial class Kernels
     [LibraryImport(Library, EntryPoint = "layer_restore_alpha")]
     public static partial void LayerRestoreAlpha(nint rgba, nuint stride,
                                                  nint alpha, nuint alphaStride, nuint width, nuint height);
+
+    /// <summary>
+    /// Marks every pixel within <paramref name="tolerance"/> of the one under the seed. Returns how
+    /// many were selected, or -1 when memory runs out.
+    /// </summary>
+    [LibraryImport(Library, EntryPoint = "wand_mask")]
+    public static partial long WandMask(nint rgba, nuint width, nuint height, nuint stride,
+                                        nuint seedX, nuint seedY, nuint radius, int tolerance,
+                                        int contiguous, nint mask);
+
+    /// <summary>
+    /// Outlines a mask's nonzero pixels along pixel edges, as closed loops.
+    /// </summary>
+    /// <remarks>
+    /// Outer boundaries come back clockwise and holes counterclockwise, which is exactly what the
+    /// winding rule needs to fill the marked pixels and nothing else. Both output buffers are the
+    /// kernel's to allocate and the caller's to <see cref="Free"/>.
+    /// </remarks>
+    [LibraryImport(Library, EntryPoint = "wand_trace")]
+    public static partial int WandTrace(nint mask, nuint width, nuint height,
+                                        out nint points, out nuint pointCount,
+                                        out nint loops, out nuint loopCount);
+
+    /// <summary>Half-open bounds of nonzero bytes in a grey bitmap, as four longs.</summary>
+    [LibraryImport(Library, EntryPoint = "heal_coverage_bounds")]
+    public static partial void HealCoverageBounds(nint gray, nuint width, nuint height, nuint stride, nint bounds);
+
+    /// <summary>
+    /// Spot healing in place: rebuilds what <paramref name="coverage"/> marks from the texture
+    /// around it. Returns 0, or -1 when memory runs out.
+    /// </summary>
+    [LibraryImport(Library, EntryPoint = "spot_heal")]
+    public static partial int SpotHeal(nint rgba, nint coverage, nuint width, nuint height, nuint stride,
+                                       float opacity, int mode, uint seed);
+
+    /// <summary>
+    /// Content-aware fill in place. Returns 1 on success, 0 when there is nothing to copy from,
+    /// and -1 when memory runs out.
+    /// </summary>
+    [LibraryImport(Library, EntryPoint = "content_fill")]
+    public static partial int ContentFill(nint rgba, nuint stride, nint mask, nuint maskStride,
+                                          int width, int height);
 }
