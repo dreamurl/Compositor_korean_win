@@ -34,6 +34,7 @@ internal static partial class Win32
     internal const uint WM_CAPTURECHANGED = 0x0215;
 
     internal const int VK_ESCAPE = 0x1B;
+    internal const int VK_RETURN = 0x0D;
     internal const int VK_SPACE = 0x20;
     internal const int VK_SHIFT = 0x10;
     internal const int VK_CONTROL = 0x11;

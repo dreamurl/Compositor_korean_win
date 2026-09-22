@@ -1,0 +1,101 @@
+using Compositor_korean_win.Core;
+using Xunit;
+
+namespace Compositor_korean_win.Core.Tests;
+
+/// <summary>Moving what is inside a selection.</summary>
+public class SelectionPixelsTests
+{
+    private static PixelBuffer Marked()
+    {
+        // A red square in the top-left corner of a transparent layer.
+        PixelBuffer buffer = PixelBuffer.Allocate(64, 64);
+        for (int y = 8; y < 24; y++)
+        {
+            Span<byte> row = buffer.Row(y);
+            for (int x = 8; x < 24; x++)
+            {
+                row[x * 4 + 0] = 200;
+                row[x * 4 + 3] = 255;
+            }
+        }
+        return buffer;
+    }
+
+    [Fact]
+    public void ThePixelsGoWhereTheyWereDraggedAndLeaveNothingBehind()
+    {
+        using PixelBuffer layer = Marked();
+        DocumentSelection selection = DocumentSelection.Rectangle(new Rect(8, 8, 16, 16));
+
+        using PixelBuffer moved = SelectionPixels.Move(layer, selection, new Point(20, 10));
+
+        Assert.Equal((200, 0, 0, 255), RenderFixture.At(moved, 36, 20));   // Where it went.
+        Assert.Equal(0, RenderFixture.At(moved, 16, 16).A);                // Where it was.
+    }
+
+    [Fact]
+    public void DuplicatingLeavesTheOriginalWhereItWas()
+    {
+        using PixelBuffer layer = Marked();
+        DocumentSelection selection = DocumentSelection.Rectangle(new Rect(8, 8, 16, 16));
+
+        using PixelBuffer moved = SelectionPixels.Move(layer, selection, new Point(20, 10), duplicate: true);
+
+        Assert.Equal((200, 0, 0, 255), RenderFixture.At(moved, 36, 20));
+        Assert.Equal((200, 0, 0, 255), RenderFixture.At(moved, 16, 16));
+    }
+
+    [Fact]
+    public void WhatIsNotSelectedIsNotMoved()
+    {
+        using PixelBuffer layer = Marked();
+
+        // Only the left half of the square.
+        DocumentSelection selection = DocumentSelection.Rectangle(new Rect(8, 8, 8, 16));
+        using PixelBuffer moved = SelectionPixels.Move(layer, selection, new Point(0, 30));
+
+        Assert.Equal(0, RenderFixture.At(moved, 10, 16).A);                // Lifted.
+        Assert.Equal((200, 0, 0, 255), RenderFixture.At(moved, 20, 16));   // Left alone.
+        Assert.Equal((200, 0, 0, 255), RenderFixture.At(moved, 10, 46));   // Landed.
+    }
+
+    [Fact]
+    public void AFeatheredEdgeArrivesFeathered()
+    {
+        using PixelBuffer layer = Marked();
+
+        // An ellipse, whose edge is antialiased and so partly selected all the way round.
+        DocumentSelection selection = DocumentSelection.Ellipse(new Rect(8, 8, 16, 16));
+        using PixelBuffer moved = SelectionPixels.Move(layer, selection, new Point(30, 0));
+
+        // Solid in the middle of where it landed, and part-way there at the rim.
+        Assert.Equal(255, RenderFixture.At(moved, 46, 16).A);
+        Assert.InRange(RenderFixture.At(moved, 46, 8).A, 1, 254);
+
+        // And it left a soft hole rather than a cut one.
+        Assert.InRange(RenderFixture.At(layer, 16, 8).A - RenderFixture.At(moved, 16, 8).A, 1, 254);
+    }
+
+    [Fact]
+    public void DraggingOffTheEdgeKeepsWhatStillFits()
+    {
+        using PixelBuffer layer = Marked();
+        DocumentSelection selection = DocumentSelection.Rectangle(new Rect(8, 8, 16, 16));
+
+        using PixelBuffer moved = SelectionPixels.Move(layer, selection, new Point(52, 0));
+
+        // Half of it is past the right edge; the half that fits is there.
+        Assert.Equal((200, 0, 0, 255), RenderFixture.At(moved, 62, 16));
+        Assert.Equal(0, RenderFixture.At(moved, 16, 16).A);
+    }
+
+    [Fact]
+    public void AnEmptySelectionMovesNothing()
+    {
+        using PixelBuffer layer = Marked();
+        using PixelBuffer moved = SelectionPixels.Move(layer, DocumentSelection.Empty, new Point(10, 10));
+
+        Assert.Equal((200, 0, 0, 255), RenderFixture.At(moved, 16, 16));
+    }
+}

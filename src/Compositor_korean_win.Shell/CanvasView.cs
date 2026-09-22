@@ -20,6 +20,9 @@ internal enum CanvasTool
     EllipseMarquee,
     Lasso,
 
+    /// <summary>Clicks out a selection corner by corner.</summary>
+    PolygonLasso,
+
     /// <summary>Paints the foreground colour.</summary>
     Brush,
 
@@ -113,11 +116,18 @@ internal sealed class CanvasView : IDisposable
 
     private BrushStroke? _stroke;
     private PixelBuffer? _strokeBase;
+    private Point? _strokeStart;
     private Guid _painting;
     private PixelRect _paintGrid;
     private Point? _cloneAnchor;
+    private Point? _cloneOffset;
     private Point? _shapeFrom;
     private Point _shapeTo;
+    private List<Point>? _polygon;
+    private Point? _movingFrom;
+    private Point _movingTo;
+    private bool _movingDuplicates;
+    private Point _pointer;
     private Point? _marqueeFrom;
     private Point _marqueeTo;
     private List<Point>? _lasso;
@@ -153,6 +163,11 @@ internal sealed class CanvasView : IDisposable
     public GradientSettings Gradient { get; set; } = new();
 
     public WandSettings Wand { get; set; } = new();
+
+    /// <summary>
+    /// Whether the clone stamp keeps one offset between strokes, as Photoshop's default does.
+    /// </summary>
+    public bool CloneAligned { get; set; } = true;
 
     /// <summary>Set whenever something changed that the window has not drawn yet.</summary>
     public bool NeedsRedraw { get; private set; } = true;
@@ -233,6 +248,12 @@ internal sealed class CanvasView : IDisposable
 
         Point pixel = _viewport.DocumentPoint(view, _document.Size);
 
+        if (_tool == CanvasTool.PolygonLasso)
+        {
+            AddCorner(pixel);
+            return;
+        }
+
         if (_tool.Paints())
         {
             BeginStroke(pixel, alt: Win32.IsKeyDown(Win32.VK_MENU));
@@ -267,6 +288,15 @@ internal sealed class CanvasView : IDisposable
         bool shift = Win32.IsKeyDown(Win32.VK_SHIFT);
         bool control = Win32.IsKeyDown(Win32.VK_CONTROL);
         bool alt = Win32.IsKeyDown(Win32.VK_MENU);
+
+        // With a selection up, dragging inside it moves what is in it rather than the layer.
+        if (_selection is DocumentSelection inside && inside.Contains(pixel))
+        {
+            _movingFrom = pixel;
+            _movingTo = pixel;
+            _movingDuplicates = alt;
+            return;
+        }
 
         // A handle takes the drag before anything under it does. Held with control it distorts:
         // the corner moves on its own, which no placement can hold, so the pixels are resampled
@@ -357,11 +387,22 @@ internal sealed class CanvasView : IDisposable
             return;
         }
 
+        _pointer = view;
+
         if (_stroke is BrushStroke stroke && _document.Layer(_painting) is ImageLayer painted)
         {
-            stroke.Append(LayerGeometry.ToPixels(painted.Transform,
-                                                 _viewport.DocumentPoint(view, _document.Size),
+            Point at = _viewport.DocumentPoint(view, _document.Size);
+            if (shift) at = Straightened(at);
+
+            stroke.Append(LayerGeometry.ToPixels(painted.Transform, at,
                                                  _paintGrid.Width, _paintGrid.Height));
+            NeedsRedraw = true;
+            return;
+        }
+
+        if (_movingFrom is not null)
+        {
+            _movingTo = _viewport.DocumentPoint(view, _document.Size);
             NeedsRedraw = true;
             return;
         }
@@ -449,6 +490,12 @@ internal sealed class CanvasView : IDisposable
         if (_stroke is not null)
         {
             EndStroke();
+            return;
+        }
+
+        if (_movingFrom is Point lifted)
+        {
+            MoveSelected(lifted);
             return;
         }
 
@@ -549,6 +596,7 @@ internal sealed class CanvasView : IDisposable
         if (_tool == CanvasTool.CloneStamp && alt)
         {
             _cloneAnchor = start;
+            _cloneOffset = null;
             return;
         }
 
@@ -556,10 +604,15 @@ internal sealed class CanvasView : IDisposable
         if (_tool == CanvasTool.CloneStamp)
         {
             if (_cloneAnchor is not Point anchor || layer.Image is not PixelBuffer sample) return;
-            settings = settings with
-            {
-                CloneFrom = new CloneSource(sample, new Point(anchor.X - start.X, anchor.Y - start.Y)),
-            };
+
+            // Aligned keeps the offset the first stroke established, so a second stroke carries on
+            // copying the same thing; unaligned starts again from the anchor each time.
+            Point offset = CloneAligned && _cloneOffset is Point kept
+                ? kept
+                : new Point(anchor.X - start.X, anchor.Y - start.Y);
+
+            _cloneOffset = offset;
+            settings = settings with { CloneFrom = new CloneSource(sample, offset) };
         }
 
         _history.Begin(Name(_tool), _document, id);
@@ -574,8 +627,107 @@ internal sealed class CanvasView : IDisposable
 
         _stroke = new BrushStroke(layer.Image, _paintGrid.Width, _paintGrid.Height, settings,
                                   Restricted(placement));
+        _strokeStart = document;
         _stroke.Append(start);
         NeedsRedraw = true;
+    }
+
+    /// <summary>
+    /// A point pulled onto the nearest eighth-turn from where the stroke began.
+    /// </summary>
+    /// <remarks>
+    /// What shift means everywhere: not "horizontal or vertical" but "one of the eight directions",
+    /// which is what makes it usable for a diagonal as well as an edge.
+    /// </remarks>
+    private Point Straightened(Point at)
+    {
+        if (_strokeStart is not Point start) return at;
+
+        double dx = at.X - start.X, dy = at.Y - start.Y;
+        double length = Math.Sqrt(dx * dx + dy * dy);
+        if (length <= 0) return at;
+
+        double angle = Math.Round(Math.Atan2(dy, dx) / (Math.PI / 4), MidpointRounding.AwayFromZero)
+                       * (Math.PI / 4);
+
+        return new Point(start.X + Math.Cos(angle) * length, start.Y + Math.Sin(angle) * length);
+    }
+
+    /// <summary>Adds a corner to the polygonal lasso, closing it when it comes back round.</summary>
+    private void AddCorner(Point pixel)
+    {
+        _polygon ??= [];
+
+        // Back near the first corner closes the outline, which is how every polygonal lasso ends.
+        if (_polygon.Count >= 2)
+        {
+            Point first = _polygon[0];
+            double reach = TransformSnap.ToleranceFor(_viewport);
+            if (Math.Abs(first.X - pixel.X) <= reach && Math.Abs(first.Y - pixel.Y) <= reach)
+            {
+                ClosePolygon();
+                return;
+            }
+        }
+
+        _polygon.Add(pixel);
+        NeedsRedraw = true;
+    }
+
+    /// <summary>Turns the clicked corners into a selection.</summary>
+    private void ClosePolygon()
+    {
+        List<Point>? corners = _polygon;
+        _polygon = null;
+        NeedsRedraw = true;
+
+        if (corners is not { Count: >= 3 }) return;
+
+        DocumentSelection made = DocumentSelection.Lasso(corners);
+        bool adds = Win32.IsKeyDown(Win32.VK_SHIFT), takesAway = Win32.IsKeyDown(Win32.VK_MENU);
+
+        _selection = _selection is DocumentSelection existing && (adds || takesAway)
+            ? takesAway ? existing.Subtracting(made) : existing.Adding(made)
+            : made;
+    }
+
+    /// <summary>
+    /// Moves the pixels inside the selection, and the selection with them.
+    /// </summary>
+    /// <remarks>
+    /// One history entry at the end of the drag rather than a floating selection carried between
+    /// them: floating is a state the format cannot store, and the result is the same.
+    /// </remarks>
+    private void MoveSelected(Point lifted)
+    {
+        Point dropped = _movingTo;
+        bool duplicates = _movingDuplicates;
+        _movingFrom = null;
+        NeedsRedraw = true;
+
+        if (_document is null || _selection is not DocumentSelection selection) return;
+        if (Primary is not Guid id || _document.Layer(id) is not ImageLayer layer) return;
+        if (layer.Image is not PixelBuffer pixels) return;
+
+        var offset = new Point(dropped.X - lifted.X, dropped.Y - lifted.Y);
+        if (Math.Abs(offset.X) < 0.5 && Math.Abs(offset.Y) < 0.5) return;
+
+        int width = pixels.Width, height = pixels.Height;
+        DocumentSelection inLayer = selection.Transformed(
+            point => LayerGeometry.ToPixels(layer.Transform, point, width, height));
+
+        Point origin = LayerGeometry.ToPixels(layer.Transform, lifted, width, height);
+        Point moved = LayerGeometry.ToPixels(layer.Transform, dropped, width, height);
+
+        _history.Begin(duplicates ? "선택 영역 복제" : "선택 영역 이동", _document, id);
+
+        PixelBuffer result = SelectionPixels.Move(pixels, inLayer,
+                                                  new Point(moved.X - origin.X, moved.Y - origin.Y),
+                                                  duplicates);
+
+        _document = _document.Replacing(layer with { Image = result });
+        _selection = selection.Transformed(point => new Point(point.X + offset.X, point.Y + offset.Y));
+        _history.End(_document, id);
     }
 
     /// <summary>Commits the stroke as one history entry, healing first if that is what it was.</summary>
@@ -778,7 +930,12 @@ internal sealed class CanvasView : IDisposable
                 break;
 
             case Win32.VK_L when !control:
-                _tool = CanvasTool.Lasso;
+                // As with the marquee key, pressing it again offers the other lasso.
+                _tool = _tool == CanvasTool.Lasso ? CanvasTool.PolygonLasso : CanvasTool.Lasso;
+                break;
+
+            case Win32.VK_RETURN when _polygon is not null:
+                ClosePolygon();
                 break;
 
             case Win32.VK_B when !control:
@@ -1048,10 +1205,46 @@ internal sealed class CanvasView : IDisposable
     {
         if (_selection is DocumentSelection selection)
         {
+            // While the pixels inside are being dragged, the outline goes with them.
+            double dx = _movingFrom is Point from ? _movingTo.X - from.X : 0;
+            double dy = _movingFrom is Point at ? _movingTo.Y - at.Y : 0;
+
             foreach (SelectionShape shape in selection.Shapes)
             {
-                foreach (SelectionLoop loop in shape.Loops) Outline(loop.Points);
+                foreach (SelectionLoop loop in shape.Loops)
+                {
+                    Outline([.. loop.Points.Select(point => new Point(point.X + dx, point.Y + dy))]);
+                }
             }
+        }
+
+        // The corners clicked so far, which are not a selection until the outline closes.
+        if (_polygon is { Count: >= 2 } corners) Outline(corners);
+
+        // The brush, shown where it would land and at the size it would be.
+        if (_tool.Paints() && _document is not null && Primary is Guid id
+            && _document.Layer(id) is ImageLayer target)
+        {
+            int width = target.Image?.Width ?? _document.Width;
+            int height = target.Image?.Height ?? _document.Height;
+            LayerTransform placement = target.Image is null
+                ? new LayerTransform(Point.Zero, new Size(_document.Width, _document.Height))
+                : target.Transform;
+
+            Point centre = LayerGeometry.ToPixels(placement,
+                                                  _viewport.DocumentPoint(_pointer, _document.Size),
+                                                  width, height);
+
+            var ring = new List<Point>(24);
+            for (int i = 0; i < 24; i++)
+            {
+                double angle = i * 2 * Math.PI / 24;
+                ring.Add(LayerGeometry.ToDocument(placement,
+                    new Point(centre.X + Math.Cos(angle) * Brush.Radius,
+                              centre.Y + Math.Sin(angle) * Brush.Radius), width, height));
+            }
+
+            Outline(ring);
         }
 
         if (_marqueeFrom is Point start) Outline(InProgress(start));
