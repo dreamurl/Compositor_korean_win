@@ -149,6 +149,23 @@ internal static class SelfTest
             failures.Add("canvas bench failed: " + exception.Message);
         }
 
+        // M4 closes on stroke latency, and on the comparison underneath it: a stroke costs the
+        // tiles it touched, so a hundred-megapixel layer paints like a megapixel one.
+        StrokeBench.Result? stroke = null;
+        try
+        {
+            stroke = StrokeBench.Run(device, side: 10_000, width: 1280, height: 800);
+            if (!stroke.WithinBudget)
+            {
+                failures.Add($"a stroke takes {stroke.LargeAppendMs:F2} ms on a large layer against "
+                             + $"{stroke.SmallAppendMs:F2} on a small one: the cost is following the layer");
+            }
+        }
+        catch (Exception exception)
+        {
+            failures.Add("stroke bench failed: " + exception.Message);
+        }
+
         long exeBytes = 0;
         string? exePath = Environment.ProcessPath;
         if (exePath is not null && File.Exists(exePath)) exeBytes = new FileInfo(exePath).Length;
@@ -158,7 +175,7 @@ internal static class SelfTest
             failures.Add($"{PixelBuffer.LiveCount} pixel buffers leaked");
 
         report.Append("{\n");
-        Line(report, "milestone", "M3");
+        Line(report, "milestone", "M4");
         Line(report, "shell", "win32-direct2d");
         Line(report, "driver", device.IsWarp ? "warp" : "hardware");
         Line(report, "featureLevel", device.FeatureLevel.ToString());
@@ -195,6 +212,15 @@ internal static class SelfTest
             Line(report, "canvasFittedFrameMs", canvas.FittedMs);
             Line(report, "canvasFullSizeFrameMs", canvas.FullSizeMs);
             Line(report, "canvasPeakWorkingSetBytes", canvas.PeakWorkingSetBytes);
+        }
+        if (stroke is not null)
+        {
+            Line(report, "strokeSmallAppendMs", stroke.SmallAppendMs);
+            Line(report, "strokeLargeAppendMs", stroke.LargeAppendMs);
+            Line(report, "strokeLiveFrameMs", stroke.LiveFrameMs);
+            Line(report, "strokeTilesTouched", stroke.TilesTouched);
+            Line(report, "strokeLargeLayerPixels", stroke.LargeLayerPixels);
+            Line(report, "strokeWithinBudget", stroke.WithinBudget);
         }
         Support(report, "r8g8b8a8", rgba);
         Support(report, "b8g8r8a8", bgra);

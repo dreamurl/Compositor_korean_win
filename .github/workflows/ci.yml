@@ -128,6 +128,19 @@ jobs:
               "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
             }
 
+            if ($null -ne $report.strokeLargeAppendMs) {
+              "### M4 — 도구" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 항목 | 값 |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "|---|---|" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 스트로크 지연 (1메가픽셀 레이어) | {0:N2} ms |" -f $report.strokeSmallAppendMs | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 스트로크 지연 (1억 픽셀 레이어) | {0:N2} ms |" -f $report.strokeLargeAppendMs | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 칠하는 중 프레임 시간 | {0:N1} ms |" -f $report.strokeLiveFrameMs | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 스트로크가 만진 타일 | $($report.strokeTilesTouched)개 |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 레이어 크기와 무관 | $($report.strokeWithinBudget) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            }
+
             if ($report.failures.Count -gt 0) {
               "### 실패" | Out-File -Append $env:GITHUB_STEP_SUMMARY
               $report.failures | ForEach-Object { "- $_" | Out-File -Append $env:GITHUB_STEP_SUMMARY }
