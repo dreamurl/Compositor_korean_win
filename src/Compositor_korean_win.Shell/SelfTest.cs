@@ -178,6 +178,7 @@ internal static class SelfTest
         Line(report, "milestone", "M4");
         Line(report, "shell", "win32-direct2d");
         Line(report, "driver", device.IsWarp ? "warp" : "hardware");
+        Line(report, "adapter", device.Adapter);
         Line(report, "featureLevel", device.FeatureLevel.ToString());
         Line(report, "chosenFormat", chosen.ToString());
         Line(report, "wicDecoded", decoded);

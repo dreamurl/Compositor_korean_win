@@ -38,8 +38,9 @@ internal sealed class GraphicsDevice : IDisposable
 
     private GraphicsDevice(IDXGIFactory2 factory, ID3D11Device device, ID3D11DeviceContext context,
                            ID2D1Factory1 d2dFactory, ID2D1Device d2dDevice, ID2D1DeviceContext d2dContext,
-                           FeatureLevel featureLevel, bool isWarp)
+                           FeatureLevel featureLevel, bool isWarp, string adapter)
     {
+        Adapter = adapter;
         DxgiFactory = factory;
         D3DDevice = device;
         D3DContext = context;
@@ -68,9 +69,17 @@ internal sealed class GraphicsDevice : IDisposable
     /// </remarks>
     public ID2D1Bitmap1? BackBuffer => _backBuffer;
 
-    /// <summary>True when no GPU was available and Windows' software rasteriser took over.</summary>
-    /// <remarks>CI runners have no GPU, so the M0 numbers taken there are WARP numbers.</remarks>
+    /// <summary>True when no adapter would take a Direct2D device and WARP was asked for instead.</summary>
+    /// <remarks>
+    /// Not the same question as "is this a real GPU". An adapter can answer to a hardware device
+    /// and still render on the processor — Microsoft's Basic Render Driver does exactly that, and a
+    /// virtual machine's adapter may too. <see cref="Adapter"/> is what actually says what ran, and
+    /// it is reported alongside every measurement for that reason.
+    /// </remarks>
     public bool IsWarp { get; }
+
+    /// <summary>What the adapter calls itself, as DXGI reports it.</summary>
+    public string Adapter { get; }
 
     public static GraphicsDevice Create()
     {
@@ -93,11 +102,24 @@ internal sealed class GraphicsDevice : IDisposable
         }
 
         using IDXGIDevice dxgiDevice = device.QueryInterface<IDXGIDevice>();
+
+        string adapter = "unknown";
+        try
+        {
+            using IDXGIAdapter found = dxgiDevice.GetAdapter();
+            adapter = found.Description.Description.Trim();
+        }
+        catch (SharpGenException)
+        {
+            // Only the name is lost; everything else works without it.
+        }
+
         ID2D1Factory1 d2dFactory = D2D1CreateFactory<ID2D1Factory1>();
         ID2D1Device d2dDevice = d2dFactory.CreateDevice(dxgiDevice);
         ID2D1DeviceContext d2dContext = d2dDevice.CreateDeviceContext();
 
-        return new GraphicsDevice(factory, device, context, d2dFactory, d2dDevice, d2dContext, level, warp);
+        return new GraphicsDevice(factory, device, context, d2dFactory, d2dDevice, d2dContext,
+                                  level, warp, adapter);
     }
 
     /// <summary>
