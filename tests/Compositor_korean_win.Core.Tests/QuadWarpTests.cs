@@ -144,10 +144,14 @@ public class QuadWarpTests
             [second] = new(new Point(20, 0), new Size(10, 10)),
         };
 
-        LayerTransform from = TransformGroup.BoxAround([.. originals.Values]);
-        LayerTransform to = from with { Origin = new Point(from.Origin.X + 7, from.Origin.Y - 3) };
+        // Not named "from": that word starts a query expression, and "from with" is one.
+        LayerTransform before = TransformGroup.BoxAround([.. originals.Values]);
+        LayerTransform after = before with
+        {
+            Origin = new Point(before.Origin.X + 7, before.Origin.Y - 3),
+        };
 
-        IReadOnlyDictionary<Guid, LayerTransform> moved = TransformGroup.Follow(originals, from, to);
+        IReadOnlyDictionary<Guid, LayerTransform> moved = TransformGroup.Follow(originals, before, after);
 
         // A plain move carries exactly, and the layers keep their distance from each other.
         Assert.Equal(new Point(7, -3), moved[first].Origin);
@@ -163,10 +167,10 @@ public class QuadWarpTests
             [id] = new(new Point(10, 10), new Size(10, 10)),
         };
 
-        LayerTransform from = TransformGroup.BoxAround([.. originals.Values]);
-        LayerTransform to = new(new Point(10, 10), new Size(20, 20));
+        LayerTransform before = TransformGroup.BoxAround([.. originals.Values]);
+        LayerTransform after = new(new Point(10, 10), new Size(20, 20));
 
-        LayerTransform moved = TransformGroup.Follow(originals, from, to)[id];
+        LayerTransform moved = TransformGroup.Follow(originals, before, after)[id];
 
         Assert.Equal(new Size(20, 20), moved.Size);
         Assert.Equal(new Point(10, 10), moved.Origin);
