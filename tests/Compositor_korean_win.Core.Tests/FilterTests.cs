@@ -33,7 +33,7 @@ public class FilterTests
     // MARK: The filters
 
     [Theory]
-    [InlineData(1.0)]
+    [InlineData(PixelFilters.BoxThreshold)]
     [InlineData(5.0)]
     [InlineData(40.0)]
     public void ThreeBoxesAddUpToTheGaussiansVariance(double sigma)
@@ -58,6 +58,18 @@ public class FilterTests
 
         // Far from any edge nothing leaves the buffer.
         Assert.InRange(Total(blurred, 3), 121 * 255 * 0.97, 121 * 255 * 1.03);
+    }
+
+    [Fact]
+    public void ASmallBlurSpreadsADotAsTheKernelSays()
+    {
+        // Below the box threshold the kernel runs as it is: the centre keeps 1 / (2πσ²) of the dot.
+        using PixelBuffer dot = Dot(21, 10, 10);
+        using PixelBuffer blurred = PixelFilters.GaussianBlur(dot, 1);
+
+        Assert.InRange(At(blurred, 10, 10).A, 38, 42);
+        Assert.Equal(At(blurred, 9, 10), At(blurred, 11, 10));
+        Assert.Equal(At(blurred, 10, 9), At(blurred, 10, 11));
     }
 
     [Fact]

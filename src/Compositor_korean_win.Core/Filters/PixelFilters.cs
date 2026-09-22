@@ -71,7 +71,10 @@ public sealed record FilterSettings
 /// <para>
 /// Gaussian Blur is three box blurs in each direction, the standard approximation: its cost does not
 /// grow with the radius, which a true Gaussian kernel's does, and a radius of 250 is within the
-/// range. The boxes are sized so their combined variance matches σ² as closely as whole widths allow.
+/// range. The boxes are sized so their combined variance matches σ² as closely as whole widths allow
+/// — which for a small σ is not close at all: at σ = 1 the nearest three odd widths give two thirds
+/// of the variance or four thirds of it. Below <see cref="BoxThreshold"/> the kernel is small
+/// enough to run as it is, so it does.
 /// </para>
 /// <para>
 /// Motion Blur smears evenly along the whole distance, which is what Photoshop does and what
@@ -91,6 +94,9 @@ public static class PixelFilters
     /// the centre.
     /// </summary>
     public const double LensStrength = 0.35;
+
+    /// <summary>The σ from which three boxes stand in for the true kernel.</summary>
+    public const double BoxThreshold = 3;
 
     /// <summary>How far a filter reaches past a pixel, in layer pixels — the room a blur needs.</summary>
     public static int Reach(FilterKind kind, FilterSettings settings)
@@ -164,6 +170,8 @@ public static class PixelFilters
     /// <summary>A Gaussian blur of standard deviation <paramref name="sigma"/> pixels.</summary>
     public static PixelBuffer GaussianBlur(PixelBuffer source, double sigma)
     {
+        if (sigma > 0 && sigma < BoxThreshold) return TrueGaussian(source, sigma);
+
         PixelBuffer result = Copy(source);
         if (!(sigma > 0)) return result;
 
@@ -183,6 +191,84 @@ public static class PixelFilters
         }
 
         return result;
+    }
+
+    /// <summary>A separable Gaussian with the kernel itself, reaching three σ.</summary>
+    private static PixelBuffer TrueGaussian(PixelBuffer source, double sigma)
+    {
+        int radius = (int)Math.Ceiling(sigma * 3);
+        var weights = new double[radius * 2 + 1];
+        double total = 0;
+        for (int k = -radius; k <= radius; k++) total += weights[k + radius] = Math.Exp(-k * k / (2 * sigma * sigma));
+        for (int k = 0; k < weights.Length; k++) weights[k] /= total;
+
+        PixelBuffer across = PixelBuffer.Allocate(source.Width, source.Height);
+        PixelBuffer result = PixelBuffer.Allocate(source.Width, source.Height);
+        try
+        {
+            Convolve(source, across, weights, horizontal: true);
+            Convolve(across, result, weights, horizontal: false);
+        }
+        finally
+        {
+            across.Release();
+        }
+        return result;
+    }
+
+    /// <summary>One direction of a separable kernel, transparent past the edges.</summary>
+    /// <remarks>
+    /// Both directions go a row at a time — the vertical one by adding whole rows into a row of
+    /// sums — so memory is read in order either way.
+    /// </remarks>
+    private static void Convolve(PixelBuffer from, PixelBuffer to, double[] weights, bool horizontal)
+    {
+        int radius = weights.Length / 2;
+        int width = from.Width, height = from.Height;
+        var sums = new double[width * 4];
+
+        for (int y = 0; y < height; y++)
+        {
+            Array.Clear(sums);
+
+            if (horizontal)
+            {
+                ReadOnlySpan<byte> input = from.Row(y);
+                for (int x = 0; x < width; x++)
+                {
+                    int first = Math.Max(-radius, -x), last = Math.Min(radius, width - 1 - x);
+                    for (int k = first; k <= last; k++)
+                    {
+                        double w = weights[k + radius];
+                        int i = (x + k) * 4;
+                        sums[x * 4] += input[i] * w;
+                        sums[x * 4 + 1] += input[i + 1] * w;
+                        sums[x * 4 + 2] += input[i + 2] * w;
+                        sums[x * 4 + 3] += input[i + 3] * w;
+                    }
+                }
+            }
+            else
+            {
+                int first = Math.Max(-radius, -y), last = Math.Min(radius, height - 1 - y);
+                for (int k = first; k <= last; k++)
+                {
+                    double w = weights[k + radius];
+                    ReadOnlySpan<byte> input = from.Row(y + k);
+                    for (int i = 0; i < width * 4; i++) sums[i] += input[i] * w;
+                }
+            }
+
+            Span<byte> output = to.Row(y);
+            for (int x = 0; x < width; x++)
+            {
+                int o = x * 4;
+                byte alpha = (byte)Math.Min(255, Math.Round(sums[o + 3], MidpointRounding.AwayFromZero));
+                output[o + 3] = alpha;
+                for (int c = 0; c < 3; c++)
+                    output[o + c] = (byte)Math.Min(alpha, Math.Round(sums[o + c], MidpointRounding.AwayFromZero));
+            }
+        }
     }
 
     /// <summary>
