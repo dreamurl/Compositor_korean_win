@@ -42,6 +42,9 @@ internal static class AdjustBench
         public required double PreviewFullSizeMs { get; init; }
         public required long PreviewFullSizePixels { get; init; }
 
+        /// <summary>Milliseconds each adjustment takes over one window of pixels on its own.</summary>
+        public required IReadOnlyList<(AdjustmentKind Kind, double Ms)> PerKindMs { get; init; }
+
         /// <summary>
         /// The bound M5 closes on: each adjustment touches the window once a frame, and a filter
         /// preview filters no more than four windows' worth, however large the layer.
@@ -108,8 +111,16 @@ internal static class AdjustBench
             CanvasViewport close = viewport.ZoomedTo(1, viewport.Center, plain.Size);
             (double closeMs, long closePixels) = TimePreview(plain, close, surface, backend, preview);
 
+            var perKind = new List<(AdjustmentKind, double)>();
+            using (PixelBuffer window = CanvasBench.Fill(width, height))
+            {
+                foreach (ImageLayer layer in adjustments)
+                    perKind.Add((layer.Adjustment!.Kind, TimeKind(layer.Adjustment, window)));
+            }
+
             return new Result
             {
+                PerKindMs = perKind,
                 DocumentPixels = (long)side * side,
                 ViewPixels = (long)width * height,
                 Adjustments = adjustments.Count,
@@ -169,6 +180,21 @@ internal static class AdjustBench
                 Opacity = adjustment.Kind == AdjustmentKind.GradientMap ? 0.5 : 1,
             }),
         ];
+    }
+
+    /// <summary>Milliseconds one adjustment takes over a copy of <paramref name="window"/>.</summary>
+    private static double TimeKind(LayerAdjustment adjustment, PixelBuffer window)
+    {
+        var clock = new Stopwatch();
+        for (int i = 0; i < 1 + Frames; i++)
+        {
+            PixelBuffer copy = PixelRegion.Copy(window, new PixelRect(0, 0, window.Width, window.Height));
+            if (i > 0) clock.Start();
+            AdjustmentRendering.Apply(adjustment, copy, PixelPlacement.Document);
+            clock.Stop();
+            copy.Release();
+        }
+        return clock.Elapsed.TotalMilliseconds / Frames;
     }
 
     private static LevelsSettings Levels(double black, double gamma) => new()

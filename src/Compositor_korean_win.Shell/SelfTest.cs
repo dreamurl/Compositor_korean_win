@@ -274,6 +274,8 @@ internal static class SelfTest
             Line(report, "previewFullSizeMs", adjust.PreviewFullSizeMs);
             Line(report, "previewFullSizePixels", adjust.PreviewFullSizePixels);
             Line(report, "adjustWithinBudget", adjust.WithinBudget);
+            foreach ((AdjustmentKind kind, double ms) in adjust.PerKindMs)
+                Line(report, "adjustMs" + kind, ms);
         }
 
         Support(report, "r8g8b8a8", rgba);
