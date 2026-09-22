@@ -37,7 +37,19 @@ namespace Compositor_korean_win.Core;
 /// hundred-megapixel layer draws the tiles it touched rather than rebuilding the layer on every
 /// mouse move (docs/windows-port.md §2.3).
 /// </remarks>
-public sealed record LiveEdit(Guid LayerId, IPixelSource Source);
+public sealed record LiveEdit(Guid LayerId, IPixelSource Source)
+{
+    /// <summary>
+    /// Where <see cref="Source"/> goes on the document, when it is not where the layer is.
+    /// </summary>
+    /// <remarks>
+    /// A filter preview hands over only the part of the layer in view, reduced, and padded by
+    /// however far a blur spreads — a different grid over a different box. The layer's own mask
+    /// then no longer shares the source's grid, so it is placed on the document instead, over the
+    /// layer's own box, which covers the same pixels.
+    /// </remarks>
+    public LayerTransform? Placement { get; init; }
+}
 
 public static class LayerCompositor
 {
@@ -471,7 +483,9 @@ public static class LayerCompositor
 
         // An edit in progress stands in for the layer's own pixels — including on a blank layer,
         // which has none until the first stroke is committed.
-        IPixelSource? source = live is LiveEdit edit && edit.LayerId == layer.Id ? edit.Source : null;
+        LiveEdit? standIn = live is LiveEdit edit && edit.LayerId == layer.Id ? edit : null;
+        IPixelSource? source = standIn?.Source;
+        LayerTransform? moved = standIn?.Placement;
         if (source is null)
         {
             if (layer.Image is not PixelBuffer image) return;
@@ -484,15 +498,22 @@ public static class LayerCompositor
         if (layer.Mask is { IsEnabled: true, Placement: LayerTransform placement } placed)
             clips.Add(projection.Apply(new MaskClip(placed.Coverage, placement)));
 
+        PixelBuffer? ownMask = layer.Mask is { IsEnabled: true } mask && mask.Placement is null ? mask.Coverage : null;
+        if (ownMask is not null && moved is not null)
+        {
+            clips.Add(projection.Apply(new MaskClip(ownMask, layer.Transform)));
+            ownMask = null;
+        }
+
         if (extra is MaskClip clip) clips.Add(clip);
 
         surface.Draw(new LayerDraw
         {
             Source = source,
-            Placement = projection.Apply(layer.Transform),
+            Placement = projection.Apply(moved ?? layer.Transform),
             Opacity = layer.Opacity,
             Blend = blend ?? layer.BlendMode,
-            Mask = layer.Mask is { IsEnabled: true } mask && mask.Placement is null ? mask.Coverage : null,
+            Mask = ownMask,
             Clips = clips,
         });
     }
