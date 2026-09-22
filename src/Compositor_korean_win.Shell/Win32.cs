@@ -38,6 +38,10 @@ internal static partial class Win32
     internal const int VK_SHIFT = 0x10;
     internal const int VK_CONTROL = 0x11;
     internal const int VK_MENU = 0x12;
+    internal const int VK_LEFT = 0x25;
+    internal const int VK_UP = 0x26;
+    internal const int VK_RIGHT = 0x27;
+    internal const int VK_DOWN = 0x28;
     internal const int VK_0 = 0x30;
     internal const int VK_1 = 0x31;
     internal const int VK_A = 0x41;

@@ -54,9 +54,11 @@ internal sealed class CanvasView : IDisposable
     private CanvasViewport _viewport = new();
     private double _scale = 1;
 
-    private Guid? _selected;
+    private readonly HashSet<Guid> _chosen = [];
     private TransformDrag? _drag;
-    private Guid _dragging;
+    private Dictionary<Guid, LayerTransform> _originals = [];
+    private LayerTransform? _boxAtStart;
+    private IReadOnlyList<Point>? _distorting;
     private SnapGuides _targets = SnapGuides.None;
     private SnapResult _snap;
     private bool _panning;
@@ -80,7 +82,11 @@ internal sealed class CanvasView : IDisposable
 
     public CanvasViewport Viewport => _viewport;
 
-    public Guid? Selected => _selected;
+    /// <summary>The layers the handles belong to. More than one share a box.</summary>
+    public IReadOnlyCollection<Guid> Chosen => _chosen;
+
+    /// <summary>The one layer history and the inspector answer to, of however many are chosen.</summary>
+    private Guid? Primary => _chosen.Count > 0 ? _chosen.First() : null;
 
     /// <summary>What is selected, or null for no selection — which means the whole canvas.</summary>
     public DocumentSelection? Selection => _selection;
@@ -94,7 +100,9 @@ internal sealed class CanvasView : IDisposable
     {
         _document = document;
         _history.Reset();
-        _selected = document.Layers.FirstOrDefault(layer => !layer.IsGroup && layer.Image is not null)?.Id;
+        _chosen.Clear();
+        if (document.Layers.LastOrDefault(layer => !layer.IsGroup && layer.Image is not null) is ImageLayer top)
+            _chosen.Add(top.Id);
         _viewport = _viewport.Fit(document.Size);
         NeedsRedraw = true;
     }
@@ -175,20 +183,84 @@ internal sealed class CanvasView : IDisposable
             return;
         }
 
-        if (_selected is Guid id && _document.Layer(id) is ImageLayer chosen
-            && HitHandle(chosen.Transform, view) is int handle)
+        bool shift = Win32.IsKeyDown(Win32.VK_SHIFT);
+        bool control = Win32.IsKeyDown(Win32.VK_CONTROL);
+        bool alt = Win32.IsKeyDown(Win32.VK_MENU);
+
+        // A handle takes the drag before anything under it does. Held with control it distorts:
+        // the corner moves on its own, which no placement can hold, so the pixels are resampled
+        // when the drag ends (QuadWarp).
+        if (Box() is LayerTransform box && HitHandle(box, view) is int handle)
         {
-            Begin(chosen, handle == RotationHandle
+            TransformDragMode mode = handle == RotationHandle
                 ? TransformDragMode.Rotate
-                : TransformDragMode.Resize(handle), pixel);
+                : TransformDragMode.Resize(handle);
+
+            if (control && handle != RotationHandle && _chosen.Count == 1)
+            {
+                Begin(box, TransformDragMode.Distort(handle), pixel);
+                return;
+            }
+
+            Begin(box, mode, pixel);
             return;
         }
 
         ImageLayer? hit = Topmost(pixel);
-        _selected = hit?.Id;
         NeedsRedraw = true;
 
-        if (hit is not null) Begin(hit, TransformDragMode.Move, pixel);
+        if (hit is null)
+        {
+            if (!shift) _chosen.Clear();
+            return;
+        }
+
+        // Shift adds to the selection; anything else replaces it, unless the layer is already in it
+        // — clicking one of several chosen layers picks them all up together.
+        if (shift)
+        {
+            if (!_chosen.Add(hit.Id)) _chosen.Remove(hit.Id);
+        }
+        else if (!_chosen.Contains(hit.Id))
+        {
+            _chosen.Clear();
+            _chosen.Add(hit.Id);
+        }
+
+        if (_chosen.Count == 0) return;
+        if (alt) Duplicate();
+        if (Box() is LayerTransform moving) Begin(moving, TransformDragMode.Move, pixel);
+    }
+
+    /// <summary>
+    /// Copies the chosen layers and picks the copies up instead, which is what alt-dragging means.
+    /// </summary>
+    /// <remarks>
+    /// The copy shares the original's pixels rather than duplicating four hundred megabytes: a
+    /// buffer is immutable, so two layers holding one are two layers with the same pixels, and
+    /// painting on either makes a new buffer anyway (docs/windows-port.md §2.2).
+    /// </remarks>
+    private void Duplicate()
+    {
+        if (_document is null) return;
+
+        var copies = new List<ImageLayer>();
+        var chosen = new List<Guid>(_chosen);
+
+        foreach (Guid id in chosen)
+        {
+            if (_document.Layer(id) is not ImageLayer layer) continue;
+            copies.Add(layer with { Id = Guid.NewGuid(), Name = layer.Name + " 복사" });
+        }
+
+        if (copies.Count == 0) return;
+
+        _history.Begin("레이어 복제", _document, copies[0].Id);
+        _document = _document with { Layers = _document.Layers.Concat(copies).ToEquatableList() };
+        _history.End(_document, copies[0].Id);
+
+        _chosen.Clear();
+        foreach (ImageLayer copy in copies) _chosen.Add(copy.Id);
     }
 
     /// <summary>The pointer moved, with the modifiers that were down as it did.</summary>
@@ -221,11 +293,21 @@ internal sealed class CanvasView : IDisposable
             return;
         }
 
-        if (_drag is not TransformDrag drag || _document.Layer(_dragging) is not ImageLayer layer) return;
+        if (_drag is not TransformDrag drag || _boxAtStart is not LayerTransform from) return;
+
+        Point pixel = _viewport.DocumentPoint(view, _document.Size);
+
+        // A distortion has no placement to show yet: the corners move now and the pixels are
+        // resampled into them when the button comes up.
+        if (drag.Corners(pixel, shift) is IReadOnlyList<Point> corners)
+        {
+            if (QuadWarp.IsUsable(corners)) _distorting = corners;
+            NeedsRedraw = true;
+            return;
+        }
 
         // Dragging, scaling and rotating land on whole pixels and whole degrees; a value typed into
         // the inspector stays exactly as it was typed.
-        Point pixel = _viewport.DocumentPoint(view, _document.Size);
         LayerTransform draft = drag.Updated(pixel, lockRatio: false, shift, alt).Rounded();
 
         // Moving snaps to the canvas and to the other layers; resizing and rotating are left alone,
@@ -236,8 +318,31 @@ internal sealed class CanvasView : IDisposable
             (draft, _snap) = TransformSnap.Move(draft, _targets, TransformSnap.ToleranceFor(_viewport));
         }
 
-        _document = _document.Replacing(layer with { Transform = draft });
+        // One layer is its own box, so it takes the draft as it is; several are carried along with
+        // theirs. Going through the group arithmetic either way would put a multiply and a divide
+        // between what the handle said and what the layer got.
+        if (Primary is Guid only && _chosen.Count == 1 && _document.Layer(only) is ImageLayer single)
+        {
+            _document = _document.Replacing(single with { Transform = draft });
+        }
+        else
+        {
+            Apply(TransformGroup.Follow(_originals, from, draft));
+        }
+
         NeedsRedraw = true;
+    }
+
+    /// <summary>Puts a set of placements onto the document, one layer at a time.</summary>
+    private void Apply(IReadOnlyDictionary<Guid, LayerTransform> placements)
+    {
+        if (_document is null) return;
+
+        foreach ((Guid id, LayerTransform placement) in placements)
+        {
+            if (_document.Layer(id) is not ImageLayer layer) continue;
+            _document = _document.Replacing(layer with { Transform = placement });
+        }
     }
 
     public void PointerUp()
@@ -258,8 +363,33 @@ internal sealed class CanvasView : IDisposable
 
         _drag = null;
         _snap = default;
-        _history.End(_document, _selected);
+        ApplyDistortion();
+        _history.End(_document, Primary);
         NeedsRedraw = true;
+    }
+
+    /// <summary>
+    /// Resamples the distorted layer into the corners the drag left it at.
+    /// </summary>
+    /// <remarks>
+    /// This is the one transform that cannot stay in the six numbers, so it is also the one that
+    /// spends pixels: what comes back is an upright layer whose image holds the distortion. A shape
+    /// that folded over on itself is refused and the layer is left alone.
+    /// </remarks>
+    private void ApplyDistortion()
+    {
+        IReadOnlyList<Point>? corners = _distorting;
+        _distorting = null;
+
+        if (corners is null || _document is null) return;
+        if (_chosen.Count != 1 || _document.Layer(_chosen.First()) is not ImageLayer layer) return;
+        if (layer.Image is not PixelBuffer image) return;
+
+        (PixelBuffer Pixels, LayerTransform Placement)? warped = QuadWarp.Resample(image, corners);
+        if (warped is null) return;
+
+        _document = _document.Replacing(
+            layer with { Image = warped.Value.Pixels, Transform = warped.Value.Placement });
     }
 
     /// <summary>
@@ -350,12 +480,16 @@ internal sealed class CanvasView : IDisposable
                 _selection = null;
                 break;
 
+            case Win32.VK_LEFT or Win32.VK_RIGHT or Win32.VK_UP or Win32.VK_DOWN:
+                Nudge(key, Win32.IsKeyDown(Win32.VK_SHIFT) ? 10 : 1);
+                break;
+
             case Win32.VK_Z when control:
-                Apply(_history.Undo());
+                Step(_history.Undo());
                 break;
 
             case Win32.VK_Y when control:
-                Apply(_history.Redo());
+                Step(_history.Redo());
                 break;
 
             default:
@@ -365,12 +499,44 @@ internal sealed class CanvasView : IDisposable
         NeedsRedraw = true;
         return true;
 
-        void Apply(HistorySnapshot? snapshot)
+        void Step(HistorySnapshot? snapshot)
         {
             if (snapshot is null) return;
             _document = snapshot.Document;
-            _selected = snapshot.ActiveLayerId;
+            _chosen.Clear();
+            if (snapshot.ActiveLayerId is Guid active) _chosen.Add(active);
         }
+    }
+
+    /// <summary>
+    /// Moves the chosen layers a pixel at a time, ten with shift held.
+    /// </summary>
+    /// <remarks>
+    /// Recorded as one history entry per press rather than one per run of presses. Upstream does
+    /// the same; holding an arrow down and undoing once would otherwise put back an arbitrary
+    /// amount of movement.
+    /// </remarks>
+    private void Nudge(int key, double step)
+    {
+        if (_document is null || _chosen.Count == 0) return;
+
+        double dx = key == Win32.VK_LEFT ? -step : key == Win32.VK_RIGHT ? step : 0;
+        double dy = key == Win32.VK_UP ? -step : key == Win32.VK_DOWN ? step : 0;
+
+        _history.Begin("레이어 이동", _document, Primary);
+
+        foreach (Guid id in _chosen)
+        {
+            if (_document.Layer(id) is not ImageLayer layer) continue;
+            LayerTransform moved = layer.Transform with
+            {
+                Origin = new Point(layer.Transform.Origin.X + dx, layer.Transform.Origin.Y + dy),
+            };
+
+            if (moved.IsValid) _document = _document.Replacing(layer with { Transform = moved });
+        }
+
+        _history.End(_document, Primary);
     }
 
     // MARK: Hit testing
@@ -419,14 +585,50 @@ internal sealed class CanvasView : IDisposable
                          top.Y - Math.Cos(transform.Radians) * RotationReach);
     }
 
-    private void Begin(ImageLayer layer, TransformDragMode mode, Point pixel)
+    /// <summary>
+    /// The box the handles belong to: one layer's own placement, or the upright box around several.
+    /// </summary>
+    /// <remarks>
+    /// A single layer keeps its own rotation, so its handles turn with it. Several layers share an
+    /// upright box and are carried along with it (<see cref="TransformGroup"/>), because rotating
+    /// each about its own centre would scatter them.
+    /// </remarks>
+    private LayerTransform? Box()
+    {
+        if (_document is null || _chosen.Count == 0) return null;
+
+        var placements = new List<LayerTransform>(_chosen.Count);
+        foreach (Guid id in _chosen)
+        {
+            if (_document.Layer(id) is ImageLayer layer) placements.Add(layer.Transform);
+        }
+
+        if (placements.Count == 0) return null;
+        return placements.Count == 1 ? placements[0] : TransformGroup.BoxAround(placements);
+    }
+
+    private void Begin(LayerTransform box, TransformDragMode mode, Point pixel)
     {
         if (_document is null) return;
 
-        _history.Begin("레이어 변형", _document, layer.Id);
-        _dragging = layer.Id;
-        _drag = new TransformDrag { Original = layer.Transform, Start = pixel, Mode = mode };
-        _targets = TransformSnap.TargetsFor(_document, new HashSet<Guid> { layer.Id });
+        _originals = [];
+        foreach (Guid id in _chosen)
+        {
+            if (_document.Layer(id) is ImageLayer layer) _originals[id] = layer.Transform;
+        }
+
+        _history.Begin("레이어 변형", _document, Primary);
+        _boxAtStart = box;
+        _distorting = null;
+        _drag = new TransformDrag
+        {
+            Original = box,
+            Start = pixel,
+            Mode = mode,
+            OriginalCorners = mode.Kind == TransformDragKind.Distort ? TransformDrag.CornersOf(box) : null,
+        };
+
+        _targets = TransformSnap.TargetsFor(_document, _chosen);
     }
 
     // MARK: The overlay
@@ -453,8 +655,7 @@ internal sealed class CanvasView : IDisposable
 
         DrawSelection(context, projection, fill, shadow, thickness);
 
-        if (_tool != CanvasTool.Move || _selected is not Guid id
-            || _document.Layer(id) is not ImageLayer layer)
+        if (_tool != CanvasTool.Move || Box() is not LayerTransform box)
         {
             context.EndDraw().CheckError();
             return;
@@ -462,21 +663,24 @@ internal sealed class CanvasView : IDisposable
 
         DrawGuides(context, guide, projection, thickness);
 
-        Point[] corners = [.. TransformDrag.CornersOf(layer.Transform).Select(corner => projection.Apply(corner))];
+        // While a corner is being dragged free the shape is no longer a placement, so the outline
+        // follows the corners themselves. The handles stay on the box they started from.
+        IReadOnlyList<Point> shape = _distorting ?? TransformDrag.CornersOf(box);
+        Point[] corners = [.. shape.Select(corner => projection.Apply(corner))];
         for (int i = 0; i < corners.Length; i++)
         {
             context.DrawLine(Vector(corners[i]), Vector(corners[(i + 1) % corners.Length]),
                              outline, thickness);
         }
 
-        Point rotation = RotationPoint(layer.Transform, projection);
-        Point top = projection.Apply(layer.Transform.PointAt(new Point(0.5, 0)));
+        Point rotation = RotationPoint(box, projection);
+        Point top = projection.Apply(box.PointAt(new Point(0.5, 0)));
         context.DrawLine(Vector(top), Vector(rotation), outline, thickness);
         Square(context, rotation, half, fill, outline, thickness);
 
         foreach (Point unit in TransformDrag.Handles)
         {
-            Square(context, projection.Apply(layer.Transform.PointAt(unit)), half, fill, outline, thickness);
+            Square(context, projection.Apply(box.PointAt(unit)), half, fill, outline, thickness);
         }
 
         context.EndDraw().CheckError();
