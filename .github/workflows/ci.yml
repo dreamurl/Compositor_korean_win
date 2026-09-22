@@ -101,7 +101,7 @@ jobs:
             "| 첫 프레임까지 | {0:N1} ms |" -f $report.timeToFirstFrameMs | Out-File -Append $env:GITHUB_STEP_SUMMARY
             "| 최대 작업 집합 | {0:N1} MB |" -f ($report.peakWorkingSetBytes / 1MB) | Out-File -Append $env:GITHUB_STEP_SUMMARY
             "| 관리 힙 | {0:N0} KB |" -f ($report.managedHeapBytes / 1KB) | Out-File -Append $env:GITHUB_STEP_SUMMARY
-            "| 드라이버 | $($report.driver) / $($report.featureLevel) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            "| 드라이버 | $($report.driver) / $($report.featureLevel) / $($report.adapter) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
             "| 선택된 픽셀 포맷 | **$($report.chosenFormat)** |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
             "| RGBA 렌더 타깃 | $($report.r8g8b8a8.renderTarget) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
             "| BGRA 렌더 타깃 | $($report.b8g8r8a8.renderTarget) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
@@ -123,7 +123,7 @@ jobs:
               "| 프레임 시간 (100%) | {0:N1} ms |" -f $report.canvasFullSizeFrameMs | Out-File -Append $env:GITHUB_STEP_SUMMARY
               "| 벤치 포함 최대 작업 집합 | {0:N1} MB |" -f ($report.canvasPeakWorkingSetBytes / 1MB) | Out-File -Append $env:GITHUB_STEP_SUMMARY
               "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
-              "프레임 시간은 GPU 없는 러너(WARP) 수치이므로 기록만 하고 판정에 쓰지 않는다." |
+              "프레임 시간은 러너 어댑터($($report.adapter)) 수치이므로 기록만 하고 판정에 쓰지 않는다." |
                 Out-File -Append $env:GITHUB_STEP_SUMMARY
               "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
             }

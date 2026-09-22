@@ -11,7 +11,7 @@ namespace Compositor_korean_win.Shell;
 /// M4 closes on stroke latency, which is the delay between the pointer moving and the paint
 /// appearing. Two things make it up and both are measured here: the time to take the stroke on to
 /// the next point, which is tiles being stamped and rebuilt, and the time to draw the frame that
-/// shows it.
+/// shows it. The absolute figures belong to whatever adapter drew them, which the report names.
 /// </para>
 /// <para>
 /// The figure that matters is neither of those on its own but the comparison between them on a

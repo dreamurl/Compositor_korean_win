@@ -9,13 +9,15 @@ namespace Compositor_korean_win.Shell;
 /// <remarks>
 /// <para>
 /// M3's original completion criterion was sixty frames a second on a hundred megapixels, which
-/// cannot be shown here: the runner has no GPU, so this is WARP, and nothing is built locally
-/// (docs/windows-port.md §10.4). What sixty frames a second actually asks for is that a frame's
+/// cannot be shown here: the runner's adapter rasterises on the processor whatever DXGI calls it,
+/// and nothing is built locally (docs/windows-port.md §10.4). What sixty frames a second asks for
+/// is that a frame's
 /// work follow the window rather than the document, and that is what this measures — the same
 /// window, the same zooms, a document a hundred times the size of the one beside it.
 /// </para>
 /// <para>
-/// The figures are recorded, not judged. What is judged is the invariant: the pixels a frame reads
+/// The figures are recorded, not judged — the report carries the adapter's own name beside them so
+/// they can be read for what they are. What is judged is the invariant: the pixels a frame reads
 /// stay inside four times the window's own, whatever the document.
 /// </para>
 /// </remarks>
