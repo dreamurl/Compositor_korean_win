@@ -167,6 +167,26 @@ public sealed record DocumentSelection
         return region.IsEmpty ? (default, []) : (region, Levels(region));
     }
 
+    /// <summary>
+    /// The same selection with every point moved by <paramref name="map"/>.
+    /// </summary>
+    /// <remarks>
+    /// How a selection crosses between the document and a layer's own pixel grid. It is exact for
+    /// anything a placement can express — moving, scaling, rotating, flipping are all affine, and
+    /// an affine map takes a straight edge to a straight edge, so the outline needs no resampling
+    /// on the way.
+    /// </remarks>
+    public DocumentSelection Transformed(Func<Point, Point> map) => this with
+    {
+        Shapes =
+        [
+            .. Shapes.Select(shape => shape with
+            {
+                Loops = [.. shape.Loops.Select(loop => new SelectionLoop([.. loop.Points.Select(map)]))],
+            }),
+        ],
+    };
+
     /// <summary>Whether a document point is selected at all.</summary>
     public bool Contains(Point point)
     {

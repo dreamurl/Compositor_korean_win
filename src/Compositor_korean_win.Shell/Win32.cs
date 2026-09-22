@@ -45,12 +45,24 @@ internal static partial class Win32
     internal const int VK_0 = 0x30;
     internal const int VK_1 = 0x31;
     internal const int VK_A = 0x41;
+    internal const int VK_B = 0x42;
     internal const int VK_D = 0x44;
+    internal const int VK_E = 0x45;
+    internal const int VK_G = 0x47;
+    internal const int VK_J = 0x4A;
     internal const int VK_L = 0x4C;
     internal const int VK_M = 0x4D;
+    internal const int VK_R = 0x52;
+    internal const int VK_S = 0x53;
+    internal const int VK_U = 0x55;
     internal const int VK_V = 0x56;
+    internal const int VK_W = 0x57;
     internal const int VK_Y = 0x59;
     internal const int VK_Z = 0x5A;
+
+    /// <summary>The bracket keys, which size the brush.</summary>
+    internal const int VK_OEM_4 = 0xDB;
+    internal const int VK_OEM_6 = 0xDD;
 
     /// <summary>The wheel's own unit: one notch.</summary>
     internal const int WHEEL_DELTA = 120;

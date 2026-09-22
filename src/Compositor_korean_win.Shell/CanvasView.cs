@@ -19,6 +19,50 @@ internal enum CanvasTool
     RectangleMarquee,
     EllipseMarquee,
     Lasso,
+
+    /// <summary>Paints the foreground colour.</summary>
+    Brush,
+
+    /// <summary>Takes pixels away.</summary>
+    Eraser,
+
+    /// <summary>Paints pixels sampled from somewhere else on the same layer.</summary>
+    CloneStamp,
+
+    /// <summary>Softens what is under it.</summary>
+    Blur,
+
+    /// <summary>Marks what to rebuild from the texture around it.</summary>
+    Heal,
+
+    /// <summary>Selects the pixels that look like the one clicked.</summary>
+    MagicWand,
+
+    /// <summary>Drags out a gradient.</summary>
+    Gradient,
+
+    /// <summary>Drags out a rectangle, a rounded rectangle or an ellipse.</summary>
+    Shape,
+}
+
+/// <summary>Which tools make a stroke rather than a drag or a click.</summary>
+internal static class CanvasTools
+{
+    public static bool Paints(this CanvasTool tool) => tool
+        is CanvasTool.Brush or CanvasTool.Eraser or CanvasTool.CloneStamp
+        or CanvasTool.Blur or CanvasTool.Heal;
+
+    public static bool DragsOutAShape(this CanvasTool tool) =>
+        tool is CanvasTool.Gradient or CanvasTool.Shape;
+
+    public static BrushMode ModeFor(this CanvasTool tool) => tool switch
+    {
+        CanvasTool.Eraser => BrushMode.Erase,
+        CanvasTool.CloneStamp => BrushMode.Clone,
+        CanvasTool.Blur => BrushMode.Blur,
+        CanvasTool.Heal => BrushMode.Heal,
+        _ => BrushMode.Paint,
+    };
 }
 
 /// <summary>
@@ -66,6 +110,14 @@ internal sealed class CanvasView : IDisposable
 
     private CanvasTool _tool = CanvasTool.Move;
     private DocumentSelection? _selection;
+
+    private BrushStroke? _stroke;
+    private PixelBuffer? _strokeBase;
+    private Guid _painting;
+    private PixelRect _paintGrid;
+    private Point? _cloneAnchor;
+    private Point? _shapeFrom;
+    private Point _shapeTo;
     private Point? _marqueeFrom;
     private Point _marqueeTo;
     private List<Point>? _lasso;
@@ -92,6 +144,15 @@ internal sealed class CanvasView : IDisposable
     public DocumentSelection? Selection => _selection;
 
     public CanvasTool Tool => _tool;
+
+    /// <summary>What the brush and the tools built on it are set to.</summary>
+    public BrushSettings Brush { get; set; } = new();
+
+    public ShapeSettings Shape { get; set; } = new();
+
+    public GradientSettings Gradient { get; set; } = new();
+
+    public WandSettings Wand { get; set; } = new();
 
     /// <summary>Set whenever something changed that the window has not drawn yet.</summary>
     public bool NeedsRedraw { get; private set; } = true;
@@ -148,7 +209,7 @@ internal sealed class CanvasView : IDisposable
         if (_document is not null)
         {
             _surface ??= _backend.CreateWindowSurface(width, height);
-            LayerCompositor.DrawView(_document, _viewport, _surface, _backend);
+            LayerCompositor.DrawView(_document, _viewport, _surface, _backend, Live());
             DrawOverlay(context);
         }
 
@@ -171,6 +232,26 @@ internal sealed class CanvasView : IDisposable
         }
 
         Point pixel = _viewport.DocumentPoint(view, _document.Size);
+
+        if (_tool.Paints())
+        {
+            BeginStroke(pixel, alt: Win32.IsKeyDown(Win32.VK_MENU));
+            return;
+        }
+
+        if (_tool.DragsOutAShape())
+        {
+            _shapeFrom = pixel;
+            _shapeTo = pixel;
+            NeedsRedraw = true;
+            return;
+        }
+
+        if (_tool == CanvasTool.MagicWand)
+        {
+            Wave(pixel, add: Win32.IsKeyDown(Win32.VK_SHIFT), subtract: Win32.IsKeyDown(Win32.VK_MENU));
+            return;
+        }
 
         if (_tool != CanvasTool.Move)
         {
@@ -276,6 +357,22 @@ internal sealed class CanvasView : IDisposable
             return;
         }
 
+        if (_stroke is BrushStroke stroke && _document.Layer(_painting) is ImageLayer painted)
+        {
+            stroke.Append(LayerGeometry.ToPixels(painted.Transform,
+                                                 _viewport.DocumentPoint(view, _document.Size),
+                                                 _paintGrid.Width, _paintGrid.Height));
+            NeedsRedraw = true;
+            return;
+        }
+
+        if (_shapeFrom is not null)
+        {
+            _shapeTo = _viewport.DocumentPoint(view, _document.Size);
+            NeedsRedraw = true;
+            return;
+        }
+
         if (_marqueeFrom is not null)
         {
             _marqueeTo = _viewport.DocumentPoint(view, _document.Size);
@@ -349,6 +446,18 @@ internal sealed class CanvasView : IDisposable
     {
         _panning = false;
 
+        if (_stroke is not null)
+        {
+            EndStroke();
+            return;
+        }
+
+        if (_shapeFrom is Point corner)
+        {
+            EndShape(corner);
+            return;
+        }
+
         if (_marqueeFrom is Point start)
         {
             Commit(start);
@@ -391,6 +500,206 @@ internal sealed class CanvasView : IDisposable
         _document = _document.Replacing(
             layer with { Image = warped.Value.Pixels, Transform = warped.Value.Placement });
     }
+
+    // MARK: Painting
+
+    /// <summary>
+    /// The stroke in progress, as pixels the compositor can draw.
+    /// </summary>
+    /// <remarks>
+    /// The layer's own pixels with the stroke's tiles over them, which is the whole point of
+    /// keeping a stroke in tiles: the frame draws the tiles that changed, and the layer underneath
+    /// is the buffer it always was.
+    /// </remarks>
+    private LiveEdit? Live()
+    {
+        if (_stroke is not BrushStroke stroke || _document is null) return null;
+        if (_document.Layer(_painting) is not ImageLayer layer) return null;
+
+        PixelBuffer? under = layer.Image ?? _strokeBase;
+        if (under is null) return null;
+
+        return new LiveEdit(_painting, new LayerRaster(under, stroke.Patches));
+    }
+
+    /// <summary>
+    /// Starts a stroke on the chosen layer, in that layer's own pixels.
+    /// </summary>
+    /// <remarks>
+    /// A layer with no pixels yet gets the document's grid, which is what upstream gives a new
+    /// blank layer: painting is the thing that decides a blank layer's raster, and until then there
+    /// is nothing to decide it from.
+    /// </remarks>
+    private void BeginStroke(Point document, bool alt)
+    {
+        if (_document is null || Primary is not Guid id
+            || _document.Layer(id) is not ImageLayer layer || layer.IsGroup) return;
+
+        _paintGrid = layer.Image is PixelBuffer pixels
+            ? new PixelRect(0, 0, pixels.Width, pixels.Height)
+            : new PixelRect(0, 0, _document.Width, _document.Height);
+
+        LayerTransform placement = layer.Image is null
+            ? new LayerTransform(Point.Zero, new Size(_document.Width, _document.Height))
+            : layer.Transform;
+
+        Point start = LayerGeometry.ToPixels(placement, document, _paintGrid.Width, _paintGrid.Height);
+
+        // Alt sets where the clone stamp reads from rather than starting a stroke.
+        if (_tool == CanvasTool.CloneStamp && alt)
+        {
+            _cloneAnchor = start;
+            return;
+        }
+
+        BrushSettings settings = Brush with { Mode = _tool.ModeFor() };
+        if (_tool == CanvasTool.CloneStamp)
+        {
+            if (_cloneAnchor is not Point anchor || layer.Image is not PixelBuffer sample) return;
+            settings = settings with
+            {
+                CloneFrom = new CloneSource(sample, new Point(anchor.X - start.X, anchor.Y - start.Y)),
+            };
+        }
+
+        _history.Begin(Name(_tool), _document, id);
+        _painting = id;
+
+        // A blank layer has nothing to draw the stroke over, so it gets an empty grid to sit on
+        // until the stroke is committed and becomes the layer's pixels.
+        _strokeBase?.Release();
+        _strokeBase = layer.Image is null
+            ? PixelBuffer.Allocate(_paintGrid.Width, _paintGrid.Height)
+            : null;
+
+        _stroke = new BrushStroke(layer.Image, _paintGrid.Width, _paintGrid.Height, settings,
+                                  Restricted(placement));
+        _stroke.Append(start);
+        NeedsRedraw = true;
+    }
+
+    /// <summary>Commits the stroke as one history entry, healing first if that is what it was.</summary>
+    private void EndStroke()
+    {
+        BrushStroke? stroke = _stroke;
+        _stroke = null;
+        if (stroke is null) return;
+
+        try
+        {
+            if (_document is null || _document.Layer(_painting) is not ImageLayer layer) return;
+            if (stroke.IsEmpty) return;
+
+            if (_tool == CanvasTool.Heal) stroke.Heal((uint)Random.Shared.Next());
+
+            PixelBuffer committed = stroke.Commit();
+            _document = _document.Replacing(layer with
+            {
+                Image = committed,
+                Transform = layer.Image is null
+                    ? new LayerTransform(Point.Zero, new Size(_document.Width, _document.Height))
+                    : layer.Transform,
+            });
+
+            _history.End(_document, _painting);
+            NeedsRedraw = true;
+        }
+        finally
+        {
+            stroke.Dispose();
+            _strokeBase?.Release();
+            _strokeBase = null;
+        }
+    }
+
+    /// <summary>Lays down the gradient or shape that was just dragged out.</summary>
+    private void EndShape(Point corner)
+    {
+        Point end = _shapeTo;
+        _shapeFrom = null;
+        NeedsRedraw = true;
+
+        if (_document is null || Primary is not Guid id
+            || _document.Layer(id) is not ImageLayer layer || layer.IsGroup) return;
+
+        int width = layer.Image?.Width ?? _document.Width;
+        int height = layer.Image?.Height ?? _document.Height;
+
+        LayerTransform placement = layer.Image is null
+            ? new LayerTransform(Point.Zero, new Size(_document.Width, _document.Height))
+            : layer.Transform;
+
+        Point from = LayerGeometry.ToPixels(placement, corner, width, height);
+        Point to = LayerGeometry.ToPixels(placement, end, width, height);
+        DocumentSelection? restricted = Restricted(placement);
+
+        PixelBuffer drawn;
+        if (_tool == CanvasTool.Gradient)
+        {
+            drawn = GradientTool.Draw(layer.Image, width, height, from, to, Gradient, restricted);
+        }
+        else
+        {
+            var box = Rect.FromBounds(Math.Min(from.X, to.X), Math.Min(from.Y, to.Y),
+                                      Math.Max(from.X, to.X), Math.Max(from.Y, to.Y));
+            if (box.IsEmpty) return;
+            drawn = ShapeTool.Draw(layer.Image, width, height, box, Shape, restricted);
+        }
+
+        _history.Begin(Name(_tool), _document, id);
+        _document = _document.Replacing(layer with { Image = drawn, Transform = placement });
+        _history.End(_document, id);
+    }
+
+    /// <summary>
+    /// Selects what the wand matched, in document space.
+    /// </summary>
+    /// <remarks>
+    /// The kernel works in the layer's pixels and a selection lives on the document, so the outline
+    /// crosses over on the way out. It is exact: a placement is affine, and an affine map takes a
+    /// straight edge to a straight edge.
+    /// </remarks>
+    private void Wave(Point document, bool add, bool subtract)
+    {
+        if (_document is null || Primary is not Guid id
+            || _document.Layer(id) is not ImageLayer layer || layer.Image is not PixelBuffer pixels) return;
+
+        Point pixel = LayerGeometry.ToPixels(layer.Transform, document, pixels.Width, pixels.Height);
+        (DocumentSelection? matched, WandOutcome outcome) = MagicWand.Select(pixels, pixel, Wand);
+
+        LastWandOutcome = outcome;
+        if (matched is null) return;
+
+        DocumentSelection inDocument = matched.Transformed(
+            point => LayerGeometry.ToDocument(layer.Transform, point, pixels.Width, pixels.Height));
+
+        _selection = _selection is DocumentSelection existing && (add || subtract)
+            ? subtract ? existing.Subtracting(inDocument) : existing.Adding(inDocument)
+            : inDocument;
+
+        NeedsRedraw = true;
+    }
+
+    /// <summary>What the last wand click came to, for the shell to report.</summary>
+    public WandOutcome LastWandOutcome { get; private set; } = WandOutcome.Selected;
+
+    /// <summary>The selection in the layer's own pixels, which is what a tool is held to.</summary>
+    private DocumentSelection? Restricted(LayerTransform placement) =>
+        _selection?.Transformed(point => LayerGeometry.ToPixels(placement, point,
+                                                                _paintGrid.Width > 0 ? _paintGrid.Width : 1,
+                                                                _paintGrid.Height > 0 ? _paintGrid.Height : 1));
+
+    private static string Name(CanvasTool tool) => tool switch
+    {
+        CanvasTool.Brush => "브러시",
+        CanvasTool.Eraser => "지우개",
+        CanvasTool.CloneStamp => "복제 도장",
+        CanvasTool.Blur => "흐리게",
+        CanvasTool.Heal => "스팟 힐링",
+        CanvasTool.Gradient => "그라디언트",
+        CanvasTool.Shape => "셰이프",
+        _ => "편집",
+    };
 
     /// <summary>
     /// Turns the drag that just ended into a selection, joined to whatever was selected already.
@@ -470,6 +779,47 @@ internal sealed class CanvasView : IDisposable
 
             case Win32.VK_L when !control:
                 _tool = CanvasTool.Lasso;
+                break;
+
+            case Win32.VK_B when !control:
+                _tool = CanvasTool.Brush;
+                break;
+
+            case Win32.VK_E when !control:
+                _tool = CanvasTool.Eraser;
+                break;
+
+            case Win32.VK_S when !control:
+                _tool = CanvasTool.CloneStamp;
+                break;
+
+            case Win32.VK_R when !control:
+                _tool = CanvasTool.Blur;
+                break;
+
+            case Win32.VK_J when !control:
+                _tool = CanvasTool.Heal;
+                break;
+
+            case Win32.VK_W when !control:
+                _tool = CanvasTool.MagicWand;
+                break;
+
+            case Win32.VK_G when !control:
+                _tool = CanvasTool.Gradient;
+                break;
+
+            case Win32.VK_U when !control:
+                _tool = CanvasTool.Shape;
+                break;
+
+            // The bracket keys size the brush, as they do everywhere else.
+            case Win32.VK_OEM_4 or Win32.VK_OEM_6:
+                Brush = Brush with
+                {
+                    Diameter = Math.Clamp(key == Win32.VK_OEM_4 ? Brush.Diameter / 1.25
+                                                                : Brush.Diameter * 1.25, 1, 2000),
+                };
                 break;
 
             case Win32.VK_A when control:
@@ -706,6 +1056,21 @@ internal sealed class CanvasView : IDisposable
 
         if (_marqueeFrom is Point start) Outline(InProgress(start));
 
+        // The gradient's line and the shape's outline, while they are being dragged out.
+        if (_shapeFrom is Point corner)
+        {
+            if (_tool == CanvasTool.Gradient)
+            {
+                Outline([corner, _shapeTo]);
+            }
+            else
+            {
+                var box = Rect.FromBounds(Math.Min(corner.X, _shapeTo.X), Math.Min(corner.Y, _shapeTo.Y),
+                                          Math.Max(corner.X, _shapeTo.X), Math.Max(corner.Y, _shapeTo.Y));
+                if (!box.IsEmpty) Outline(ShapeTool.Outline(box, Shape).Shapes[0].Loops[0].Points);
+            }
+        }
+
         void Outline(IReadOnlyList<Point> points)
         {
             if (points.Count < 2) return;
@@ -775,6 +1140,8 @@ internal sealed class CanvasView : IDisposable
 
     public void Dispose()
     {
+        _stroke?.Dispose();
+        _strokeBase?.Release();
         _surface?.Dispose();
         _backend.Dispose();
     }

@@ -96,6 +96,50 @@ public static class LayerGeometry
     }
 
     /// <summary>
+    /// Where a document point falls in a layer's own pixel grid.
+    /// </summary>
+    /// <remarks>
+    /// Every tool works in this grid and not in document pixels: a brush paints into the layer's
+    /// raster, so a layer scaled to a third has a third-sized brush on screen and full-sized dabs
+    /// in its own pixels — which is what keeps painting non-destructive with the placement
+    /// (docs/windows-port.md §2.1).
+    /// </remarks>
+    public static Point ToPixels(LayerTransform placement, Point document, int width, int height)
+    {
+        double cos = Math.Cos(placement.Radians), sin = Math.Sin(placement.Radians);
+        Point centre = placement.Center;
+
+        double dx = document.X - centre.X, dy = document.Y - centre.Y;
+        double localX = dx * cos + dy * sin;
+        double localY = -dx * sin + dy * cos;
+        if (placement.FlipX) localX = -localX;
+        if (placement.FlipY) localY = -localY;
+
+        double u = localX / Math.Max(1e-9, placement.Size.Width) + 0.5;
+        double v = localY / Math.Max(1e-9, placement.Size.Height) + 0.5;
+
+        return new Point(u * width, v * height);
+    }
+
+    /// <summary>Where a layer pixel falls on the document — the inverse of <see cref="ToPixels"/>.</summary>
+    public static Point ToDocument(LayerTransform placement, Point pixel, int width, int height)
+    {
+        double u = pixel.X / Math.Max(1, width);
+        double v = pixel.Y / Math.Max(1, height);
+
+        double localX = (u - 0.5) * placement.Size.Width;
+        double localY = (v - 0.5) * placement.Size.Height;
+        if (placement.FlipX) localX = -localX;
+        if (placement.FlipY) localY = -localY;
+
+        double cos = Math.Cos(placement.Radians), sin = Math.Sin(placement.Radians);
+        Point centre = placement.Center;
+
+        return new Point(centre.X + localX * cos - localY * sin,
+                         centre.Y + localX * sin + localY * cos);
+    }
+
+    /// <summary>
     /// Where one region of a layer's pixels sits on the document, given where the whole layer does.
     /// </summary>
     /// <remarks>
