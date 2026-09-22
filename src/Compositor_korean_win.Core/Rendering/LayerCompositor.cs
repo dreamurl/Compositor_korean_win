@@ -25,6 +25,17 @@ namespace Compositor_korean_win.Core;
 /// applying one means running a filter over what is underneath, which is M5.
 /// </para>
 /// </remarks>
+/// <summary>
+/// A layer being edited right now, drawn from an edit's own pixels instead of its buffer.
+/// </summary>
+/// <remarks>
+/// This is how a brush stroke reaches the screen before it has been committed: the stroke holds
+/// the tiles it has rebuilt and hands them over as a <see cref="LayerRaster"/>, so a stroke on a
+/// hundred-megapixel layer draws the tiles it touched rather than rebuilding the layer on every
+/// mouse move (docs/windows-port.md §2.3).
+/// </remarks>
+public sealed record LiveEdit(Guid LayerId, IPixelSource Source);
+
 public static class LayerCompositor
 {
     /// <summary>One layer in render order, with everything needed to draw it.</summary>
@@ -67,14 +78,14 @@ public static class LayerCompositor
     /// on a surface the size of the document its edges did that for free, and here they do not.
     /// </remarks>
     public static void DrawView(CanvasDocument document, CanvasViewport viewport,
-                                IRenderSurface surface, IRenderBackend backend)
+                                IRenderSurface surface, IRenderBackend backend, LiveEdit? live = null)
     {
         CanvasProjection projection = viewport.DeviceProjection(document.Size);
 
         surface.PushClip(projection.Apply(new Rect(0, 0, document.Width, document.Height)));
         try
         {
-            Draw(document, surface, backend, projection);
+            Draw(document, surface, backend, projection, live);
         }
         finally
         {
@@ -91,9 +102,9 @@ public static class LayerCompositor
     /// <paramref name="projection"/>.
     /// </summary>
     public static void Draw(CanvasDocument document, IRenderSurface surface, IRenderBackend backend,
-                            CanvasProjection projection)
+                            CanvasProjection projection, LiveEdit? live = null)
     {
-        List<Item> items = RenderOrder(document);
+        List<Item> items = RenderOrder(document, live?.LayerId);
         var byId = document.Layers.ToDictionary(layer => layer.Id);
         var canvas = new LayerTransform(Point.Zero, new Size(surface.Width, surface.Height));
 
@@ -113,18 +124,18 @@ public static class LayerCompositor
                 if (!byId.TryGetValue(sourceId, out ImageLayer? source)) continue;
 
                 using PixelBuffer coverage = Coverage(source, surface, backend, projection);
-                DrawOne(item, surface, projection, new MaskClip(coverage, canvas));
+                DrawOne(item, surface, projection, new MaskClip(coverage, canvas), live: live);
                 continue;
             }
 
             List<Item> clipped = ContiguousClipped(items, i, item.Layer.Id);
             if (clipped.Count == 0)
             {
-                DrawOne(item, surface, projection, extra: null);
+                DrawOne(item, surface, projection, extra: null, live: live);
                 continue;
             }
 
-            DrawClippingGroup(item, clipped, surface, backend, projection);
+            DrawClippingGroup(item, clipped, surface, backend, projection, live);
             for (int k = 1; k <= clipped.Count; k++) consumed.Add(i + k);
         }
     }
@@ -132,7 +143,7 @@ public static class LayerCompositor
     /// <summary>
     /// The layers to draw, bottom to top, each with the folder masks that apply to it.
     /// </summary>
-    private static List<Item> RenderOrder(CanvasDocument document)
+    private static List<Item> RenderOrder(CanvasDocument document, Guid? live = null)
     {
         // Roots are kept apart rather than under a null key, which a dictionary will not take.
         var roots = new List<ImageLayer>();
@@ -183,7 +194,9 @@ public static class LayerCompositor
                     continue;
                 }
 
-                if (!effective || layer.Image is null) continue;
+                // A blank layer has no pixels until a stroke is committed, so one being painted
+                // on right now has to reach the list anyway.
+                if (!effective || (layer.Image is null && layer.Id != live)) continue;
                 result.Add(new Item(layer, clips));
             }
         }
@@ -207,14 +220,15 @@ public static class LayerCompositor
     /// </summary>
     /// <remarks>See <see cref="ClippingGroup"/> for why it goes in this order.</remarks>
     private static void DrawClippingGroup(Item baseItem, List<Item> clipped, IRenderSurface surface,
-                                          IRenderBackend backend, CanvasProjection projection)
+                                          IRenderBackend backend, CanvasProjection projection,
+                                          LiveEdit? live = null)
     {
         using IRenderSurface group = backend.CreateSurface(surface.Width, surface.Height);
         group.Clear();
 
         // The base goes down with its own opacity but in Normal: what it would blend against is
         // outside this surface, and the group as a whole carries its blend mode instead.
-        DrawOne(baseItem, group, projection, extra: null, blend: LayerBlendMode.Normal);
+        DrawOne(baseItem, group, projection, extra: null, blend: LayerBlendMode.Normal, live: live);
 
         using PixelBuffer basePixels = group.Read();
         using ClippingGroup.Coverage coverage = ClippingGroup.ExtractAlpha(basePixels);
@@ -223,7 +237,7 @@ public static class LayerCompositor
 
         // No clip here on purpose: the layers composite against an opaque backdrop at full
         // strength, and the base's coverage is reapplied to the result afterwards.
-        foreach (Item item in clipped) DrawOne(item, group, projection, extra: null);
+        foreach (Item item in clipped) DrawOne(item, group, projection, extra: null, live: live);
 
         using PixelBuffer composed = group.Read();
         ClippingGroup.RestoreAlpha(composed, coverage);
@@ -245,10 +259,18 @@ public static class LayerCompositor
     /// which the caller has already built in the surface's own pixels.
     /// </remarks>
     private static void DrawOne(Item item, IRenderSurface surface, CanvasProjection projection,
-                                MaskClip? extra, LayerBlendMode? blend = null)
+                                MaskClip? extra, LayerBlendMode? blend = null, LiveEdit? live = null)
     {
         ImageLayer layer = item.Layer;
-        if (layer.Image is not PixelBuffer image) return;
+
+        // An edit in progress stands in for the layer's own pixels — including on a blank layer,
+        // which has none until the first stroke is committed.
+        IPixelSource? source = live is LiveEdit edit && edit.LayerId == layer.Id ? edit.Source : null;
+        if (source is null)
+        {
+            if (layer.Image is not PixelBuffer image) return;
+            source = new BufferSource(image);
+        }
 
         var clips = new List<MaskClip>(item.Clips.Count + 2);
         foreach (MaskClip inherited in item.Clips) clips.Add(projection.Apply(inherited));
@@ -260,7 +282,7 @@ public static class LayerCompositor
 
         surface.Draw(new LayerDraw
         {
-            Source = new BufferSource(image),
+            Source = source,
             Placement = projection.Apply(layer.Transform),
             Opacity = layer.Opacity,
             Blend = blend ?? layer.BlendMode,
