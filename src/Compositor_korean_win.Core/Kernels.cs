@@ -12,9 +12,10 @@ namespace Compositor_korean_win.Core;
 /// static library is linked straight into the executable and no <c>compositor_kernels.dll</c> ships.
 /// Under the test run, which is plain CoreCLR, the same name resolves to the DLL instead.
 ///
-/// M0 bound only what it needed to prove the boundary works; M4 binds the rest — the magic wand,
-/// spot healing and content-aware fill, which are the three places where a C loop is not an
-/// optimisation but the difference between a tool and a hang.
+/// M0 bound only what it needed to prove the boundary works; M4 bound the magic wand, spot healing
+/// and content-aware fill, which are the three places where a C loop is not an optimisation but
+/// the difference between a tool and a hang. M5 binds the last two files — the image adjustments
+/// and lens correction — so every exported kernel now has a caller.
 /// </remarks>
 public static partial class Kernels
 {
@@ -116,4 +117,35 @@ public static partial class Kernels
     [LibraryImport(Library, EntryPoint = "content_fill")]
     public static partial int ContentFill(nint rgba, nuint stride, nint mask, nuint maskStride,
                                           int width, int height);
+
+    /// <summary>
+    /// Gradient Map in place: luminance picks a colour from <paramref name="table"/>, 256 × 3
+    /// straight sRGB bytes, darkest first. Alpha is kept.
+    /// </summary>
+    [LibraryImport(Library, EntryPoint = "adjust_gradient_map")]
+    public static partial void AdjustGradientMap(nint rgba, nuint width, nuint height, nuint stride, nint table);
+
+    /// <summary>
+    /// Film grain in place. Pixel (x, y) sits at (<paramref name="originX"/> + (x + 0.5) ×
+    /// <paramref name="unitsPerPixel"/>, likewise for y) on the document, and its grain depends
+    /// only on that position and the seed — so a piece of the canvas gets the grain that part of
+    /// the whole would have had.
+    /// </summary>
+    [LibraryImport(Library, EntryPoint = "adjust_grain")]
+    public static partial void AdjustGrain(nint rgba, nuint width, nuint height, nuint stride,
+                                           double amount, double size, double roughness, uint seed,
+                                           double originX, double originY, double unitsPerPixel);
+
+    /// <summary>Clamps each colour channel back to its alpha, <paramref name="count"/> pixels.</summary>
+    [LibraryImport(Library, EntryPoint = "rgba_clamp_premultiplied")]
+    public static partial void RgbaClampPremultiplied(nint rgba, nuint count);
+
+    /// <summary>
+    /// Radial lens distortion from <paramref name="source"/> into <paramref name="destination"/>,
+    /// which share one size and stride. Positive <paramref name="k"/> straightens barrel
+    /// distortion, negative straightens pincushion; zero copies.
+    /// </summary>
+    [LibraryImport(Library, EntryPoint = "lens_distort")]
+    public static partial void LensDistort(nint source, nint destination, nuint width, nuint height,
+                                           nuint stride, double k);
 }

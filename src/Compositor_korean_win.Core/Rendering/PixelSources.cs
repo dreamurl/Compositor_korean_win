@@ -5,6 +5,16 @@ public sealed class BufferSource(PixelBuffer buffer) : IPixelSource
 {
     public PixelBuffer Buffer { get; } = buffer;
 
+    /// <summary>
+    /// Whether a backend may keep what it made of this buffer for the next frame.
+    /// </summary>
+    /// <remarks>
+    /// False for a buffer made for one draw and released straight after — a composited clipping
+    /// group, an adjusted frame. A cache keyed by the buffer could never hit on one of those again,
+    /// and every frame would push a window's worth of dead uploads into it.
+    /// </remarks>
+    public bool Cacheable { get; init; } = true;
+
     public int Width => Buffer.Width;
     public int Height => Buffer.Height;
 

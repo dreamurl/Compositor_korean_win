@@ -21,8 +21,11 @@ namespace Compositor_korean_win.Core;
 /// thicken it — upstream's note, and the reason the group surface exists.</item>
 /// </list>
 /// <para>
-/// Adjustment layers draw nothing here. They are read and written by the format layer already, but
-/// applying one means running a filter over what is underneath, which is M5.
+/// An adjustment layer draws nothing of its own. It reads back what has been composited beneath
+/// it, runs its filter over that and writes the result in its place — through its opacity, its
+/// mask and whatever folders it sits in, which all reduce to one weight per pixel. That is why a
+/// document with adjustments is composited on a surface of its own first: the target might be the
+/// window, with the desk and the sheet already on it, and an adjustment must not tint those.
 /// </para>
 /// </remarks>
 /// <summary>
@@ -82,10 +85,11 @@ public static class LayerCompositor
     {
         CanvasProjection projection = viewport.DeviceProjection(document.Size);
 
-        surface.PushClip(projection.Apply(new Rect(0, 0, document.Width, document.Height)));
+        Rect canvas = projection.Apply(new Rect(0, 0, document.Width, document.Height));
+        surface.PushClip(canvas);
         try
         {
-            Draw(document, surface, backend, projection, live);
+            Draw(document, surface, backend, projection, live, canvas);
         }
         finally
         {
@@ -102,9 +106,43 @@ public static class LayerCompositor
     /// <paramref name="projection"/>.
     /// </summary>
     public static void Draw(CanvasDocument document, IRenderSurface surface, IRenderBackend backend,
-                            CanvasProjection projection, LiveEdit? live = null)
+                            CanvasProjection projection, LiveEdit? live = null) =>
+        Draw(document, surface, backend, projection, live, clip: null);
+
+    /// <param name="clip">
+    /// What the target is clipped to, so a frame composited apart from it can be clipped the same.
+    /// </param>
+    private static void Draw(CanvasDocument document, IRenderSurface surface, IRenderBackend backend,
+                             CanvasProjection projection, LiveEdit? live, Rect? clip)
     {
         List<Item> items = RenderOrder(document, live?.LayerId);
+
+        if (!items.Any(item => IsAdjustment(item.Layer)))
+        {
+            DrawItems(document, items, surface, backend, projection, live);
+            return;
+        }
+
+        // Adjustments read back what is under them, and what is under them has to be the layers
+        // alone: the target may already hold the window's desk and the white sheet, which are not
+        // part of the picture and must not be adjusted with it.
+        using IRenderSurface frame = backend.CreateSurface(surface.Width, surface.Height);
+        frame.Clear();
+        if (clip is Rect region) frame.PushClip(region);
+
+        DrawItems(document, items, frame, backend, projection, live);
+
+        using PixelBuffer composed = frame.Read();
+        surface.Draw(new LayerDraw
+        {
+            Source = new BufferSource(composed) { Cacheable = false },
+            Placement = Whole(surface),
+        });
+    }
+
+    private static void DrawItems(CanvasDocument document, List<Item> items, IRenderSurface surface,
+                                  IRenderBackend backend, CanvasProjection projection, LiveEdit? live)
+    {
         var byId = document.Layers.ToDictionary(layer => layer.Id);
         var canvas = new LayerTransform(Point.Zero, new Size(surface.Width, surface.Height));
 
@@ -115,6 +153,24 @@ public static class LayerCompositor
         {
             if (consumed.Contains(i)) continue;
             Item item = items[i];
+
+            if (IsAdjustment(item.Layer))
+            {
+                // Clipped but not part of a group: the adjustment keeps to what its base covers.
+                // Upstream leaves such a layer out altogether; restricting it is the reading that
+                // agrees with how an ordinary layer in the same place is drawn.
+                if (item.Layer.MaskSourceId is Guid adjustedBase)
+                {
+                    if (!byId.TryGetValue(adjustedBase, out ImageLayer? baseLayer)) continue;
+                    using PixelBuffer baseCoverage = Coverage(baseLayer, surface, backend, projection);
+                    ApplyAdjustment(item, surface, backend, projection, new MaskClip(baseCoverage, canvas));
+                }
+                else
+                {
+                    ApplyAdjustment(item, surface, backend, projection, extra: null);
+                }
+                continue;
+            }
 
             if (item.Layer.MaskSourceId is Guid sourceId)
             {
@@ -196,7 +252,9 @@ public static class LayerCompositor
 
                 // A blank layer has no pixels until a stroke is committed, so one being painted
                 // on right now has to reach the list anyway.
-                if (!effective || (layer.Image is null && layer.Id != live)) continue;
+                // An adjustment layer has no pixels either, and is drawn by what it does to the
+                // pixels beneath it.
+                if (!effective || (layer.Image is null && layer.Id != live && !IsAdjustment(layer))) continue;
                 result.Add(new Item(layer, clips));
             }
         }
@@ -237,20 +295,167 @@ public static class LayerCompositor
 
         // No clip here on purpose: the layers composite against an opaque backdrop at full
         // strength, and the base's coverage is reapplied to the result afterwards.
-        foreach (Item item in clipped) DrawOne(item, group, projection, extra: null, live: live);
+        foreach (Item item in clipped)
+        {
+            // An adjustment in a clipping group adjusts the group so far — over the opaque base,
+            // so its alpha coming back afterwards is what keeps it inside the base's shape.
+            if (IsAdjustment(item.Layer)) ApplyAdjustment(item, group, backend, projection, extra: null);
+            else DrawOne(item, group, projection, extra: null, live: live);
+        }
 
         using PixelBuffer composed = group.Read();
         ClippingGroup.RestoreAlpha(composed, coverage);
 
         surface.Draw(new LayerDraw
         {
-            Source = new BufferSource(composed),
-            Placement = new LayerTransform(Point.Zero, new Size(surface.Width, surface.Height))
-            {
-                Sampling = LayerSampling.Nearest,
-            },
+            Source = new BufferSource(composed) { Cacheable = false },
+            Placement = Whole(surface),
             Blend = baseItem.Layer.BlendMode,
         });
+    }
+
+    private static bool IsAdjustment(ImageLayer layer) => layer.Adjustment is not null && !layer.IsGroup;
+
+    /// <summary>A placement covering a surface pixel for pixel.</summary>
+    private static LayerTransform Whole(IRenderSurface surface) =>
+        new(Point.Zero, new Size(surface.Width, surface.Height)) { Sampling = LayerSampling.Nearest };
+
+    /// <summary>
+    /// Runs an adjustment layer over what is on <paramref name="surface"/> so far.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The order is upstream's: adjust the whole frame, blend the adjusted frame with the original
+    /// if the layer has a blend mode, then let opacity and masks decide how much of that replaces
+    /// what was there. A blend mode applies at full coverage with the original alpha put back
+    /// afterwards, for the reason a clipping group does the same — blending two translucent copies
+    /// of a soft edge would thicken it.
+    /// </para>
+    /// <para>
+    /// The cost is one read and one write of the surface, which is the window's size and not the
+    /// document's: by the time an adjustment runs, the frame has already been reduced to what is
+    /// on screen.
+    /// </para>
+    /// </remarks>
+    private static void ApplyAdjustment(Item item, IRenderSurface surface, IRenderBackend backend,
+                                        CanvasProjection projection, MaskClip? extra)
+    {
+        ImageLayer layer = item.Layer;
+        LayerAdjustment adjustment = layer.Adjustment!;
+
+        if (layer.Opacity <= 0) return;
+        if (layer.BlendMode == LayerBlendMode.Normal && AdjustmentRendering.IsIdentity(adjustment)) return;
+
+        var clips = new List<MaskClip>(item.Clips.Count + 2);
+        foreach (MaskClip inherited in item.Clips) clips.Add(projection.Apply(inherited));
+
+        // The layer's own mask is placed on the document whether or not it is linked: an
+        // adjustment has no pixels of its own for a mask to share a grid with.
+        if (layer.Mask is { IsEnabled: true } mask)
+            clips.Add(projection.Apply(new MaskClip(mask.Coverage, mask.Placement ?? layer.Transform)));
+
+        if (extra is MaskClip clip) clips.Add(clip);
+
+        using PixelBuffer original = surface.Read();
+        PixelBuffer adjusted = PixelRegion.Copy(original, new PixelRect(0, 0, original.Width, original.Height));
+
+        try
+        {
+            AdjustmentRendering.Apply(adjustment, adjusted, PixelPlacement.For(projection));
+
+            if (layer.BlendMode != LayerBlendMode.Normal)
+            {
+                PixelBuffer blended = BlendAtFullCoverage(original, adjusted, layer.BlendMode, backend);
+                adjusted.Release();
+                adjusted = blended;
+            }
+
+            if (clips.Count == 0)
+            {
+                AdjustmentRendering.Mix(original, adjusted, weights: null, layer.Opacity);
+            }
+            else
+            {
+                using PixelBuffer weights = Weights(surface, clips, layer.Opacity, backend);
+                AdjustmentRendering.Mix(original, adjusted, weights);
+            }
+
+            surface.Write(adjusted);
+        }
+        finally
+        {
+            adjusted.Release();
+        }
+    }
+
+    /// <summary>
+    /// <paramref name="top"/> blended onto <paramref name="bottom"/> as if both were opaque, with
+    /// <paramref name="bottom"/>'s alpha put back. The caller owns the result.
+    /// </summary>
+    private static PixelBuffer BlendAtFullCoverage(PixelBuffer bottom, PixelBuffer top, LayerBlendMode mode,
+                                                   IRenderBackend backend)
+    {
+        using ClippingGroup.Coverage alpha = ClippingGroup.ExtractAlpha(bottom);
+
+        PixelBuffer opaqueBottom = PixelRegion.Copy(bottom, new PixelRect(0, 0, bottom.Width, bottom.Height));
+        PixelBuffer opaqueTop = PixelRegion.Copy(top, new PixelRect(0, 0, top.Width, top.Height));
+        try
+        {
+            ClippingGroup.MakeOpaque(opaqueBottom);
+            ClippingGroup.MakeOpaque(opaqueTop);
+
+            using IRenderSurface scratch = backend.CreateSurface(bottom.Width, bottom.Height);
+            scratch.Write(opaqueBottom);
+            scratch.Draw(new LayerDraw
+            {
+                Source = new BufferSource(opaqueTop) { Cacheable = false },
+                Placement = Whole(scratch),
+                Blend = mode,
+            });
+
+            PixelBuffer blended = scratch.Read();
+            ClippingGroup.RestoreAlpha(blended, alpha);
+            return blended;
+        }
+        finally
+        {
+            opaqueTop.Release();
+            opaqueBottom.Release();
+        }
+    }
+
+    /// <summary>
+    /// How much of an adjustment each pixel of the surface takes, in the alpha channel: the opacity
+    /// through every clip.
+    /// </summary>
+    /// <remarks>
+    /// Drawn rather than computed, so that masks are sampled exactly as the renderer samples them
+    /// for an ordinary layer — rotated folder masks, unlinked masks and all. What is drawn is one
+    /// white pixel stretched over the surface, which costs nothing to materialise.
+    /// </remarks>
+    private static PixelBuffer Weights(IRenderSurface target, List<MaskClip> clips, double opacity,
+                                       IRenderBackend backend)
+    {
+        PixelBuffer white = PixelBuffer.Allocate(1, 1);
+        try
+        {
+            white.Row(0).Fill(255);
+
+            using IRenderSurface surface = backend.CreateSurface(target.Width, target.Height);
+            surface.Clear();
+            surface.Draw(new LayerDraw
+            {
+                Source = new BufferSource(white) { Cacheable = false },
+                Placement = Whole(surface),
+                Opacity = opacity,
+                Clips = clips,
+            });
+            return surface.Read();
+        }
+        finally
+        {
+            white.Release();
+        }
     }
 
     /// <remarks>
@@ -262,6 +467,7 @@ public static class LayerCompositor
                                 MaskClip? extra, LayerBlendMode? blend = null, LiveEdit? live = null)
     {
         ImageLayer layer = item.Layer;
+        if (IsAdjustment(layer)) return;
 
         // An edit in progress stands in for the layer's own pixels — including on a blank layer,
         // which has none until the first stroke is committed.

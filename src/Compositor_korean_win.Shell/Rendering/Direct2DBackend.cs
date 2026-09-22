@@ -372,7 +372,7 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
         /// </remarks>
         private Piece Resolve(LayerDraw draw, PixelRect needed, int level)
         {
-            bool cacheable = draw.Mask is null && draw.Source is BufferSource;
+            bool cacheable = draw.Mask is null && draw.Source is BufferSource { Cacheable: true };
             UploadCache.Key key = default;
 
             if (cacheable)
