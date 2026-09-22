@@ -56,8 +56,11 @@ public sealed record BrushSettings
 
     public SpotHealingMode HealingMode { get; init; } = SpotHealingMode.ContentAware;
 
-    /// <summary>Where <see cref="BrushMode.Clone"/> takes its pixels from.</summary>
-    public CloneSource? Clone { get; init; }
+    /// <summary>
+    /// Where <see cref="BrushMode.Clone"/> takes its pixels from.
+    /// </summary>
+    /// <remarks>Not named Clone: a record already has one of those, and it means something else.</remarks>
+    public CloneSource? CloneFrom { get; init; }
 
     /// <summary>How far <see cref="BrushMode.Blur"/> reaches, in layer pixels.</summary>
     public double BlurRadius { get; init; } = 4;
@@ -419,7 +422,7 @@ public sealed class BrushStroke : IDisposable
             return true;
         }
 
-        if (_settings.Clone is not CloneSource clone) return false;
+        if (_settings.CloneFrom is not CloneSource clone) return false;
 
         int sx = (int)Math.Round(x + clone.Offset.X, MidpointRounding.AwayFromZero);
         int sy = (int)Math.Round(y + clone.Offset.Y, MidpointRounding.AwayFromZero);

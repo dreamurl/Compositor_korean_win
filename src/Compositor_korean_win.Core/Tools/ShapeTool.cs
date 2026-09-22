@@ -1,14 +1,14 @@
 namespace Compositor_korean_win.Core;
 
-/// <summary>The shapes the shape tool draws.</summary>
-public enum ShapeKind
-{
-    Rectangle,
-    RoundedRectangle,
-    Ellipse,
-}
-
-/// <summary>What to draw and in what colour.</summary>
+/// <summary>
+/// What to draw and in what colour.
+/// </summary>
+/// <remarks>
+/// The kind is the format's own <see cref="ShapeKind"/>, which has two cases and not three: a
+/// rounded rectangle is a rectangle with a corner radius, exactly as <c>.comp</c> stores it. That
+/// is what lets a shape layer be redrawn at a new size from what was saved
+/// (<see cref="LayerShapeStyle"/>) rather than from a second vocabulary.
+/// </remarks>
 public sealed record ShapeSettings
 {
     public ShapeKind Kind { get; init; } = ShapeKind.Rectangle;
@@ -17,8 +17,29 @@ public sealed record ShapeSettings
 
     public double Opacity { get; init; } = 1;
 
-    /// <summary>Corner radius for <see cref="ShapeKind.RoundedRectangle"/>, in layer pixels.</summary>
-    public double CornerRadius { get; init; } = 12;
+    /// <summary>Corner radius in layer pixels; 0 is a square corner.</summary>
+    public double CornerRadius { get; init; }
+
+    /// <summary>What the format stores for a shape layer.</summary>
+    public LayerShapeStyle ToStyle() => new()
+    {
+        Kind = Kind,
+        Red = Color.R / 255.0,
+        Green = Color.G / 255.0,
+        Blue = Color.B / 255.0,
+        CornerRadius = CornerRadius,
+    };
+
+    /// <summary>The settings that would draw a saved shape layer again.</summary>
+    public static ShapeSettings From(LayerShapeStyle style) => new()
+    {
+        Kind = style.Kind,
+        CornerRadius = style.CornerRadius,
+        Color = new Rgba(Channel(style.Red), Channel(style.Green), Channel(style.Blue)),
+    };
+
+    private static byte Channel(double value) =>
+        (byte)Math.Clamp(Math.Round(value * 255, MidpointRounding.AwayFromZero), 0, 255);
 }
 
 /// <summary>
@@ -37,7 +58,7 @@ public static class ShapeTool
     public static DocumentSelection Outline(Rect box, ShapeSettings settings) => settings.Kind switch
     {
         ShapeKind.Ellipse => DocumentSelection.Ellipse(box),
-        ShapeKind.RoundedRectangle => Rounded(box, settings.CornerRadius),
+        _ when settings.CornerRadius > 0 => Rounded(box, settings.CornerRadius),
         _ => DocumentSelection.Rectangle(box),
     };
 

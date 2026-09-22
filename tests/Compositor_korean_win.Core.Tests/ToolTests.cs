@@ -29,7 +29,7 @@ public class ToolTests
             Diameter = 12,
             Hardness = 1,
             Mode = BrushMode.Clone,
-            Clone = new CloneSource(image, new Point(-40, 0)),
+            CloneFrom = new CloneSource(image, new Point(-40, 0)),
         };
 
         using var stroke = new BrushStroke(image, 64, 64, settings);
@@ -50,7 +50,7 @@ public class ToolTests
         {
             Diameter = 12,
             Mode = BrushMode.Clone,
-            Clone = new CloneSource(image, new Point(-1000, 0)),
+            CloneFrom = new CloneSource(image, new Point(-1000, 0)),
         };
 
         using var stroke = new BrushStroke(image, 64, 64, settings);
@@ -170,12 +170,12 @@ public class ToolTests
     }
 
     [Theory]
-    [InlineData(ShapeKind.Rectangle)]
-    [InlineData(ShapeKind.RoundedRectangle)]
-    [InlineData(ShapeKind.Ellipse)]
-    public void AShapeIsFilledWhereItIsAndNowhereElse(ShapeKind kind)
+    [InlineData(ShapeKind.Rectangle, 0)]
+    [InlineData(ShapeKind.Rectangle, 8)]
+    [InlineData(ShapeKind.Ellipse, 0)]
+    public void AShapeIsFilledWhereItIsAndNowhereElse(ShapeKind kind, double radius)
     {
-        var settings = new ShapeSettings { Kind = kind, Color = new Rgba(200, 40, 60), CornerRadius = 8 };
+        var settings = new ShapeSettings { Kind = kind, Color = new Rgba(200, 40, 60), CornerRadius = radius };
         using PixelBuffer drawn = ShapeTool.Draw(null, 64, 64, new Rect(16, 16, 32, 32), settings);
 
         try
@@ -193,7 +193,7 @@ public class ToolTests
     [Fact]
     public void RoundedCornersAreRoundedAndSquareOnesAreNot()
     {
-        var rounded = new ShapeSettings { Kind = ShapeKind.RoundedRectangle, CornerRadius = 12 };
+        var rounded = new ShapeSettings { Kind = ShapeKind.Rectangle, CornerRadius = 12 };
         var square = new ShapeSettings { Kind = ShapeKind.Rectangle };
 
         using PixelBuffer withCorners = ShapeTool.Draw(null, 64, 64, new Rect(16, 16, 32, 32), rounded);
@@ -219,6 +219,23 @@ public class ToolTests
         // Held to half the shorter side, so this is a stadium: a 10×10 rectangle with two
         // semicircular ends — 100 + π·5², not something that folded through itself.
         Assert.InRange(area, 170, 186);
+    }
+
+    [Fact]
+    public void ShapeSettingsAndTheFormatSayTheSameThing()
+    {
+        var settings = new ShapeSettings
+        {
+            Kind = ShapeKind.Ellipse,
+            Color = new Rgba(51, 102, 204),
+            CornerRadius = 6,
+        };
+
+        ShapeSettings back = ShapeSettings.From(settings.ToStyle());
+
+        Assert.Equal(settings.Kind, back.Kind);
+        Assert.Equal(settings.CornerRadius, back.CornerRadius);
+        Assert.Equal(settings.Color, back.Color);
     }
 
     [Fact]
