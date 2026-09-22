@@ -177,18 +177,102 @@ public static class AdjustmentRendering
         }
     }
 
+    /// <summary>
+    /// Levels, Curves and Exposure: <c>levels_apply</c>'s result for every pixel of the region.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The kernel is a pure function of one channel's premultiplied value and the pixel's alpha, so
+    /// it has 65,536 possible inputs per channel. Running those through it once and looking the
+    /// answers up gives every pixel exactly what the kernel would, bit for bit, for the cost of a
+    /// quarter-megapixel buffer — where running it over the frame itself cost about 40 ns a pixel
+    /// on the runner, since each channel is a division and a rounding call (docs/progress.md 6).
+    /// </para>
+    /// <para>
+    /// The last table is kept, so a frame that redraws with the same settings does not rebuild it.
+    /// </para>
+    /// </remarks>
     private static void ApplyTables(PixelBuffer pixels, PixelRect region, float[] tables)
     {
-        // levels_apply takes a pixel count, not a stride, so rows go one at a time: rows are padded
-        // to 32 bytes, and handing it the whole buffer would read the padding as pixels.
-        unsafe
+        byte[] lookup = Lookup(tables);
+
+        for (int y = region.Y; y < region.Bottom; y++)
         {
-            fixed (float* table = tables)
+            Span<byte> row = pixels.Row(y).Slice(region.X * 4, region.Width * 4);
+            for (int i = 0; i < row.Length; i += 4)
             {
-                for (int y = region.Y; y < region.Bottom; y++)
-                    Kernels.LevelsApply(Address(pixels, region.X, y), (nuint)region.Width, (nint)table);
+                int alpha = row[i + 3];
+                if (alpha == 0) continue;
+
+                int at = alpha << 8;
+                row[i] = lookup[at + row[i]];
+                row[i + 1] = lookup[65536 + at + row[i + 1]];
+                row[i + 2] = lookup[131072 + at + row[i + 2]];
             }
         }
+    }
+
+    private static readonly Lock s_lookupLock = new();
+    private static float[]? s_lookupTables;
+    private static byte[]? s_lookup;
+
+    /// <summary>
+    /// What <c>levels_apply</c> makes of each channel value at each alpha: channel × alpha × value.
+    /// </summary>
+    private static byte[] Lookup(float[] tables)
+    {
+        lock (s_lookupLock)
+        {
+            if (s_lookup is not null && s_lookupTables is not null && tables.AsSpan().SequenceEqual(s_lookupTables))
+                return s_lookup;
+        }
+
+        // A row per alpha, a column per value: every input the kernel can be given.
+        PixelBuffer every = PixelBuffer.Allocate(256, 256);
+        var lookup = new byte[3 * 65536];
+        try
+        {
+            for (int alpha = 0; alpha < 256; alpha++)
+            {
+                Span<byte> row = every.Row(alpha);
+                for (int value = 0; value < 256; value++)
+                {
+                    row[value * 4] = row[value * 4 + 1] = row[value * 4 + 2] = (byte)value;
+                    row[value * 4 + 3] = (byte)alpha;
+                }
+            }
+
+            // levels_apply takes a pixel count, not a stride, so rows go one at a time: rows are
+            // padded to 32 bytes, and handing it the whole buffer would read the padding as pixels.
+            unsafe
+            {
+                fixed (float* table = tables)
+                {
+                    for (int alpha = 0; alpha < 256; alpha++)
+                        Kernels.LevelsApply(Address(every, 0, alpha), 256, (nint)table);
+                }
+            }
+
+            for (int alpha = 0; alpha < 256; alpha++)
+            {
+                ReadOnlySpan<byte> row = every.Row(alpha);
+                for (int value = 0; value < 256; value++)
+                    for (int channel = 0; channel < 3; channel++)
+                        lookup[channel * 65536 + (alpha << 8) + value] = row[value * 4 + channel];
+            }
+        }
+        finally
+        {
+            every.Release();
+        }
+
+        lock (s_lookupLock)
+        {
+            s_lookupTables = (float[])tables.Clone();
+            s_lookup = lookup;
+        }
+
+        return lookup;
     }
 
     private static void ApplyGradientMap(PixelBuffer pixels, PixelRect region, byte[] colours)

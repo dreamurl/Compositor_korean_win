@@ -147,6 +147,51 @@ public class AdjustmentTests
     }
 
     [Fact]
+    public void TheLookupGivesExactlyWhatTheKernelDoes()
+    {
+        // Every value at a spread of alphas, including soft edges and values past their alpha.
+        PixelBuffer pixels = PixelBuffer.Allocate(256, 9);
+        PixelBuffer direct = PixelBuffer.Allocate(256, 9);
+        try
+        {
+            ReadOnlySpan<byte> alphas = [1, 2, 17, 64, 127, 128, 200, 254, 255];
+            for (int y = 0; y < alphas.Length; y++)
+            {
+                Span<byte> row = pixels.Row(y);
+                for (int x = 0; x < 256; x++)
+                {
+                    row[x * 4] = (byte)x;
+                    row[x * 4 + 1] = (byte)(255 - x);
+                    row[x * 4 + 2] = (byte)(x * 7);
+                    row[x * 4 + 3] = alphas[y];
+                }
+                row.CopyTo(direct.Row(y));
+            }
+
+            LayerAdjustment levels = Levels(black: 30, gamma: 1.7, white: 220);
+            float[] tables = AdjustmentRendering.LevelsTables(levels.Levels);
+
+            AdjustmentRendering.Apply(levels, pixels, PixelPlacement.Document);
+            unsafe
+            {
+                fixed (float* table = tables)
+                {
+                    for (int y = 0; y < alphas.Length; y++)
+                        Kernels.LevelsApply(direct.Scan0 + y * direct.Stride, 256, (nint)table);
+                }
+            }
+
+            for (int y = 0; y < alphas.Length; y++)
+                Assert.True(pixels.Row(y)[..1024].SequenceEqual(direct.Row(y)[..1024]), $"alpha {alphas[y]} differs");
+        }
+        finally
+        {
+            pixels.Release();
+            direct.Release();
+        }
+    }
+
+    [Fact]
     public void AStopOfExposureBrightensAndKeepsAlpha()
     {
         using PixelBuffer pixels = Solid(2, 1, 100, 100, 100, 200);
