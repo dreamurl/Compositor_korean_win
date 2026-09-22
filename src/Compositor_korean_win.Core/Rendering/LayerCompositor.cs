@@ -175,12 +175,22 @@ public static class LayerCompositor
                 {
                     if (!byId.TryGetValue(adjustedBase, out ImageLayer? baseLayer)) continue;
                     using PixelBuffer baseCoverage = Coverage(baseLayer, surface, backend, projection);
-                    ApplyAdjustment(item, surface, backend, projection, new MaskClip(baseCoverage, canvas));
+                    ApplyAdjustments([(item, new MaskClip(baseCoverage, canvas))], surface, backend, projection);
+                    continue;
                 }
-                else
+
+                // A run of adjustments one over another reads the frame once and writes it once:
+                // nothing between them draws, so the surface would only be handed straight back.
+                var run = new List<(Item, MaskClip?)>();
+                int next = i;
+                while (next < items.Count && IsAdjustment(items[next].Layer) && items[next].Layer.MaskSourceId is null)
                 {
-                    ApplyAdjustment(item, surface, backend, projection, extra: null);
+                    run.Add((items[next], null));
+                    next++;
                 }
+
+                ApplyAdjustments(run, surface, backend, projection);
+                i = next - 1;
                 continue;
             }
 
@@ -311,7 +321,7 @@ public static class LayerCompositor
         {
             // An adjustment in a clipping group adjusts the group so far — over the opaque base,
             // so its alpha coming back afterwards is what keeps it inside the base's shape.
-            if (IsAdjustment(item.Layer)) ApplyAdjustment(item, group, backend, projection, extra: null);
+            if (IsAdjustment(item.Layer)) ApplyAdjustments([(item, null)], group, backend, projection);
             else DrawOne(item, group, projection, extra: null, live: live);
         }
 
@@ -333,30 +343,57 @@ public static class LayerCompositor
         new(Point.Zero, new Size(surface.Width, surface.Height)) { Sampling = LayerSampling.Nearest };
 
     /// <summary>
-    /// Runs an adjustment layer over what is on <paramref name="surface"/> so far.
+    /// Runs adjustment layers, bottom first, over what is on <paramref name="surface"/> so far.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The order is upstream's: adjust the whole frame, blend the adjusted frame with the original
-    /// if the layer has a blend mode, then let opacity and masks decide how much of that replaces
-    /// what was there. A blend mode applies at full coverage with the original alpha put back
-    /// afterwards, for the reason a clipping group does the same — blending two translucent copies
-    /// of a soft edge would thicken it.
+    /// The order for each is upstream's: adjust the whole frame, blend the adjusted frame with the
+    /// original if the layer has a blend mode, then let opacity and masks decide how much of that
+    /// replaces what was there. A blend mode applies at full coverage with the original alpha put
+    /// back afterwards, for the reason a clipping group does the same — blending two translucent
+    /// copies of a soft edge would thicken it.
     /// </para>
     /// <para>
-    /// The cost is one read and one write of the surface, which is the window's size and not the
-    /// document's: by the time an adjustment runs, the frame has already been reduced to what is
-    /// on screen.
+    /// The cost is one read and one write of the surface for the whole run, and the surface is the
+    /// window's size and not the document's: by the time an adjustment runs, the frame has already
+    /// been reduced to what is on screen.
     /// </para>
     /// </remarks>
-    private static void ApplyAdjustment(Item item, IRenderSurface surface, IRenderBackend backend,
-                                        CanvasProjection projection, MaskClip? extra)
+    /// <param name="run">Each layer with a clip of its own to add, in the surface's pixels.</param>
+    private static void ApplyAdjustments(IReadOnlyList<(Item Item, MaskClip? Extra)> run, IRenderSurface surface,
+                                         IRenderBackend backend, CanvasProjection projection)
+    {
+        if (!run.Any(entry => Changes(entry.Item.Layer))) return;
+
+        PixelBuffer current = surface.Read();
+        try
+        {
+            foreach ((Item item, MaskClip? extra) in run)
+            {
+                if (!Changes(item.Layer)) continue;
+
+                PixelBuffer adjusted = Adjusted(item, current, extra, surface, backend, projection);
+                current.Release();
+                current = adjusted;
+            }
+
+            surface.Write(current);
+        }
+        finally
+        {
+            current.Release();
+        }
+
+        static bool Changes(ImageLayer layer) =>
+            layer.Opacity > 0
+            && (layer.BlendMode != LayerBlendMode.Normal || !AdjustmentRendering.IsIdentity(layer.Adjustment!));
+    }
+
+    /// <summary>One adjustment layer over <paramref name="original"/>, as a new frame.</summary>
+    private static PixelBuffer Adjusted(Item item, PixelBuffer original, MaskClip? extra, IRenderSurface surface,
+                                        IRenderBackend backend, CanvasProjection projection)
     {
         ImageLayer layer = item.Layer;
-        LayerAdjustment adjustment = layer.Adjustment!;
-
-        if (layer.Opacity <= 0) return;
-        if (layer.BlendMode == LayerBlendMode.Normal && AdjustmentRendering.IsIdentity(adjustment)) return;
 
         var clips = new List<MaskClip>(item.Clips.Count + 2);
         foreach (MaskClip inherited in item.Clips) clips.Add(projection.Apply(inherited));
@@ -368,12 +405,10 @@ public static class LayerCompositor
 
         if (extra is MaskClip clip) clips.Add(clip);
 
-        using PixelBuffer original = surface.Read();
         PixelBuffer adjusted = PixelRegion.Copy(original, new PixelRect(0, 0, original.Width, original.Height));
-
         try
         {
-            AdjustmentRendering.Apply(adjustment, adjusted, PixelPlacement.For(projection));
+            AdjustmentRendering.Apply(layer.Adjustment!, adjusted, PixelPlacement.For(projection));
 
             if (layer.BlendMode != LayerBlendMode.Normal)
             {
@@ -392,11 +427,12 @@ public static class LayerCompositor
                 AdjustmentRendering.Mix(original, adjusted, weights);
             }
 
-            surface.Write(adjusted);
+            return adjusted;
         }
-        finally
+        catch
         {
             adjusted.Release();
+            throw;
         }
     }
 

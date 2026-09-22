@@ -74,7 +74,9 @@ public sealed record FilterSettings
 /// range. The boxes are sized so their combined variance matches σ² as closely as whole widths allow
 /// — which for a small σ is not close at all: at σ = 1 the nearest three odd widths give two thirds
 /// of the variance or four thirds of it. Below <see cref="BoxThreshold"/> the kernel is small
-/// enough to run as it is, so it does.
+/// enough to run as it is, so it does. The threshold sits where the boxes come within a sixth of σ²
+/// (at σ = 2 they give five sixths); raising it buys little accuracy for a kernel whose cost grows
+/// with σ, which the preview at "fit" feels first.
 /// </para>
 /// <para>
 /// Motion Blur smears evenly along the whole distance, which is what Photoshop does and what
@@ -96,7 +98,7 @@ public static class PixelFilters
     public const double LensStrength = 0.35;
 
     /// <summary>The σ from which three boxes stand in for the true kernel.</summary>
-    public const double BoxThreshold = 3;
+    public const double BoxThreshold = 2;
 
     /// <summary>How far a filter reaches past a pixel, in layer pixels — the room a blur needs.</summary>
     public static int Reach(FilterKind kind, FilterSettings settings)

@@ -141,6 +141,22 @@ jobs:
               "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
             }
 
+            if ($null -ne $report.adjustPixelsPerFrame) {
+              "### M5 — 조정·필터" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 항목 | 값 |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "|---|---|" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 조정 레이어 | $($report.adjustLayers)개 (문서 {0:N0} 픽셀, 창 {1:N0} 픽셀) |" -f $report.adjustDocumentPixels, $report.adjustViewPixels | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 한 프레임이 조정한 픽셀 | {0:N0} |" -f $report.adjustPixelsPerFrame | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 프레임 시간 (조정 없음 / 있음 / 값 변경 중) | {0:N1} / {1:N1} / {2:N1} ms |" -f $report.adjustPlainFrameMs, $report.adjustFrameMs, $report.adjustChangeFrameMs | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 필터 프리뷰 열기 | {0:N1} ms |" -f $report.previewOpenMs | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 필터 프리뷰 (맞춤) | {0:N1} ms, {1:N0} 픽셀 |" -f $report.previewFittedMs, $report.previewFittedPixels | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 필터 프리뷰 (100%) | {0:N1} ms, {1:N0} 픽셀 |" -f $report.previewFullSizeMs, $report.previewFullSizePixels | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 백엔드 차이 (조정 레이어) | 최대 $($report.renderAdjustedMax), 평균 {0:N3} |" -f $report.renderAdjustedMean | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 창 크기에 비례 | $($report.adjustWithinBudget) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            }
+
             if ($report.failures.Count -gt 0) {
               "### 실패" | Out-File -Append $env:GITHUB_STEP_SUMMARY
               $report.failures | ForEach-Object { "- $_" | Out-File -Append $env:GITHUB_STEP_SUMMARY }
