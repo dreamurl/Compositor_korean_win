@@ -40,8 +40,13 @@ internal static partial class Win32
     internal const int VK_MENU = 0x12;
     internal const int VK_0 = 0x30;
     internal const int VK_1 = 0x31;
-    internal const int VK_Z = 0x5A;
+    internal const int VK_A = 0x41;
+    internal const int VK_D = 0x44;
+    internal const int VK_L = 0x4C;
+    internal const int VK_M = 0x4D;
+    internal const int VK_V = 0x56;
     internal const int VK_Y = 0x59;
+    internal const int VK_Z = 0x5A;
 
     /// <summary>The wheel's own unit: one notch.</summary>
     internal const int WHEEL_DELTA = 120;

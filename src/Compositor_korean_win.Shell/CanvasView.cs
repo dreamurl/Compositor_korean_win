@@ -3,9 +3,23 @@ using Compositor_korean_win.Core;
 using SharpGen.Runtime;
 using Vortice.Direct2D1;
 using Vortice.Mathematics;
+// Vortice has geometry types of its own, and none of them are the ones Core speaks in.
+using Point = Compositor_korean_win.Core.Point;
 using Rect = Compositor_korean_win.Core.Rect;
+using Size = Compositor_korean_win.Core.Size;
 
 namespace Compositor_korean_win.Shell;
+
+/// <summary>What a drag on the canvas does.</summary>
+internal enum CanvasTool
+{
+    /// <summary>Picks a layer up and puts it somewhere else.</summary>
+    Move,
+
+    RectangleMarquee,
+    EllipseMarquee,
+    Lasso,
+}
 
 /// <summary>
 /// The canvas: a document, where it is being looked at from, and what the pointer is doing to it.
@@ -48,6 +62,14 @@ internal sealed class CanvasView : IDisposable
     private bool _panning;
     private Point _panFrom;
 
+    private CanvasTool _tool = CanvasTool.Move;
+    private DocumentSelection? _selection;
+    private Point? _marqueeFrom;
+    private Point _marqueeTo;
+    private List<Point>? _lasso;
+    private bool _marqueeAdds;
+    private bool _marqueeTakesAway;
+
     public CanvasView(GraphicsDevice device)
     {
         _device = device;
@@ -59,6 +81,11 @@ internal sealed class CanvasView : IDisposable
     public CanvasViewport Viewport => _viewport;
 
     public Guid? Selected => _selected;
+
+    /// <summary>What is selected, or null for no selection — which means the whole canvas.</summary>
+    public DocumentSelection? Selection => _selection;
+
+    public CanvasTool Tool => _tool;
 
     /// <summary>Set whenever something changed that the window has not drawn yet.</summary>
     public bool NeedsRedraw { get; private set; } = true;
@@ -137,6 +164,17 @@ internal sealed class CanvasView : IDisposable
 
         Point pixel = _viewport.DocumentPoint(view, _document.Size);
 
+        if (_tool != CanvasTool.Move)
+        {
+            _marqueeFrom = pixel;
+            _marqueeTo = pixel;
+            _lasso = _tool == CanvasTool.Lasso ? [pixel] : null;
+            _marqueeAdds = Win32.IsKeyDown(Win32.VK_SHIFT);
+            _marqueeTakesAway = Win32.IsKeyDown(Win32.VK_MENU);
+            NeedsRedraw = true;
+            return;
+        }
+
         if (_selected is Guid id && _document.Layer(id) is ImageLayer chosen
             && HitHandle(chosen.Transform, view) is int handle)
         {
@@ -166,6 +204,23 @@ internal sealed class CanvasView : IDisposable
             return;
         }
 
+        if (_marqueeFrom is not null)
+        {
+            _marqueeTo = _viewport.DocumentPoint(view, _document.Size);
+
+            // A freehand outline keeps every point the pointer passed through, thinned so that a
+            // slow drag does not pile up thousands of them a pixel apart.
+            if (_lasso is List<Point> lasso)
+            {
+                Point last = lasso[^1];
+                if (Math.Abs(last.X - _marqueeTo.X) + Math.Abs(last.Y - _marqueeTo.Y) >= 1)
+                    lasso.Add(_marqueeTo);
+            }
+
+            NeedsRedraw = true;
+            return;
+        }
+
         if (_drag is not TransformDrag drag || _document.Layer(_dragging) is not ImageLayer layer) return;
 
         // Dragging, scaling and rotating land on whole pixels and whole degrees; a value typed into
@@ -188,6 +243,13 @@ internal sealed class CanvasView : IDisposable
     public void PointerUp()
     {
         _panning = false;
+
+        if (_marqueeFrom is Point start)
+        {
+            Commit(start);
+            return;
+        }
+
         if (_drag is null)
         {
             _snap = default;
@@ -198,6 +260,45 @@ internal sealed class CanvasView : IDisposable
         _snap = default;
         _history.End(_document, _selected);
         NeedsRedraw = true;
+    }
+
+    /// <summary>
+    /// Turns the drag that just ended into a selection, joined to whatever was selected already.
+    /// </summary>
+    /// <remarks>
+    /// A click that went nowhere deselects, which is what every editor does and what stops a
+    /// selection from becoming something the user cannot get rid of.
+    /// </remarks>
+    private void Commit(Point start)
+    {
+        List<Point>? lasso = _lasso;
+        Point end = _marqueeTo;
+        bool adds = _marqueeAdds, takesAway = _marqueeTakesAway;
+
+        _marqueeFrom = null;
+        _lasso = null;
+        NeedsRedraw = true;
+
+        var box = Rect.FromBounds(Math.Min(start.X, end.X), Math.Min(start.Y, end.Y),
+                                  Math.Max(start.X, end.X), Math.Max(start.Y, end.Y));
+
+        DocumentSelection? made = _tool switch
+        {
+            CanvasTool.RectangleMarquee when !box.IsEmpty => DocumentSelection.Rectangle(box),
+            CanvasTool.EllipseMarquee when !box.IsEmpty => DocumentSelection.Ellipse(box),
+            CanvasTool.Lasso when lasso is { Count: >= 3 } => DocumentSelection.Lasso(lasso),
+            _ => null,
+        };
+
+        if (made is null)
+        {
+            if (!adds && !takesAway) _selection = null;
+            return;
+        }
+
+        _selection = _selection is DocumentSelection existing && (adds || takesAway)
+            ? takesAway ? existing.Subtracting(made) : existing.Adding(made)
+            : made;
     }
 
     /// <summary>The wheel turned by <paramref name="notches"/> of its own unit at a point.</summary>
@@ -224,6 +325,29 @@ internal sealed class CanvasView : IDisposable
 
             case Win32.VK_1 when control:
                 _viewport = _viewport.ZoomedTo(1, _viewport.Center, _document.Size);
+                break;
+
+            case Win32.VK_V when !control:
+                _tool = CanvasTool.Move;
+                break;
+
+            case Win32.VK_M when !control:
+                // As in Photoshop, the marquee key cycles between its two shapes.
+                _tool = _tool == CanvasTool.RectangleMarquee
+                    ? CanvasTool.EllipseMarquee
+                    : CanvasTool.RectangleMarquee;
+                break;
+
+            case Win32.VK_L when !control:
+                _tool = CanvasTool.Lasso;
+                break;
+
+            case Win32.VK_A when control:
+                _selection = DocumentSelection.Rectangle(new Rect(0, 0, _document.Width, _document.Height));
+                break;
+
+            case Win32.VK_D when control:
+                _selection = null;
                 break;
 
             case Win32.VK_Z when control:
@@ -314,7 +438,6 @@ internal sealed class CanvasView : IDisposable
     private void DrawOverlay(ID2D1DeviceContext context)
     {
         if (_document is null) return;
-        if (_selected is not Guid id || _document.Layer(id) is not ImageLayer layer) return;
 
         // Device pixels, like the frame under it, so the overlay is crisp on a dense display.
         CanvasProjection projection = _viewport.DeviceProjection(_document.Size);
@@ -326,6 +449,16 @@ internal sealed class CanvasView : IDisposable
         using ID2D1SolidColorBrush outline = context.CreateSolidColorBrush(new Color4(0.16f, 0.55f, 1f, 1f));
         using ID2D1SolidColorBrush fill = context.CreateSolidColorBrush(new Color4(1f, 1f, 1f, 1f));
         using ID2D1SolidColorBrush guide = context.CreateSolidColorBrush(new Color4(1f, 0.25f, 0.5f, 0.9f));
+        using ID2D1SolidColorBrush shadow = context.CreateSolidColorBrush(new Color4(0f, 0f, 0f, 0.65f));
+
+        DrawSelection(context, projection, fill, shadow, thickness);
+
+        if (_tool != CanvasTool.Move || _selected is not Guid id
+            || _document.Layer(id) is not ImageLayer layer)
+        {
+            context.EndDraw().CheckError();
+            return;
+        }
 
         DrawGuides(context, guide, projection, thickness);
 
@@ -347,6 +480,58 @@ internal sealed class CanvasView : IDisposable
         }
 
         context.EndDraw().CheckError();
+    }
+
+    /// <summary>
+    /// The selection's outline, and the one being dragged out right now.
+    /// </summary>
+    /// <remarks>
+    /// Two passes, dark under light, so the outline reads on a white sheet and on a dark photograph
+    /// alike. Upstream animates it; a still outline says the same thing and costs no timer.
+    /// </remarks>
+    private void DrawSelection(ID2D1DeviceContext context, CanvasProjection projection,
+                               ID2D1Brush light, ID2D1Brush dark, float thickness)
+    {
+        if (_selection is DocumentSelection selection)
+        {
+            foreach (SelectionShape shape in selection.Shapes)
+            {
+                foreach (SelectionLoop loop in shape.Loops) Outline(loop.Points);
+            }
+        }
+
+        if (_marqueeFrom is Point start) Outline(InProgress(start));
+
+        void Outline(IReadOnlyList<Point> points)
+        {
+            if (points.Count < 2) return;
+
+            for (int pass = 0; pass < 2; pass++)
+            {
+                ID2D1Brush brush = pass == 0 ? dark : light;
+                float width = pass == 0 ? thickness * 3 : thickness;
+
+                for (int i = 0; i < points.Count; i++)
+                {
+                    Point a = projection.Apply(points[i]);
+                    Point b = projection.Apply(points[(i + 1) % points.Count]);
+                    context.DrawLine(Vector(a), Vector(b), brush, width);
+                }
+            }
+        }
+    }
+
+    /// <summary>The outline of the drag in progress, in document pixels.</summary>
+    private IReadOnlyList<Point> InProgress(Point start)
+    {
+        if (_lasso is List<Point> lasso) return lasso;
+
+        var box = Rect.FromBounds(Math.Min(start.X, _marqueeTo.X), Math.Min(start.Y, _marqueeTo.Y),
+                                  Math.Max(start.X, _marqueeTo.X), Math.Max(start.Y, _marqueeTo.Y));
+
+        return _tool == CanvasTool.EllipseMarquee
+            ? DocumentSelection.EllipseLoop(box).Points
+            : DocumentSelection.RectangleLoop(box).Points;
     }
 
     private void DrawGuides(ID2D1DeviceContext context, ID2D1Brush brush,
