@@ -67,6 +67,20 @@ public sealed record LayerTransform
         && Size.Width is >= 1 and <= 300_000 && Size.Height is >= 1 and <= 300_000
         && Math.Abs(Origin.X) <= 1_000_000 && Math.Abs(Origin.Y) <= 1_000_000;
 
+    /// <summary>Whether this placement can be drawn at all.</summary>
+    /// <remarks>
+    /// Looser than <see cref="IsValid"/> on purpose. That one is the format's rule about what may be
+    /// stored, and a minimum of one pixel a side belongs there. A viewport projection produces
+    /// placements the format would quite rightly refuse — a hundred-pixel layer is a tenth of a
+    /// pixel wide once the document is zoomed out to a thumbnail — and those still have to draw,
+    /// or small layers would disappear as the canvas is zoomed out.
+    /// </remarks>
+    [JsonIgnore]
+    public bool IsDrawable =>
+        double.IsFinite(Origin.X) && double.IsFinite(Origin.Y) && double.IsFinite(Rotation)
+        && double.IsFinite(Size.Width) && double.IsFinite(Size.Height)
+        && Size.Width > 0 && Size.Height > 0;
+
     /// <summary>Where the unit square's <paramref name="unit"/> lands on the document.</summary>
     public Point PointAt(Point unit)
     {

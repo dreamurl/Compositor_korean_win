@@ -38,9 +38,20 @@ public sealed class SoftwareRenderBackend : IRenderBackend
     private sealed class Surface(int width, int height, DownsamplePyramid pyramid) : IRenderSurface
     {
         private readonly PixelBuffer _pixels = PixelBuffer.Allocate(width, height);
+        private readonly Stack<PixelRect> _clips = new();
 
         public int Width => width;
         public int Height => height;
+
+        /// <summary>What draws may touch: the innermost clip, or the whole surface.</summary>
+        private PixelRect Clip => _clips.Count > 0 ? _clips.Peek() : new PixelRect(0, 0, Width, Height);
+
+        public void PushClip(Rect region) => _clips.Push(region.Rounded().Intersect(Clip));
+
+        public void PopClip()
+        {
+            if (_clips.Count > 0) _clips.Pop();
+        }
 
         public void Clear()
         {
@@ -60,9 +71,9 @@ public sealed class SoftwareRenderBackend : IRenderBackend
         public void Draw(LayerDraw draw)
         {
             LayerTransform placement = draw.Placement;
-            if (!placement.IsValid || draw.Opacity <= 0) return;
+            if (!placement.IsDrawable || draw.Opacity <= 0) return;
 
-            PixelRect area = Bounds(placement).Intersect(new PixelRect(0, 0, Width, Height));
+            PixelRect area = Bounds(placement).Intersect(Clip);
             if (area.IsEmpty) return;
 
             // How many source pixels one document pixel covers, along the wider axis. A layer drawn

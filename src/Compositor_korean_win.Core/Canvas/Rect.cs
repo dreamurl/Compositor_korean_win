@@ -61,4 +61,16 @@ public readonly record struct Rect(double X, double Y, double Width, double Heig
         ? default
         : PixelRect.FromBounds((int)Math.Floor(MinX), (int)Math.Floor(MinY),
                                (int)Math.Ceiling(MaxX), (int)Math.Ceiling(MaxY));
+
+    /// <summary>Whole pixels nearest this rectangle's edges.</summary>
+    /// <remarks>
+    /// What a clip rounds to. Rounding rather than enclosing is what lets two backends agree on
+    /// where a clip's edge falls: Direct2D's aliased clip rounds, and a rectangle that covers a
+    /// document at a fractional zoom would otherwise land a pixel apart in the two.
+    /// </remarks>
+    public PixelRect Rounded() => IsEmpty
+        ? default
+        : PixelRect.FromBounds(Round(MinX), Round(MinY), Round(MaxX), Round(MaxY));
+
+    private static int Round(double value) => (int)Math.Round(value, MidpointRounding.AwayFromZero);
 }

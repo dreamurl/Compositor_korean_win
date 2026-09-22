@@ -88,6 +88,26 @@ public sealed record CanvasViewport
         return new Point(placed.X + document.X * scale, placed.Y + document.Y * scale);
     }
 
+    /// <summary>The view's size in device pixels: the size of a surface holding one frame.</summary>
+    public Size DeviceViewSize => new(ViewSize.Width * Scale, ViewSize.Height * Scale);
+
+    /// <summary>How document pixels land in the view, in points — for hit-testing and overlays.</summary>
+    public CanvasProjection Projection(Size documentSize) =>
+        new(PointsPerPixel, DocumentRect(documentSize).Origin);
+
+    /// <summary>
+    /// How document pixels land on the frame, in device pixels — for compositing.
+    /// </summary>
+    /// <remarks>
+    /// The frame is drawn in device pixels rather than points so that a document at 100% on a
+    /// high-resolution display is drawn at the display's own resolution and not at half of it.
+    /// </remarks>
+    public CanvasProjection DeviceProjection(Size documentSize)
+    {
+        Rect placed = DocumentRect(documentSize);
+        return new CanvasProjection(Zoom, new Point(placed.X * Scale, placed.Y * Scale));
+    }
+
     /// <summary>The document zoomed to sit inside the view with a margin, centred.</summary>
     public CanvasViewport Fit(Size documentSize)
     {

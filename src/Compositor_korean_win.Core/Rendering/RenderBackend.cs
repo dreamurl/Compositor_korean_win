@@ -76,6 +76,20 @@ public interface IRenderSurface : IDisposable
 
     void Draw(LayerDraw draw);
 
+    /// <summary>
+    /// Keeps every later draw inside <paramref name="region"/> until it is popped. Clips nest.
+    /// </summary>
+    /// <remarks>
+    /// The canvas needs this and nothing before it did: drawing a view of a document rather than
+    /// the document itself, the surface is the window, so nothing else stops a layer hanging past
+    /// the canvas edge from being drawn over the desktop grey. The edge lands on whole pixels
+    /// (<see cref="Rect.Rounded"/>), because Direct2D's aliased clip does and the two backends have
+    /// to agree.
+    /// </remarks>
+    void PushClip(Rect region);
+
+    void PopClip();
+
     /// <summary>The composited pixels. The caller owns the result and releases it.</summary>
     PixelBuffer Read();
 

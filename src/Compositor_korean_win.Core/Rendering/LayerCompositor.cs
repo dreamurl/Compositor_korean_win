@@ -40,8 +40,58 @@ public static class LayerCompositor
         return surface.Read();
     }
 
+    /// <summary>
+    /// Composites what <paramref name="viewport"/> shows onto a new surface of the view's size, in
+    /// device pixels.
+    /// </summary>
+    /// <remarks>The caller owns the returned pixels and releases them.</remarks>
+    public static PixelBuffer RenderView(CanvasDocument document, CanvasViewport viewport,
+                                         IRenderBackend backend)
+    {
+        Size frame = viewport.DeviceViewSize;
+        using IRenderSurface surface = backend.CreateSurface(
+            Math.Max(1, (int)Math.Round(frame.Width, MidpointRounding.AwayFromZero)),
+            Math.Max(1, (int)Math.Round(frame.Height, MidpointRounding.AwayFromZero)));
+
+        surface.Clear();
+        DrawView(document, viewport, surface, backend);
+        return surface.Read();
+    }
+
+    /// <summary>
+    /// Draws what <paramref name="viewport"/> shows onto a surface holding one frame.
+    /// </summary>
+    /// <remarks>
+    /// The same walk as <see cref="Draw(CanvasDocument, IRenderSurface, IRenderBackend)"/>, with
+    /// every placement carried into the frame's own pixels, and the canvas clipping what is drawn:
+    /// on a surface the size of the document its edges did that for free, and here they do not.
+    /// </remarks>
+    public static void DrawView(CanvasDocument document, CanvasViewport viewport,
+                                IRenderSurface surface, IRenderBackend backend)
+    {
+        CanvasProjection projection = viewport.DeviceProjection(document.Size);
+
+        surface.PushClip(projection.Apply(new Rect(0, 0, document.Width, document.Height)));
+        try
+        {
+            Draw(document, surface, backend, projection);
+        }
+        finally
+        {
+            surface.PopClip();
+        }
+    }
+
     /// <summary>Draws <paramref name="document"/> onto an existing surface.</summary>
-    public static void Draw(CanvasDocument document, IRenderSurface surface, IRenderBackend backend)
+    public static void Draw(CanvasDocument document, IRenderSurface surface, IRenderBackend backend) =>
+        Draw(document, surface, backend, CanvasProjection.Identity);
+
+    /// <summary>
+    /// Draws <paramref name="document"/> onto an existing surface, placed by
+    /// <paramref name="projection"/>.
+    /// </summary>
+    public static void Draw(CanvasDocument document, IRenderSurface surface, IRenderBackend backend,
+                            CanvasProjection projection)
     {
         List<Item> items = RenderOrder(document);
         var byId = document.Layers.ToDictionary(layer => layer.Id);
@@ -62,19 +112,19 @@ public static class LayerCompositor
                 // restricted to what its base covers.
                 if (!byId.TryGetValue(sourceId, out ImageLayer? source)) continue;
 
-                using PixelBuffer coverage = Coverage(source, document, backend);
-                DrawOne(item, surface, new MaskClip(coverage, canvas));
+                using PixelBuffer coverage = Coverage(source, surface, backend, projection);
+                DrawOne(item, surface, projection, new MaskClip(coverage, canvas));
                 continue;
             }
 
             List<Item> clipped = ContiguousClipped(items, i, item.Layer.Id);
             if (clipped.Count == 0)
             {
-                DrawOne(item, surface, extra: null);
+                DrawOne(item, surface, projection, extra: null);
                 continue;
             }
 
-            DrawClippingGroup(item, clipped, surface, backend);
+            DrawClippingGroup(item, clipped, surface, backend, projection);
             for (int k = 1; k <= clipped.Count; k++) consumed.Add(i + k);
         }
     }
@@ -156,15 +206,15 @@ public static class LayerCompositor
     /// Draws a base and the layers clipped to it as one unit, keeping the base's own coverage.
     /// </summary>
     /// <remarks>See <see cref="ClippingGroup"/> for why it goes in this order.</remarks>
-    private static void DrawClippingGroup(Item baseItem, List<Item> clipped,
-                                          IRenderSurface surface, IRenderBackend backend)
+    private static void DrawClippingGroup(Item baseItem, List<Item> clipped, IRenderSurface surface,
+                                          IRenderBackend backend, CanvasProjection projection)
     {
         using IRenderSurface group = backend.CreateSurface(surface.Width, surface.Height);
         group.Clear();
 
         // The base goes down with its own opacity but in Normal: what it would blend against is
         // outside this surface, and the group as a whole carries its blend mode instead.
-        DrawOne(baseItem, group, extra: null, blend: LayerBlendMode.Normal);
+        DrawOne(baseItem, group, projection, extra: null, blend: LayerBlendMode.Normal);
 
         using PixelBuffer basePixels = group.Read();
         using ClippingGroup.Coverage coverage = ClippingGroup.ExtractAlpha(basePixels);
@@ -173,7 +223,7 @@ public static class LayerCompositor
 
         // No clip here on purpose: the layers composite against an opaque backdrop at full
         // strength, and the base's coverage is reapplied to the result afterwards.
-        foreach (Item item in clipped) DrawOne(item, group, extra: null);
+        foreach (Item item in clipped) DrawOne(item, group, projection, extra: null);
 
         using PixelBuffer composed = group.Read();
         ClippingGroup.RestoreAlpha(composed, coverage);
@@ -189,36 +239,46 @@ public static class LayerCompositor
         });
     }
 
-    private static void DrawOne(Item item, IRenderSurface surface, MaskClip? extra,
-                                LayerBlendMode? blend = null)
+    /// <remarks>
+    /// <paramref name="projection"/> applies to everything placed on the document — the layer, an
+    /// unlinked mask, the folder masks it inherited. It does not apply to <paramref name="extra"/>,
+    /// which the caller has already built in the surface's own pixels.
+    /// </remarks>
+    private static void DrawOne(Item item, IRenderSurface surface, CanvasProjection projection,
+                                MaskClip? extra, LayerBlendMode? blend = null)
     {
         ImageLayer layer = item.Layer;
         if (layer.Image is not PixelBuffer image) return;
 
-        IReadOnlyList<MaskClip> clips = extra is MaskClip clip ? [.. item.Clips, clip] : item.Clips;
+        var clips = new List<MaskClip>(item.Clips.Count + 2);
+        foreach (MaskClip inherited in item.Clips) clips.Add(projection.Apply(inherited));
+
+        if (layer.Mask is { IsEnabled: true, Placement: LayerTransform placement } placed)
+            clips.Add(projection.Apply(new MaskClip(placed.Coverage, placement)));
+
+        if (extra is MaskClip clip) clips.Add(clip);
 
         surface.Draw(new LayerDraw
         {
             Source = new BufferSource(image),
-            Placement = layer.Transform,
+            Placement = projection.Apply(layer.Transform),
             Opacity = layer.Opacity,
             Blend = blend ?? layer.BlendMode,
             Mask = layer.Mask is { IsEnabled: true } mask && mask.Placement is null ? mask.Coverage : null,
-            Clips = layer.Mask is { IsEnabled: true, Placement: LayerTransform placement } placed
-                ? [.. clips, new MaskClip(placed.Coverage, placement)]
-                : clips,
+            Clips = clips,
         });
     }
 
-    /// <summary>What one layer covers, on its own, as a document-sized grey buffer.</summary>
-    private static PixelBuffer Coverage(ImageLayer layer, CanvasDocument document, IRenderBackend backend)
+    /// <summary>What one layer covers, on its own, as a grey buffer the size of the target.</summary>
+    private static PixelBuffer Coverage(ImageLayer layer, IRenderSurface target,
+                                        IRenderBackend backend, CanvasProjection projection)
     {
-        using IRenderSurface surface = backend.CreateSurface(document.Width, document.Height);
+        using IRenderSurface surface = backend.CreateSurface(target.Width, target.Height);
         surface.Clear();
 
         // Coverage ignores visibility and colour: a hidden layer still clips, and only its alpha
         // — including its own mask and opacity — decides what shows through.
-        DrawOne(new Item(layer with { IsVisible = true }, []), surface, extra: null,
+        DrawOne(new Item(layer with { IsVisible = true }, []), surface, projection, extra: null,
                 blend: LayerBlendMode.Normal);
 
         using PixelBuffer pixels = surface.Read();

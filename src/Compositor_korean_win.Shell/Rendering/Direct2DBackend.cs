@@ -82,6 +82,7 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
         private readonly GraphicsDevice _device;
         private readonly ID2D1Bitmap1 _target;
         private readonly ID2D1Bitmap1 _staging;
+        private readonly Stack<PixelRect> _clips = new();
 
         public Surface(GraphicsDevice device, int width, int height)
         {
@@ -96,6 +97,17 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
 
         public int Width { get; }
         public int Height { get; }
+
+        /// <summary>What draws may touch: the innermost clip, or nothing at all.</summary>
+        private PixelRect? Clip => _clips.Count > 0 ? _clips.Peek() : null;
+
+        public void PushClip(Rect region) =>
+            _clips.Push(region.Rounded().Intersect(Clip ?? new PixelRect(0, 0, Width, Height)));
+
+        public void PopClip()
+        {
+            if (_clips.Count > 0) _clips.Pop();
+        }
 
         private static ID2D1Bitmap1 CreateBitmap(ID2D1DeviceContext context, int width, int height,
                                                  BitmapOptions options)
@@ -118,7 +130,7 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
 
         public void Draw(LayerDraw draw)
         {
-            if (!draw.Placement.IsValid || draw.Opacity <= 0) return;
+            if (!draw.Placement.IsDrawable || draw.Opacity <= 0) return;
 
             // The layer's own mask lives in the same grid as its pixels, so it is multiplied in
             // before anything is uploaded — exact, and it saves a pass on the GPU.
@@ -128,7 +140,7 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
             bool plain = draw.Blend == LayerBlendMode.Normal && draw.Clips.Count == 0;
             if (plain)
             {
-                using var _ = new TargetScope(_device.D2DContext, _target);
+                using var _ = new TargetScope(_device.D2DContext, _target, Clip);
                 DrawPlaced(_device.D2DContext, source, draw, pixels.Width, pixels.Height);
                 return;
             }
@@ -162,7 +174,7 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
 
                 if (draw.Blend == LayerBlendMode.Normal)
                 {
-                    using var _ = new TargetScope(_device.D2DContext, _target);
+                    using var _ = new TargetScope(_device.D2DContext, _target, Clip);
                     _device.D2DContext.DrawImage(composed, InterpolationMode.NearestNeighbor,
                                                  CompositeMode.SourceOver);
                     return;
@@ -177,7 +189,9 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
                 blend.SetInput(0, backdrop, true);
                 blend.SetInput(1, composed, true);
 
-                using var scope = new TargetScope(_device.D2DContext, _target);
+                // SourceCopy replaces what it covers, so the clip is doing real work here: without
+                // it a blended layer would wipe the rest of the frame rather than blend onto it.
+                using var scope = new TargetScope(_device.D2DContext, _target, Clip);
                 _device.D2DContext.DrawImage(blend, InterpolationMode.NearestNeighbor, CompositeMode.SourceCopy);
             }
             finally
@@ -332,21 +346,36 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
         }
 
         /// <summary>Binds a target for the length of a draw and puts the old one back.</summary>
+        /// <remarks>
+        /// A clip belongs to the context and only holds between BeginDraw and EndDraw, so it is
+        /// pushed here rather than kept across draws. Aliased, because the software backend rounds
+        /// a clip to whole pixels and the two have to land on the same edge.
+        /// </remarks>
         private readonly struct TargetScope : IDisposable
         {
             private readonly ID2D1DeviceContext _context;
             private readonly ID2D1Image? _previous;
+            private readonly bool _clipped;
 
-            public TargetScope(ID2D1DeviceContext context, ID2D1Bitmap1 target)
+            public TargetScope(ID2D1DeviceContext context, ID2D1Bitmap1 target, PixelRect? clip = null)
             {
                 _context = context;
                 _previous = context.Target;
                 context.Target = target;
                 context.BeginDraw();
+
+                _clipped = clip is PixelRect region && !region.IsEmpty;
+                if (clip is PixelRect rectangle && _clipped)
+                {
+                    context.PushAxisAlignedClip(
+                        new Vortice.RawRectF(rectangle.X, rectangle.Y, rectangle.Right, rectangle.Bottom),
+                        AntialiasMode.Aliased);
+                }
             }
 
             public void Dispose()
             {
+                if (_clipped) _context.PopAxisAlignedClip();
                 _context.EndDraw().CheckError();
                 _context.Target = _previous;
                 _previous?.Dispose();
