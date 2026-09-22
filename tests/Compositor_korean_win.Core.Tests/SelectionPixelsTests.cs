@@ -69,12 +69,28 @@ public class SelectionPixelsTests
         DocumentSelection selection = DocumentSelection.Ellipse(new Rect(8, 8, 16, 16));
         using PixelBuffer moved = SelectionPixels.Move(layer, selection, new Point(30, 0));
 
-        // Solid in the middle of where it landed, and part-way there at the rim.
+        // Solid where it landed, and a hole where it came from.
         Assert.Equal(255, RenderFixture.At(moved, 46, 16).A);
-        Assert.InRange(RenderFixture.At(moved, 46, 8).A, 1, 254);
+        Assert.Equal(0, RenderFixture.At(moved, 16, 16).A);
 
-        // And it left a soft hole rather than a cut one.
-        Assert.InRange(RenderFixture.At(layer, 16, 8).A - RenderFixture.At(moved, 16, 8).A, 1, 254);
+        // Both edges are part-way, which is what a feathered selection is for: a cut one would
+        // have nothing between full and nothing anywhere along the rim.
+        Assert.True(Soft(moved, 36, 6) >= 8, "the edge it landed on is not soft");
+        Assert.True(Soft(moved, 6, 6) >= 8, "the hole it left is not soft");
+
+        static int Soft(PixelBuffer buffer, int left, int top)
+        {
+            int count = 0;
+            for (int y = top; y < top + 20; y++)
+            {
+                for (int x = left; x < left + 20; x++)
+                {
+                    int alpha = RenderFixture.At(buffer, x, y).A;
+                    if (alpha is > 0 and < 255) count++;
+                }
+            }
+            return count;
+        }
     }
 
     [Fact]
