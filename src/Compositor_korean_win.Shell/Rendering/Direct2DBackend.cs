@@ -8,6 +8,8 @@ using Vortice.Mathematics;
 using AlphaMode = Vortice.DCommon.AlphaMode;
 using BlendEffect = Vortice.Direct2D1.Effects.Blend;
 using BlendMode = Vortice.Direct2D1.BlendMode;
+// Vortice has a Rect of its own, and it is not the one the render interface speaks in.
+using Rect = Compositor_korean_win.Core.Rect;
 
 namespace Compositor_korean_win.Shell;
 
