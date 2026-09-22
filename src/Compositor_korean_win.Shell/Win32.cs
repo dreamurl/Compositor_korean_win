@@ -22,9 +22,29 @@ internal static partial class Win32
     internal const uint WM_CLOSE = 0x0010;
     internal const uint WM_ERASEBKGND = 0x0014;
     internal const uint WM_KEYDOWN = 0x0100;
+    internal const uint WM_KEYUP = 0x0101;
     internal const uint WM_DPICHANGED = 0x02E0;
 
+    internal const uint WM_MOUSEMOVE = 0x0200;
+    internal const uint WM_LBUTTONDOWN = 0x0201;
+    internal const uint WM_LBUTTONUP = 0x0202;
+    internal const uint WM_MBUTTONDOWN = 0x0207;
+    internal const uint WM_MBUTTONUP = 0x0208;
+    internal const uint WM_MOUSEWHEEL = 0x020A;
+    internal const uint WM_CAPTURECHANGED = 0x0215;
+
     internal const int VK_ESCAPE = 0x1B;
+    internal const int VK_SPACE = 0x20;
+    internal const int VK_SHIFT = 0x10;
+    internal const int VK_CONTROL = 0x11;
+    internal const int VK_MENU = 0x12;
+    internal const int VK_0 = 0x30;
+    internal const int VK_1 = 0x31;
+    internal const int VK_Z = 0x5A;
+    internal const int VK_Y = 0x59;
+
+    /// <summary>The wheel's own unit: one notch.</summary>
+    internal const int WHEEL_DELTA = 120;
 
     internal const uint CS_HREDRAW = 0x0002;
     internal const uint CS_VREDRAW = 0x0001;
@@ -118,6 +138,43 @@ internal static partial class Win32
 
     [LibraryImport("user32.dll")]
     internal static partial uint GetDpiForWindow(nint hwnd);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct POINT
+    {
+        public int X;
+        public int Y;
+    }
+
+    /// <summary>The wheel reports where the pointer is on the desktop, not in the window.</summary>
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool ScreenToClient(nint hwnd, ref POINT point);
+
+    [LibraryImport("user32.dll")]
+    internal static partial nint SetCapture(nint hwnd);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool ReleaseCapture();
+
+    [LibraryImport("user32.dll")]
+    internal static partial short GetKeyState(int key);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool InvalidateRect(nint hwnd, nint rect, [MarshalAs(UnmanagedType.Bool)] bool erase);
+
+    /// <summary>Whether a modifier is down right now, as the mouse messages do not carry all of them.</summary>
+    internal static bool IsKeyDown(int key) => (GetKeyState(key) & 0x8000) != 0;
+
+    /// <summary>The x of a mouse message's packed position, which is signed.</summary>
+    internal static int PositionX(nint lParam) => (short)(lParam & 0xFFFF);
+
+    internal static int PositionY(nint lParam) => (short)((lParam >> 16) & 0xFFFF);
+
+    /// <summary>The wheel's rotation, in the high word of wParam and signed.</summary>
+    internal static int WheelDelta(nuint wParam) => (short)((wParam >> 16) & 0xFFFF);
 
     [LibraryImport("kernel32.dll")]
     internal static partial nint GetModuleHandleW(nint moduleName);

@@ -53,6 +53,23 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
 
     public IRenderSurface CreateSurface(int width, int height) => new Surface(device, width, height);
 
+    /// <summary>
+    /// A surface that draws straight onto the window's back buffer.
+    /// </summary>
+    /// <remarks>
+    /// The canvas composites a frame here rather than offscreen. Both would cost the same to draw;
+    /// the difference is that an offscreen frame then has to reach the window, and the only way
+    /// back from a Direct2D target the GPU owns is a CPU copy — a window's worth of pixels down and
+    /// the same back up, every frame, for nothing.
+    /// </remarks>
+    public IRenderSurface CreateWindowSurface(int width, int height)
+    {
+        ID2D1Bitmap1 target = device.BackBuffer
+            ?? throw new InvalidOperationException("no window has been bound");
+
+        return new Surface(device, target, width, height);
+    }
+
     public PixelBuffer Downsample(PixelBuffer source, int level)
     {
         (PixelBuffer image, int _) = _pyramid.Reduced(source, level);
@@ -83,18 +100,24 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
     {
         private readonly GraphicsDevice _device;
         private readonly ID2D1Bitmap1 _target;
-        private readonly ID2D1Bitmap1 _staging;
+        private readonly bool _ownsTarget;
         private readonly Stack<PixelRect> _clips = new();
+        private ID2D1Bitmap1? _staging;
 
         public Surface(GraphicsDevice device, int width, int height)
+            : this(device, CreateBitmap(device.D2DContext, width, height, BitmapOptions.Target),
+                   width, height)
+        {
+            _ownsTarget = true;
+        }
+
+        /// <summary>Draws onto a target someone else owns — the window's back buffer.</summary>
+        public Surface(GraphicsDevice device, ID2D1Bitmap1 target, int width, int height)
         {
             _device = device;
+            _target = target;
             Width = width;
             Height = height;
-
-            _target = CreateBitmap(device.D2DContext, width, height, BitmapOptions.Target);
-            _staging = CreateBitmap(device.D2DContext, width, height,
-                                    BitmapOptions.CpuRead | BitmapOptions.CannotDraw);
         }
 
         public int Width { get; }
@@ -251,6 +274,11 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
 
         public PixelBuffer Read()
         {
+            // Made on demand: the window's frames are never read back, and a staging bitmap for
+            // every surface would be a second copy of each one for nothing.
+            _staging ??= CreateBitmap(_device.D2DContext, Width, Height,
+                                      BitmapOptions.CpuRead | BitmapOptions.CannotDraw);
+
             _staging.CopyFromBitmap(_target).CheckError();
 
             MappedRectangle mapped = _staging.Map(MapOptions.Read);
@@ -286,8 +314,8 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
 
         public void Dispose()
         {
-            _staging.Dispose();
-            _target.Dispose();
+            _staging?.Dispose();
+            if (_ownsTarget) _target.Dispose();
         }
 
         /// <summary>The layer's pixels with its own mask multiplied in.</summary>

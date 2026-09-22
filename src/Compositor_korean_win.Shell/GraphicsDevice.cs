@@ -58,6 +58,16 @@ internal sealed class GraphicsDevice : IDisposable
     public ID2D1DeviceContext D2DContext { get; }
     public FeatureLevel FeatureLevel { get; }
 
+    /// <summary>
+    /// The bitmap the window presents from, once <see cref="BindWindow"/> has run.
+    /// </summary>
+    /// <remarks>
+    /// The canvas draws onto this rather than onto an offscreen surface it then copies: a frame of
+    /// a hundred-megapixel document is the window's worth of pixels, and reading those back to the
+    /// CPU and uploading them again would cost more than compositing them did.
+    /// </remarks>
+    public ID2D1Bitmap1? BackBuffer => _backBuffer;
+
     /// <summary>True when no GPU was available and Windows' software rasteriser took over.</summary>
     /// <remarks>CI runners have no GPU, so the M0 numbers taken there are WARP numbers.</remarks>
     public bool IsWarp { get; }

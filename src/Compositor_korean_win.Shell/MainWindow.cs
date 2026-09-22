@@ -10,12 +10,12 @@ using static Compositor_korean_win.Shell.Win32;
 
 namespace Compositor_korean_win.Shell;
 
-/// <summary>A plain Win32 window that presents one Direct2D frame.</summary>
+/// <summary>A plain Win32 window, presenting either a canvas or a single image.</summary>
 /// <remarks>
-/// M0 is deliberately the whole shell: a window class, a message loop and a swap chain, and no
-/// widget toolkit under it. docs/windows-port.md §5.1 leaves the shell open between this, WinUI 3
-/// and Avalonia, and the figures this window produces are how that gets decided — the other two
-/// only make sense if they buy something worth 20–40 MB.
+/// M0 made this the whole shell: a window class, a message loop and a swap chain, with no widget
+/// toolkit under it, and the figures it produced are what settled docs/windows-port.md §5.1. M3
+/// gives it a <see cref="CanvasView"/> and the messages that drive one. The image path is kept
+/// because the self-test still measures the plainest thing the window can do.
 /// </remarks>
 internal sealed unsafe class MainWindow : IDisposable
 {
@@ -30,6 +30,9 @@ internal sealed unsafe class MainWindow : IDisposable
     private bool _sized;
 
     public nint Handle { get; private set; }
+
+    /// <summary>The canvas this window shows, once one has been opened.</summary>
+    public CanvasView? Canvas { get; set; }
 
     /// <summary>Set once the first frame has been presented.</summary>
     public TimeSpan? TimeToFirstFrame { get; private set; }
@@ -75,6 +78,21 @@ internal sealed unsafe class MainWindow : IDisposable
         Resize();
     }
 
+    /// <summary>
+    /// Hands the window a canvas, and the canvas the size the window already has.
+    /// </summary>
+    /// <remarks>
+    /// The window is sized before a canvas exists, so its one WM_SIZE has already been and gone.
+    /// Without this the canvas would fit a document to a view of no size and show nothing until
+    /// the user dragged the window.
+    /// </remarks>
+    public void AttachCanvas(CanvasView canvas)
+    {
+        Canvas = canvas;
+        GetClientRect(Handle, out RECT client);
+        canvas.Resize(Math.Max(1, client.Width), Math.Max(1, client.Height), BackingScale());
+    }
+
     /// <summary>The image the window shows. The window takes its own share of the buffer.</summary>
     public void SetImage(PixelBuffer image)
     {
@@ -85,17 +103,32 @@ internal sealed unsafe class MainWindow : IDisposable
         _bitmap = ImageLoader.Upload(_device.D2DContext, _image, _format);
     }
 
+    /// <summary>Device pixels per point for this window, from its own DPI.</summary>
+    private double BackingScale()
+    {
+        uint dpi = GetDpiForWindow(Handle);
+        return dpi == 0 ? 1 : dpi / 96.0;
+    }
+
     private void Resize()
     {
         GetClientRect(Handle, out RECT client);
         _device.BindWindow(Handle, client.Width, client.Height, _format);
+        Canvas?.Resize(Math.Max(1, client.Width), Math.Max(1, client.Height), BackingScale());
         _sized = true;
     }
 
-    /// <summary>Draws one frame: the checkerboard behind the image, then the image, centred.</summary>
+    /// <summary>Draws one frame: the canvas if there is one, otherwise the image, centred.</summary>
     public void Render()
     {
         if (!_sized) return;
+
+        if (Canvas is CanvasView canvas)
+        {
+            canvas.Render();
+            TimeToFirstFrame ??= ProcessUptime();
+            return;
+        }
 
         ID2D1DeviceContext context = _device.D2DContext;
 
@@ -113,9 +146,6 @@ internal sealed unsafe class MainWindow : IDisposable
             float left = (float)((client.Width - _image.Width * scale) / 2);
             float top = (float)((client.Height - _image.Height * scale) / 2);
 
-            // Placing the bitmap by transform rather than by destination rectangle keeps this to
-            // the one DrawBitmap overload that takes no rectangle types, and it is the same path
-            // the canvas will use in M3, where pan and zoom already live in a transform.
             context.Transform = Matrix3x2.CreateScale((float)scale) * Matrix3x2.CreateTranslation(left, top);
             context.DrawBitmap(_bitmap, 1.0f,
                                scale < 1.0 ? InterpolationMode.HighQualityCubic
@@ -141,10 +171,19 @@ internal sealed unsafe class MainWindow : IDisposable
         return true;
     }
 
+    /// <summary>Whether a drag should pan rather than transform: space held, or the wheel pressed.</summary>
+    private static bool IsPanning(bool middleButton) => middleButton || IsKeyDown(VK_SPACE);
+
+    private void AfterInput()
+    {
+        if (Canvas?.NeedsRedraw == true) InvalidateRect(Handle, 0, false);
+    }
+
     [UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvStdcall)])]
     private static nint WndProc(nint hwnd, uint message, nuint wParam, nint lParam)
     {
         MainWindow? window = s_instance;
+        CanvasView? canvas = window?.Canvas;
 
         switch (message)
         {
@@ -163,8 +202,62 @@ internal sealed unsafe class MainWindow : IDisposable
                 }
                 break;
 
+            case WM_LBUTTONDOWN or WM_MBUTTONDOWN:
+                if (canvas is not null && window is not null)
+                {
+                    SetCapture(hwnd);
+                    canvas.PointerDown(canvas.ToView(PositionX(lParam), PositionY(lParam)),
+                                       IsPanning(message == WM_MBUTTONDOWN));
+                    window.AfterInput();
+                }
+                break;
+
+            case WM_MOUSEMOVE:
+                if (canvas is not null && window is not null)
+                {
+                    canvas.PointerMoved(canvas.ToView(PositionX(lParam), PositionY(lParam)),
+                                        IsKeyDown(VK_SHIFT), IsKeyDown(VK_MENU), IsKeyDown(VK_CONTROL));
+                    window.AfterInput();
+                }
+                break;
+
+            case WM_LBUTTONUP or WM_MBUTTONUP:
+                if (canvas is not null && window is not null)
+                {
+                    ReleaseCapture();
+                    canvas.PointerUp();
+                    window.AfterInput();
+                }
+                break;
+
+            case WM_MOUSEWHEEL:
+                if (canvas is not null && window is not null)
+                {
+                    // The wheel reports the pointer on the desktop, not in the window.
+                    var where = new POINT { X = PositionX(lParam), Y = PositionY(lParam) };
+                    ScreenToClient(hwnd, ref where);
+                    canvas.Wheel(canvas.ToView(where.X, where.Y),
+                                 WheelDelta(wParam) / (double)WHEEL_DELTA);
+                    window.AfterInput();
+                }
+                break;
+
             case WM_KEYDOWN:
-                if ((int)wParam == VK_ESCAPE) PostQuitMessage(0);
+                if ((int)wParam == VK_ESCAPE)
+                {
+                    PostQuitMessage(0);
+                    break;
+                }
+
+                if (canvas is not null && window is not null)
+                {
+                    canvas.Key((int)wParam, IsKeyDown(VK_CONTROL));
+                    window.AfterInput();
+                }
+                break;
+
+            case WM_CAPTURECHANGED:
+                canvas?.PointerUp();
                 break;
 
             case WM_DESTROY:
