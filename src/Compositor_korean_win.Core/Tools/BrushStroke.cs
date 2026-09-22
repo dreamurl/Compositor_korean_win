@@ -354,6 +354,10 @@ public sealed class BrushStroke : IDisposable
 
         if (_settings.Mode == BrushMode.Blur) tile.Softened ??= Soften(tile);
 
+        // Out here, not in the loop: a stackalloc per pixel is a stack overflow waiting for a
+        // wide enough brush.
+        Span<byte> taken = stackalloc byte[4];
+
         for (int y = area.Y; y < area.Bottom; y++)
         {
             Span<byte> target = tile.Pixels.Row(y - tile.Rect.Y);
@@ -386,7 +390,6 @@ public sealed class BrushStroke : IDisposable
                 // painting one colour through coverage.
                 if (_settings.Mode is BrushMode.Clone or BrushMode.Blur)
                 {
-                    Span<byte> taken = stackalloc byte[4];
                     if (!Sampled(tile, x, y, taken)) continue;
 
                     for (int channel = 0; channel < 4; channel++)
