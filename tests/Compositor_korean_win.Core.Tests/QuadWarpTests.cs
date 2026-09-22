@@ -175,4 +175,69 @@ public class QuadWarpTests
         Assert.Equal(new Size(20, 20), moved.Size);
         Assert.Equal(new Point(10, 10), moved.Origin);
     }
+    // MARK: Preview
+
+    private static PixelBuffer RenderWith(CanvasDocument document, LiveEdit? live)
+    {
+        using var backend = new SoftwareRenderBackend();
+        using IRenderSurface surface = backend.CreateSurface(document.Width, document.Height);
+        surface.Clear();
+        LayerCompositor.Draw(document, surface, backend, CanvasProjection.Identity, live);
+        return surface.Read();
+    }
+
+    private static readonly IReadOnlyList<Point> Skewed =
+        [new Point(6, 4), new Point(40, 10), new Point(44, 38), new Point(3, 30)];
+
+    [Fact]
+    public void TheDistortPreviewShowsWhatLettingGoWill()
+    {
+        using PixelBuffer pixels = RenderFixture.Gradient(24, 20);
+        ImageLayer layer = RenderFixture.Layer("gradient", pixels, 10, 10);
+
+        using var preview = new DistortPreview(layer);
+        LiveEdit frame = preview.Frame(Skewed, CanvasProjection.Identity, 48, 48)!;
+        using PixelBuffer previewed = RenderWith(RenderFixture.Document(48, 48, layer), frame);
+
+        (PixelBuffer warped, LayerTransform placement) = QuadWarp.Resample(pixels, Skewed)!.Value;
+        try
+        {
+            ImageLayer committed = layer with { Image = warped, Transform = placement };
+            using PixelBuffer applied = RenderWith(RenderFixture.Document(48, 48, committed), null);
+
+            for (int y = 0; y < 48; y++)
+                Assert.True(previewed.Row(y)[..(48 * 4)].SequenceEqual(applied.Row(y)[..(48 * 4)]), $"row {y} differs");
+        }
+        finally
+        {
+            warped.Release();
+        }
+    }
+
+    [Fact]
+    public void TheDistortPreviewFillsOnlyWhatIsInView()
+    {
+        using PixelBuffer pixels = RenderFixture.Solid(1000, 1000, 50, 100, 150);
+        ImageLayer layer = RenderFixture.Layer("big", pixels);
+
+        using var preview = new DistortPreview(layer);
+        IReadOnlyList<Point> corners =
+            [new Point(0, 0), new Point(1100, 50), new Point(1000, 1000), new Point(-50, 900)];
+
+        // Seen at full size through a window of a hundred pixels square.
+        preview.Frame(corners, new CanvasProjection(1, new Point(-400, -400)), 100, 100);
+        Assert.True(preview.LastPixelsWarped <= 100 * 100, $"{preview.LastPixelsWarped} pixels warped");
+    }
+
+    [Fact]
+    public void ADistortionOutOfViewStillStandsInForTheLayer()
+    {
+        using PixelBuffer pixels = RenderFixture.Solid(10, 10, 50, 100, 150);
+        using var preview = new DistortPreview(RenderFixture.Layer("small", pixels));
+
+        LiveEdit? frame = preview.Frame(Skewed, new CanvasProjection(1, new Point(500, 500)), 100, 100);
+
+        Assert.NotNull(frame);
+        Assert.Equal(1, preview.LastPixelsWarped);
+    }
 }

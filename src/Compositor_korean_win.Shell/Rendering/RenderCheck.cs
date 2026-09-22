@@ -40,7 +40,7 @@ internal static class RenderCheck
     }
 
     internal sealed record Result(Difference Exact, Difference Placement, Difference Resampled,
-                                  Difference Adjusted, string BackendName);
+                                  Difference Adjusted, Difference Previewed, string BackendName);
 
     public static Result Run(GraphicsDevice device, string? imageFolder)
     {
@@ -51,8 +51,9 @@ internal static class RenderCheck
         Difference placement = Measure(software, hardware, imageFolder, "placement", PlacementOnly);
         Difference resampled = Measure(software, hardware, imageFolder, "resampled", () => Scene(scaled: true));
         Difference adjusted = Measure(software, hardware, imageFolder, "adjusted", Adjusted);
+        Difference previewed = Previewed(software, hardware, imageFolder);
 
-        return new Result(exact, placement, resampled, adjusted, hardware.Name);
+        return new Result(exact, placement, resampled, adjusted, previewed, hardware.Name);
     }
 
     /// <summary>Builds a scene, compares it, and releases the pixels it allocated.</summary>
@@ -71,11 +72,81 @@ internal static class RenderCheck
         }
     }
 
-    private static Difference Compare(CanvasDocument document, IRenderBackend software,
-                                      IRenderBackend hardware, string? imageFolder, string name)
+    /// <summary>
+    /// The two previews that stand in for a layer while it is being edited — a filter being tried
+    /// and a distortion being dragged — drawn by both backends.
+    /// </summary>
+    /// <remarks>
+    /// Both hand the compositor pixels that are not the layer's own grid, placed somewhere the layer
+    /// is not, and the layer's own mask then goes on as a clip in document space instead. That is
+    /// the path this checks; the pixels themselves come from Core and are the same for both. The
+    /// layers are Nearest, so the exact pass's tolerance applies.
+    /// </remarks>
+    private static Difference Previewed(IRenderBackend software, IRenderBackend hardware, string? imageFolder)
     {
-        using PixelBuffer reference = LayerCompositor.Render(document, software);
-        using PixelBuffer actual = LayerCompositor.Render(document, hardware);
+        const int Size = 128;
+        PixelBuffer backdrop = Checkerboard(Size, Size), subject = Ramp(56, 40), mask = Blob(56, 40, 255);
+        PixelBuffer other = Stripes(40, 32);
+        try
+        {
+            var filtered = new ImageLayer
+            {
+                Id = Guid.NewGuid(),
+                Name = "Filtered",
+                Image = subject,
+                Transform = Place(12, 16, 56, 40, scaled: false),
+                Mask = new LayerMask { Coverage = mask },
+            };
+            var distorted = new ImageLayer
+            {
+                Id = Guid.NewGuid(),
+                Name = "Distorted",
+                Image = other,
+                Transform = Place(70, 70, 40, 32, scaled: false),
+            };
+            var document = new CanvasDocument
+            {
+                Id = Guid.NewGuid(),
+                Width = Size,
+                Height = Size,
+                Layers = new EquatableList<ImageLayer>(
+                [
+                    new ImageLayer
+                    {
+                        Id = Guid.NewGuid(), Name = "Backdrop", Image = backdrop,
+                        Transform = Place(0, 0, Size, Size, scaled: false),
+                    },
+                    filtered,
+                    distorted,
+                ]),
+            };
+
+            using var blur = new FilterPreview(filtered, FilterKind.GaussianBlur, new FilterSettings { Radius = 3 });
+            using var warp = new DistortPreview(distorted);
+            IReadOnlyList<Point> corners = [new(66, 72), new(118, 64), new(122, 110), new(72, 100)];
+
+            Difference blurred = Compare(document, software, hardware, imageFolder, "preview-filter",
+                                         () => blur.Frame(CanvasProjection.Identity, Size, Size));
+            Difference warped = Compare(document, software, hardware, imageFolder, "preview-distort",
+                                        () => warp.Frame(corners, CanvasProjection.Identity, Size, Size));
+
+            return blurred.Max >= warped.Max ? blurred : warped;
+        }
+        finally
+        {
+            backdrop.Release();
+            subject.Release();
+            mask.Release();
+            other.Release();
+        }
+    }
+
+    private static Difference Compare(CanvasDocument document, IRenderBackend software,
+                                      IRenderBackend hardware, string? imageFolder, string name,
+                                      Func<LiveEdit?>? live = null)
+    {
+        using PixelBuffer reference = Render(document, software, live?.Invoke());
+        using PixelBuffer actual = Render(document, hardware, live?.Invoke());
 
         if (imageFolder is not null)
         {
@@ -114,6 +185,16 @@ internal static class RenderCheck
                               flatMax,
                               edgeSamples == 0 ? 0 : (double)edgeTotal / edgeSamples,
                               (long)reference.Width * reference.Height);
+    }
+
+    private static PixelBuffer Render(CanvasDocument document, IRenderBackend backend, LiveEdit? live)
+    {
+        if (live is null) return LayerCompositor.Render(document, backend);
+
+        using IRenderSurface surface = backend.CreateSurface(document.Width, document.Height);
+        surface.Clear();
+        LayerCompositor.Draw(document, surface, backend, CanvasProjection.Identity, live);
+        return surface.Read();
     }
 
     /// <summary>Whether anything around this pixel changes enough for a filter to matter.</summary>

@@ -67,13 +67,25 @@ public static class QuadWarp
     /// (<see cref="DownsamplePyramid"/>) rather than asking one bilinear tap to stand in for
     /// sixteen source pixels.
     /// </para>
+    /// <para>
+    /// <paramref name="clip"/> keeps the result to part of the box: a preview asks only for what
+    /// the window shows. Clipped away entirely, the result is one transparent pixel at the clip's
+    /// corner, so a caller always has something to draw in the layer's place.
+    /// </para>
     /// </remarks>
     public static (PixelBuffer Pixels, LayerTransform Placement)? Resample(
-        PixelBuffer source, IReadOnlyList<Point> corners, DownsamplePyramid? pyramid = null)
+        PixelBuffer source, IReadOnlyList<Point> corners, DownsamplePyramid? pyramid = null,
+        PixelRect? clip = null)
     {
         if (!IsUsable(corners)) return null;
 
         PixelRect box = Rect.Around(corners).Enclosing();
+        if (clip is PixelRect within)
+        {
+            box = box.Intersect(within);
+            if (box.IsEmpty) box = new PixelRect(within.X, within.Y, 1, 1);
+        }
+
         if (box.IsEmpty || (long)box.Width * box.Height > 300_000L * 300_000L) return null;
 
         double[] forward = Map(corners);

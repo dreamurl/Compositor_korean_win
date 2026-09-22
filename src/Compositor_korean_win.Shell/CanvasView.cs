@@ -106,6 +106,7 @@ internal sealed partial class CanvasView : IDisposable
     private Dictionary<Guid, LayerTransform> _originals = [];
     private LayerTransform? _boxAtStart;
     private IReadOnlyList<Point>? _distorting;
+    private DistortPreview? _distortPreview;
     private SnapGuides _targets = SnapGuides.None;
     private SnapResult _snap;
     private bool _panning;
@@ -440,8 +441,9 @@ internal sealed partial class CanvasView : IDisposable
 
         Point pixel = _viewport.DocumentPoint(view, _document.Size);
 
-        // A distortion has no placement to show yet: the corners move now and the pixels are
-        // resampled into them when the button comes up.
+        // A distortion has no placement to hold it: the corners move now, the frame shows the
+        // pixels resampled into them (Live), and the layer itself is resampled when the button
+        // comes up.
         if (drag.Corners(pixel, shift) is IReadOnlyList<Point> corners)
         {
             if (QuadWarp.IsUsable(corners)) _distorting = corners;
@@ -542,6 +544,8 @@ internal sealed partial class CanvasView : IDisposable
     {
         IReadOnlyList<Point>? corners = _distorting;
         _distorting = null;
+        _distortPreview?.Dispose();
+        _distortPreview = null;
 
         if (corners is null || _document is null) return;
         if (_chosen.Count != 1 || _document.Layer(_chosen.First()) is not ImageLayer layer) return;
@@ -564,9 +568,25 @@ internal sealed partial class CanvasView : IDisposable
     /// keeping a stroke in tiles: the frame draws the tiles that changed, and the layer underneath
     /// is the buffer it always was.
     /// </remarks>
+    /// <summary>The layer drawn into the corners a distortion drag has reached, if one is under way.</summary>
+    private LiveEdit? Distorted(int width, int height)
+    {
+        if (_distorting is not IReadOnlyList<Point> corners || _document is null) return null;
+        if (_chosen.Count != 1 || _document.Layer(_chosen.First()) is not { Image: not null } layer) return null;
+
+        if (_distortPreview?.Layer.Id != layer.Id)
+        {
+            _distortPreview?.Dispose();
+            _distortPreview = new DistortPreview(layer);
+        }
+
+        return _distortPreview!.Frame(corners, _viewport.DeviceProjection(_document.Size), width, height);
+    }
+
     private LiveEdit? Live(int width, int height)
     {
         if (Previewing(width, height) is LiveEdit previewed) return previewed;
+        if (Distorted(width, height) is LiveEdit distorted) return distorted;
         if (_stroke is not BrushStroke stroke || _document is null) return null;
         if (_document.Layer(_painting) is not ImageLayer layer) return null;
 
@@ -1349,6 +1369,7 @@ internal sealed partial class CanvasView : IDisposable
         _stroke?.Dispose();
         _strokeBase?.Release();
         _preview?.Dispose();
+        _distortPreview?.Dispose();
         _surface?.Dispose();
         _backend.Dispose();
     }

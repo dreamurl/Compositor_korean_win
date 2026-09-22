@@ -136,6 +136,9 @@ internal static class SelfTest
 
             if (render.Adjusted.Max > AdjustedMaxTolerance || render.Adjusted.Mean > AdjustedMeanTolerance)
                 failures.Add($"adjustment layers differ between the backends by {render.Adjusted}");
+
+            if (render.Previewed.Max > ExactMaxTolerance || render.Previewed.Mean > ExactMeanTolerance)
+                failures.Add($"a live preview draws differently on the two backends: {render.Previewed}");
         }
         catch (Exception exception)
         {
@@ -239,6 +242,8 @@ internal static class SelfTest
             Line(report, "renderResampledMean", render.Resampled.Mean);
             Line(report, "renderAdjustedMax", render.Adjusted.Max);
             Line(report, "renderAdjustedMean", render.Adjusted.Mean);
+            Line(report, "renderPreviewedMax", render.Previewed.Max);
+            Line(report, "renderPreviewedMean", render.Previewed.Mean);
         }
         if (canvas is not null)
         {
