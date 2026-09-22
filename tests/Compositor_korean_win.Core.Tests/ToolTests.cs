@@ -109,19 +109,12 @@ public class ToolTests
                                                          To = new Rgba(255, 255, 255),
                                                      });
 
-        try
-        {
-            Assert.InRange(RenderFixture.At(filled, 0, 8).R, 0, 8);
-            Assert.InRange(RenderFixture.At(filled, 63, 8).R, 247, 255);
+        Assert.InRange(RenderFixture.At(filled, 0, 8).R, 0, 8);
+        Assert.InRange(RenderFixture.At(filled, 63, 8).R, 247, 255);
 
-            // Halfway along, halfway between: a gradient nobody can see the bands in.
-            Assert.InRange(RenderFixture.At(filled, 32, 8).R, 120, 136);
-            Assert.Equal(255, RenderFixture.At(filled, 32, 8).A);
-        }
-        finally
-        {
-            filled.Release();
-        }
+        // Halfway along, halfway between: a gradient nobody can see the bands in.
+        Assert.InRange(RenderFixture.At(filled, 32, 8).R, 120, 136);
+        Assert.Equal(255, RenderFixture.At(filled, 32, 8).A);
     }
 
     [Fact]
@@ -135,20 +128,13 @@ public class ToolTests
                                                          To = new Rgba(255, 255, 255),
                                                      });
 
-        try
-        {
-            int middle = RenderFixture.At(filled, 32, 32).R;
-            int halfway = RenderFixture.At(filled, 48, 32).R;
-            int corner = RenderFixture.At(filled, 63, 63).R;
+        int middle = RenderFixture.At(filled, 32, 32).R;
+        int halfway = RenderFixture.At(filled, 48, 32).R;
+        int corner = RenderFixture.At(filled, 63, 63).R;
 
-            Assert.InRange(middle, 0, 8);
-            Assert.InRange(halfway, 120, 136);
-            Assert.Equal(255, corner);   // Past the end, so the far colour and no further.
-        }
-        finally
-        {
-            filled.Release();
-        }
+        Assert.InRange(middle, 0, 8);
+        Assert.InRange(halfway, 120, 136);
+        Assert.Equal(255, corner);   // Past the end, so the far colour and no further.
     }
 
     [Fact]
@@ -158,15 +144,8 @@ public class ToolTests
         using PixelBuffer filled = GradientTool.Draw(null, 64, 16, new Point(0, 8), new Point(64, 8),
                                                      new GradientSettings(), selection);
 
-        try
-        {
-            Assert.Equal(255, RenderFixture.At(filled, 10, 8).A);
-            Assert.Equal(0, RenderFixture.At(filled, 40, 8).A);
-        }
-        finally
-        {
-            filled.Release();
-        }
+        Assert.Equal(255, RenderFixture.At(filled, 10, 8).A);
+        Assert.Equal(0, RenderFixture.At(filled, 40, 8).A);
     }
 
     [Theory]
@@ -178,16 +157,9 @@ public class ToolTests
         var settings = new ShapeSettings { Kind = kind, Color = new Rgba(200, 40, 60), CornerRadius = radius };
         using PixelBuffer drawn = ShapeTool.Draw(null, 64, 64, new Rect(16, 16, 32, 32), settings);
 
-        try
-        {
-            Assert.Equal((200, 40, 60, 255), RenderFixture.At(drawn, 32, 32));
-            Assert.Equal(0, RenderFixture.At(drawn, 4, 4).A);
-            Assert.Equal(0, RenderFixture.At(drawn, 60, 32).A);
-        }
-        finally
-        {
-            drawn.Release();
-        }
+        Assert.Equal((200, 40, 60, 255), RenderFixture.At(drawn, 32, 32));
+        Assert.Equal(0, RenderFixture.At(drawn, 4, 4).A);
+        Assert.Equal(0, RenderFixture.At(drawn, 60, 32).A);
     }
 
     [Fact]
