@@ -55,15 +55,16 @@ public static class SpotHeal
     /// <summary>The bounds of what a coverage bitmap marks, as the kernel measures them.</summary>
     public static unsafe PixelRect CoverageBounds(byte[] coverage, int width, int height)
     {
-        Span<long> bounds = stackalloc long[4];
+        // Four C longs, which are 32 bits wide on Windows.
+        Span<int> bounds = stackalloc int[4];
 
         fixed (byte* marked = coverage)
-        fixed (long* edges = bounds)
+        fixed (int* edges = bounds)
         {
             Kernels.HealCoverageBounds((nint)marked, (nuint)width, (nuint)height, (nuint)width, (nint)edges);
         }
 
-        return PixelRect.FromBounds((int)bounds[0], (int)bounds[1], (int)bounds[2], (int)bounds[3]);
+        return PixelRect.FromBounds(bounds[0], bounds[1], bounds[2], bounds[3]);
     }
 
     /// <summary>

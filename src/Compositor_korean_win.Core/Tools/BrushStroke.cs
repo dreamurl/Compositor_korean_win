@@ -7,6 +7,33 @@ public readonly record struct Rgba(byte R, byte G, byte B, byte A = 255)
     public static Rgba White => new(255, 255, 255);
 }
 
+/// <summary>What a stroke does to the pixels under it.</summary>
+public enum BrushMode
+{
+    /// <summary>Lays the settings' colour down.</summary>
+    Paint,
+
+    /// <summary>Takes the layer's pixels away.</summary>
+    Erase,
+
+    /// <summary>Marks what to rebuild from nearby texture, once the stroke ends.</summary>
+    Heal,
+
+    /// <summary>Paints pixels sampled from somewhere else, at a fixed offset.</summary>
+    Clone,
+
+    /// <summary>Softens what is already there rather than adding anything.</summary>
+    Blur,
+}
+
+/// <summary>Where the clone stamp takes its pixels from.</summary>
+/// <remarks>
+/// The offset is in layer pixels, from the painted point to the sampled one, and it is the shell's
+/// to work out: aligned cloning keeps one offset for the whole stroke, unaligned resets it at every
+/// stroke, and neither is something the stroke itself has an opinion about.
+/// </remarks>
+public sealed record CloneSource(PixelBuffer Sample, Point Offset);
+
 /// <summary>What the brush paints and how it is shaped.</summary>
 /// <remarks>
 /// <see cref="Opacity"/> caps the whole stroke, as in Photoshop: dabs overlap constantly — a
@@ -25,15 +52,15 @@ public sealed record BrushSettings
 
     public double Opacity { get; init; } = 1;
 
-    /// <summary>Takes the layer's pixels away instead of putting colour on them.</summary>
-    public bool Erasing { get; init; }
-
-    /// <summary>
-    /// The stroke marks what to heal rather than what to paint; the pixels come from nearby.
-    /// </summary>
-    public bool Healing { get; init; }
+    public BrushMode Mode { get; init; } = BrushMode.Paint;
 
     public SpotHealingMode HealingMode { get; init; } = SpotHealingMode.ContentAware;
+
+    /// <summary>Where <see cref="BrushMode.Clone"/> takes its pixels from.</summary>
+    public CloneSource? Clone { get; init; }
+
+    /// <summary>How far <see cref="BrushMode.Blur"/> reaches, in layer pixels.</summary>
+    public double BlurRadius { get; init; } = 4;
 
     [System.Text.Json.Serialization.JsonIgnore]
     public double Radius => Math.Max(0.5, Diameter / 2);
@@ -67,6 +94,9 @@ public sealed class BrushStroke : IDisposable
         public required PixelRect Rect { get; init; }
         public required byte[] Coverage { get; init; }
         public required PixelBuffer Pixels { get; init; }
+
+        /// <summary>The tile softened, made once for a blur stroke and kept for the stroke.</summary>
+        public PixelBuffer? Softened { get; set; }
     }
 
     private readonly Dictionary<int, Tile> _tiles = [];
@@ -169,7 +199,7 @@ public sealed class BrushStroke : IDisposable
     /// </remarks>
     public bool Heal(uint seed)
     {
-        if (_tiles.Count == 0 || Dirty.IsEmpty) return false;
+        if (_settings.Mode != BrushMode.Heal || _tiles.Count == 0 || Dirty.IsEmpty) return false;
 
         int reach = SpotHeal.ReachFor(Dirty);
         PixelRect region = Dirty.Inflate(reach).Intersect(new PixelRect(0, 0, Width, Height));
@@ -306,6 +336,11 @@ public sealed class BrushStroke : IDisposable
     }
 
     /// <summary>Rebuilds a tile's pixels from the layer's own and the coverage over them.</summary>
+    /// <remarks>
+    /// Every mode but healing goes through here, and they differ only in what they put on: the
+    /// settings' colour, a sample taken from somewhere else, or the tile softened. Healing cannot:
+    /// it has to look at the finished shape of the stroke, so it happens once at the end.
+    /// </remarks>
     private void Compose(Tile tile, PixelRect area)
     {
         Span<byte> colour = stackalloc byte[4];
@@ -313,6 +348,8 @@ public sealed class BrushStroke : IDisposable
         colour[1] = _settings.Color.G;
         colour[2] = _settings.Color.B;
         colour[3] = _settings.Color.A;
+
+        if (_settings.Mode == BrushMode.Blur) tile.Softened ??= Soften(tile);
 
         for (int y = area.Y; y < area.Bottom; y++)
         {
@@ -335,10 +372,26 @@ public sealed class BrushStroke : IDisposable
 
                 if (alpha <= 0) continue;
 
-                if (_settings.Erasing)
+                if (_settings.Mode == BrushMode.Erase)
                 {
                     for (int channel = 0; channel < 4; channel++)
                         pixel[channel] = (byte)Math.Round(pixel[channel] * (1 - alpha), MidpointRounding.AwayFromZero);
+                    continue;
+                }
+
+                // A clone or a blur puts a whole pixel down — colour and alpha both — rather than
+                // painting one colour through coverage.
+                if (_settings.Mode is BrushMode.Clone or BrushMode.Blur)
+                {
+                    Span<byte> taken = stackalloc byte[4];
+                    if (!Sampled(tile, x, y, taken)) continue;
+
+                    for (int channel = 0; channel < 4; channel++)
+                    {
+                        pixel[channel] = (byte)Math.Clamp(
+                            Math.Round(taken[channel] * alpha + pixel[channel] * (1 - alpha),
+                                       MidpointRounding.AwayFromZero), 0, 255);
+                    }
                     continue;
                 }
 
@@ -353,6 +406,116 @@ public sealed class BrushStroke : IDisposable
                 pixel[3] = (byte)Math.Clamp(
                     Math.Round(255 * strength + pixel[3] * (1 - strength), MidpointRounding.AwayFromZero), 0, 255);
             }
+        }
+    }
+
+    /// <summary>The pixel a clone or a blur puts down at this position, if there is one.</summary>
+    private bool Sampled(Tile tile, int x, int y, Span<byte> result)
+    {
+        if (_settings.Mode == BrushMode.Blur)
+        {
+            if (tile.Softened is not PixelBuffer softened) return false;
+            softened.Row(y - tile.Rect.Y).Slice((x - tile.Rect.X) * 4, 4).CopyTo(result);
+            return true;
+        }
+
+        if (_settings.Clone is not CloneSource clone) return false;
+
+        int sx = (int)Math.Round(x + clone.Offset.X, MidpointRounding.AwayFromZero);
+        int sy = (int)Math.Round(y + clone.Offset.Y, MidpointRounding.AwayFromZero);
+        if (sx < 0 || sy < 0 || sx >= clone.Sample.Width || sy >= clone.Sample.Height) return false;
+
+        clone.Sample.Row(sy).Slice(sx * 4, 4).CopyTo(result);
+        return true;
+    }
+
+    /// <summary>
+    /// The tile's own pixels, softened, ready for a blur stroke to paint back in.
+    /// </summary>
+    /// <remarks>
+    /// Two box passes over a margin that reaches outside the tile, so the softening does not stop
+    /// at a tile edge and leave a seam where one tile meets the next. Made once per tile per
+    /// stroke: it depends on the layer's pixels, which a stroke never changes.
+    /// </remarks>
+    private PixelBuffer Soften(Tile tile)
+    {
+        int radius = (int)Math.Clamp(Math.Round(_settings.BlurRadius, MidpointRounding.AwayFromZero), 1, 64);
+        PixelRect region = tile.Rect.Inflate(radius * 2).Intersect(new PixelRect(0, 0, Width, Height));
+
+        PixelBuffer source = _base is PixelBuffer image
+            ? PixelRegion.Copy(image, region)
+            : PixelBuffer.Allocate(region.Width, region.Height);
+
+        try
+        {
+            PixelBuffer blurred = BoxBlur(source, radius);
+            try
+            {
+                return PixelRegion.Copy(blurred, new PixelRect(tile.Rect.X - region.X, tile.Rect.Y - region.Y,
+                                                               tile.Rect.Width, tile.Rect.Height));
+            }
+            finally
+            {
+                blurred.Release();
+            }
+        }
+        finally
+        {
+            source.Release();
+        }
+    }
+
+    /// <summary>Two separable box passes, which is close enough to a Gaussian to look like one.</summary>
+    private static PixelBuffer BoxBlur(PixelBuffer source, int radius)
+    {
+        PixelBuffer first = Pass(source, radius, horizontal: true);
+        PixelBuffer second = Pass(first, radius, horizontal: false);
+        first.Release();
+
+        PixelBuffer third = Pass(second, radius, horizontal: true);
+        second.Release();
+
+        PixelBuffer fourth = Pass(third, radius, horizontal: false);
+        third.Release();
+        return fourth;
+
+        static PixelBuffer Pass(PixelBuffer from, int radius, bool horizontal)
+        {
+            PixelBuffer result = PixelBuffer.Allocate(from.Width, from.Height);
+            int outer = horizontal ? from.Height : from.Width;
+            int inner = horizontal ? from.Width : from.Height;
+            Span<int> sums = stackalloc int[4];
+
+            for (int line = 0; line < outer; line++)
+            {
+                for (int i = 0; i < inner; i++)
+                {
+                    sums.Clear();
+                    int count = 0;
+
+                    for (int k = -radius; k <= radius; k++)
+                    {
+                        int at = i + k;
+                        if (at < 0 || at >= inner) continue;
+
+                        ReadOnlySpan<byte> pixel = horizontal
+                            ? from.Row(line).Slice(at * 4, 4)
+                            : from.Row(at).Slice(line * 4, 4);
+
+                        for (int channel = 0; channel < 4; channel++) sums[channel] += pixel[channel];
+                        count++;
+                    }
+
+                    Span<byte> target = horizontal
+                        ? result.Row(line).Slice(i * 4, 4)
+                        : result.Row(i).Slice(line * 4, 4);
+
+                    for (int channel = 0; channel < 4; channel++)
+                        target[channel] = (byte)((sums[channel] + count / 2) / Math.Max(1, count));
+                }
+            }
+
+            return result;
         }
     }
 
@@ -454,7 +617,12 @@ public sealed class BrushStroke : IDisposable
 
     public void Dispose()
     {
-        foreach (Tile tile in _tiles.Values) tile.Pixels.Release();
+        foreach (Tile tile in _tiles.Values)
+        {
+            tile.Pixels.Release();
+            tile.Softened?.Release();
+        }
+
         _tiles.Clear();
     }
 }

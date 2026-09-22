@@ -87,7 +87,7 @@ public class BrushStrokeTests
     public void ErasingTakesThePixelsAway()
     {
         using PixelBuffer filled = RenderFixture.Solid(64, 64, 200, 40, 40);
-        var settings = Hard() with { Erasing = true };
+        var settings = Hard() with { Mode = BrushMode.Erase };
 
         using PixelBuffer painted = Paint(settings, 64, 64, [new Point(32, 32)], over: filled);
 

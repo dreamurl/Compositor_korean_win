@@ -49,7 +49,7 @@ public static class MagicWand
         if (x < 0 || y < 0 || x >= image.Width || y >= image.Height) return (null, WandOutcome.NothingMatched);
 
         var mask = new byte[(long)image.Width * image.Height];
-        long count;
+        int count;
 
         fixed (byte* marked = mask)
         {

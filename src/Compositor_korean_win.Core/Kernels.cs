@@ -73,8 +73,14 @@ public static partial class Kernels
     /// Marks every pixel within <paramref name="tolerance"/> of the one under the seed. Returns how
     /// many were selected, or -1 when memory runs out.
     /// </summary>
+    /// <remarks>
+    /// The kernel says <c>long</c>, which is 32 bits under the Windows data model however wide the
+    /// machine is — so this is an <c>int</c> here, and the same goes for
+    /// <see cref="HealCoverageBounds"/>'s four values. Declaring either as a 64-bit integer reads
+    /// two of the kernel's numbers as one.
+    /// </remarks>
     [LibraryImport(Library, EntryPoint = "wand_mask")]
-    public static partial long WandMask(nint rgba, nuint width, nuint height, nuint stride,
+    public static partial int WandMask(nint rgba, nuint width, nuint height, nuint stride,
                                         nuint seedX, nuint seedY, nuint radius, int tolerance,
                                         int contiguous, nint mask);
 
@@ -91,7 +97,7 @@ public static partial class Kernels
                                         out nint points, out nuint pointCount,
                                         out nint loops, out nuint loopCount);
 
-    /// <summary>Half-open bounds of nonzero bytes in a grey bitmap, as four longs.</summary>
+    /// <summary>Half-open bounds of nonzero bytes in a grey bitmap, as four 32-bit values.</summary>
     [LibraryImport(Library, EntryPoint = "heal_coverage_bounds")]
     public static partial void HealCoverageBounds(nint gray, nuint width, nuint height, nuint stride, nint bounds);
 

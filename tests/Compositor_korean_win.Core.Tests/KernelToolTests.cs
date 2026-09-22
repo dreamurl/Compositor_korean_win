@@ -133,7 +133,7 @@ public class KernelToolTests
         {
             Diameter = 12,
             Hardness = 1,
-            Healing = true,
+            Mode = BrushMode.Heal,
         });
 
         stroke.Append(new Point(48, 48));
@@ -154,7 +154,7 @@ public class KernelToolTests
         using var stroke = new BrushStroke(image, 96, 96, new BrushSettings
         {
             Diameter = 10,
-            Healing = true,
+            Mode = BrushMode.Heal,
         });
 
         stroke.Append(new Point(20, 20));
