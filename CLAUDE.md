@@ -78,5 +78,5 @@ gh api repos/dreamurl/Compositor_korean_win/actions/jobs/$jobid/logs | grep -E "
 
 ## 6. 현재 위치
 
-M0~M4 완료, 다음은 **M5(조정·필터, D2D 효과, 라이브 프리뷰)**.
-남은 커널 둘(`AdjustPixels`·`LensPixels`)이 M5 몫이다. 상세는 `docs/progress.md` 6절.
+M0~M5 완료, 다음은 **M6(UI 완성 — 레이어 패널·대화상자·한국어 리소스·단축키)**.
+C 커널은 전부 연결됐다. M3–M5가 미뤄 둔 UI 목록과 상세는 `docs/progress.md` 6.6절·7절.

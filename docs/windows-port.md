@@ -84,7 +84,7 @@ Document 계층 8,071줄도 그대로는 쓸 수 없다.
 | CoreGraphics `CGContext` | Direct2D `ID2D1DeviceContext` | GPU 가속 |
 | CoreGraphics `CGImage` | `ID2D1Bitmap1` + 자체 픽셀 버퍼 | 4절 `PixelBuffer` |
 | `CIColorMatrix` | `D2D1ColorMatrix` | |
-| `CIColorCube` | `D2D1LookupTable3D` | |
+| `CIColorCube` | `D2D1LookupTable3D` | M5는 Core에서 원본 큐브를 CPU로 조회한다(10.6) |
 | `CIGaussianBlur` | `D2D1GaussianBlur` | |
 | `CIMotionBlur` | `D2D1DirectionalBlur` | |
 | `CIPerspectiveTransform` | `D2D13DPerspectiveTransform` | |
@@ -309,12 +309,32 @@ windows-latest
 | ~~**M2** 렌더 백엔드~~ ✅ | `IRenderBackend` + Direct2D 구현, 블렌드 13종, 마스크, 클리핑, 다운샘플 피라미드, 타일 교체 | **완료.** 10.3 참조 |
 | ~~**M3** 캔버스~~ ✅ | 뷰포트·줌·팬·변환 핸들·스냅·가이드·선택 영역 | **완료.** 10.4 참조 |
 | ~~**M4** 도구~~ ✅ | 브러시·힐링·클론·블러·그라디언트·셰이프·마술봉 (C 커널 연결) | **완료.** 10.5 참조 |
-| **M5** 조정·필터 | Levels·Curves·HueSat·Exposure·GradientMap·Grain·블러 (D2D 효과) | 라이브 프리뷰 동작 |
+| ~~**M5** 조정·필터~~ ✅ | Levels·Curves·HueSat·Exposure·GradientMap·Grain·블러 | **완료.** 10.6 참조 |
 | **M6** UI 완성 | 레이어 패널·탭·시트 + 한국어 리소스 + 단축키 | 전 기능 한국어 |
 | **M7** AI | 피사체 분리(ONNX+DirectML, 온디맨드) | 모델 미설치 시에도 앱 정상 |
 | **M8** 배포 | 단일 exe, 업데이트 피드, Releases 자동화 | 다운로드→실행 검증 |
 
-M4까지 끝나 남은 것은 조정·필터(M5), UI·한국어화(M6), AI(M7), 배포(M8)다.
+M5까지 끝나 남은 것은 UI·한국어화(M6), AI(M7), 배포(M8)다.
+
+### 10.6 M5 결과
+
+상세는 [`progress.md`](progress.md) 6절. 요점만 옮긴다.
+
+**조정은 D2D 효과가 아니라 Core에서 CPU로 돈다.** 3절 표의 `CIColorCube → D2D1LookupTable3D`
+는 맞는 대응이지만, 원본에서 Core Image를 쓰는 조정은 Hue/Saturation 하나뿐이었다 — 나머지
+다섯은 원본도 C 커널이다. 그래서 원본 방식 그대로가 CPU이고, 두 백엔드가 같은 코드로 같은
+픽셀을 내므로 M2의 백엔드 비교가 조정 레이어에도 선다(최대 4, 평균 0.04).
+
+**조정은 이미 창 크기로 줄어든 프레임에 걸린다.** 조정 레이어는 아래까지 합성된 프레임을 읽어
+필터를 걸고 되쓰는데, 그 프레임은 M3 덕분에 창 크기다. 그래서 1억 픽셀 문서에서도 조정 한 장은
+프레임당 창 한 장(1,024,000픽셀)을 처리한다. 필터 프리뷰는 레이어를 렌더러가 읽을 피라미드
+단계에서 화면에 보이는 부분만 잘라 거른다 — 맞춤 1.53배, 100% 1.00배.
+
+| 항목 (1억 픽셀, 1280×800, Basic Render Driver) | 값 |
+|---|---|
+| 조정 6장 프레임 / 값 바꾸는 중 | 133 / 135 ms (조정 없음 52 ms) |
+| 필터 프리뷰(σ 20) 설정 변경 → 프레임: 맞춤 / 100% | 137 / 77 ms |
+| 테스트 | 357개 통과 |
 
 ### 10.5 M4 결과
 
