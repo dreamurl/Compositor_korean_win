@@ -49,6 +49,14 @@ public readonly record struct PixelPlacement(double OriginX, double OriginY, dou
 /// </remarks>
 public static class AdjustmentRendering
 {
+    private static long s_pixelsAdjusted;
+
+    /// <summary>
+    /// Pixels run through an adjustment since the process started, for the M5 report: it is how the
+    /// bench shows that a frame adjusts the window's pixels and not the document's.
+    /// </summary>
+    public static long PixelsAdjusted => Interlocked.Read(ref s_pixelsAdjusted);
+
     /// <summary>
     /// Settings that would leave every pixel exactly as it is.
     /// </summary>
@@ -83,6 +91,7 @@ public static class AdjustmentRendering
     {
         region = region.Intersect(new PixelRect(0, 0, pixels.Width, pixels.Height));
         if (region.IsEmpty || IsIdentity(adjustment)) return;
+        Interlocked.Add(ref s_pixelsAdjusted, (long)region.Width * region.Height);
 
         switch (adjustment.Kind)
         {
@@ -136,7 +145,7 @@ public static class AdjustmentRendering
     /// <para>
     /// Drawing the adjusted frame over the original with the weight as opacity would not be: over a
     /// soft edge that is two translucent copies source-over, and the edge thickens. Upstream draws
-    /// it that way; this is the one place its result is not reproduced on purpose.
+    /// it that way, and here, as with Levels, its result is not reproduced on purpose.
     /// </para>
     /// </remarks>
     /// <param name="adjusted">Receives the result.</param>

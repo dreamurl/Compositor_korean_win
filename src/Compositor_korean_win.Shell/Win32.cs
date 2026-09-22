@@ -65,6 +65,15 @@ internal static partial class Win32
     internal const int VK_OEM_4 = 0xDB;
     internal const int VK_OEM_6 = 0xDD;
 
+    /// <summary>Function keys, which open the adjustments and filters until M6 gives them menus.</summary>
+    internal const int VK_F2 = 0x71;
+    internal const int VK_F3 = 0x72;
+    internal const int VK_F4 = 0x73;
+    internal const int VK_F5 = 0x74;
+    internal const int VK_F6 = 0x75;
+    internal const int VK_F7 = 0x76;
+    internal const int VK_F8 = 0x77;
+
     /// <summary>The wheel's own unit: one notch.</summary>
     internal const int WHEEL_DELTA = 120;
 

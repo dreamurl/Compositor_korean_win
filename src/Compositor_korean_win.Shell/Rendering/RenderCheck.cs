@@ -40,7 +40,7 @@ internal static class RenderCheck
     }
 
     internal sealed record Result(Difference Exact, Difference Placement, Difference Resampled,
-                                  string BackendName);
+                                  Difference Adjusted, string BackendName);
 
     public static Result Run(GraphicsDevice device, string? imageFolder)
     {
@@ -50,8 +50,9 @@ internal static class RenderCheck
         Difference exact = Measure(software, hardware, imageFolder, "exact", () => Scene(scaled: false));
         Difference placement = Measure(software, hardware, imageFolder, "placement", PlacementOnly);
         Difference resampled = Measure(software, hardware, imageFolder, "resampled", () => Scene(scaled: true));
+        Difference adjusted = Measure(software, hardware, imageFolder, "adjusted", Adjusted);
 
-        return new Result(exact, placement, resampled, hardware.Name);
+        return new Result(exact, placement, resampled, adjusted, hardware.Name);
     }
 
     /// <summary>Builds a scene, compares it, and releases the pixels it allocated.</summary>
@@ -183,6 +184,66 @@ internal static class RenderCheck
         };
 
         return (document, [image]);
+    }
+
+    /// <summary>
+    /// The exact scene with every kind of adjustment layer over it, one masked, one clipped, one
+    /// blended.
+    /// </summary>
+    /// <remarks>
+    /// Both backends run the same Core code over their own composite, so what this measures is the
+    /// read, the write and the weight drawing around it — and how far each adjustment stretches the
+    /// small arithmetic differences the exact pass already allows. Levels' black point and the
+    /// Curves bend make those a little larger, which is why this pass has a tolerance of its own.
+    /// </remarks>
+    private static (CanvasDocument, List<PixelBuffer>) Adjusted()
+    {
+        (CanvasDocument document, List<PixelBuffer> owned) = Scene(scaled: false);
+        int size = document.Width;
+
+        PixelBuffer maskRamp = Ramp(size, size);
+        owned.Add(maskRamp);
+
+        ImageLayer clipBase = document.Layers.First(layer => layer.Name == "Clip base");
+        var full = new LayerTransform(Point.Zero, new Size(size, size));
+
+        ImageLayer Adjustment(LayerAdjustment adjustment) => new()
+        {
+            Id = Guid.NewGuid(),
+            Name = adjustment.Kind.ToString(),
+            Transform = full,
+            Adjustment = adjustment,
+        };
+
+        // The clipped one has to sit directly above the clipped layer to join its group.
+        var layers = document.Layers.ToList();
+        int clipped = layers.FindIndex(layer => layer.Name == "Clipped");
+        layers.Insert(clipped + 1, Adjustment(new LayerAdjustment(AdjustmentKind.Hsv)
+        {
+            HsvSettings = HueSaturationSettings.From(90, 20, 0, colorize: false),
+        }) with { MaskSourceId = clipBase.Id });
+
+        layers.Add(Adjustment(new LayerAdjustment(AdjustmentKind.Levels)
+        {
+            Levels = new LevelsSettings
+            {
+                Ranges = new EquatableList<LevelRange>([new LevelRange { Black = 10, Gamma = 1.2 }, new(), new(), new()]),
+            },
+        }));
+        layers.Add(Adjustment(new LayerAdjustment(AdjustmentKind.Exposure)
+        {
+            ExposureSettings = new ExposureSettings { Exposure = 0.3 },
+        }) with { BlendMode = LayerBlendMode.Screen, Opacity = 0.7 });
+        layers.Add(Adjustment(new LayerAdjustment(AdjustmentKind.GradientMap)
+        {
+            GradientMapSettings = new GradientMapSettings { Shadows = new AdjustmentColor(0.2, 0, 0.4) },
+        }) with { Mask = new LayerMask { Coverage = maskRamp }, Opacity = 0.6 });
+        layers.Add(Adjustment(new LayerAdjustment(AdjustmentKind.Grain)
+        {
+            GrainSettings = new GrainSettings { Amount = 40, Size = 2, Seed = 9 },
+        }));
+
+        return (document with { Layers = new EquatableList<ImageLayer>(layers) }, owned);
     }
 
     private static (CanvasDocument, List<PixelBuffer>) Scene(bool scaled)

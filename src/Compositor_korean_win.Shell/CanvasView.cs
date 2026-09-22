@@ -84,7 +84,7 @@ internal static class CanvasTools
 /// the layer tree or knows what a blend mode is.
 /// </para>
 /// </remarks>
-internal sealed class CanvasView : IDisposable
+internal sealed partial class CanvasView : IDisposable
 {
     /// <summary>Where the rotation handle sits above the top edge, in view points.</summary>
     private const double RotationReach = 28;
@@ -224,7 +224,7 @@ internal sealed class CanvasView : IDisposable
         if (_document is not null)
         {
             _surface ??= _backend.CreateWindowSurface(width, height);
-            LayerCompositor.DrawView(_document, _viewport, _surface, _backend, Live());
+            LayerCompositor.DrawView(_document, _viewport, _surface, _backend, Live(width, height));
             DrawOverlay(context);
         }
 
@@ -245,6 +245,9 @@ internal sealed class CanvasView : IDisposable
             _panFrom = view;
             return;
         }
+
+        // While a filter or an adjustment is being set, a drag sets it and does nothing else.
+        if (BeginAmountDrag(view)) return;
 
         Point pixel = _viewport.DocumentPoint(view, _document.Size);
 
@@ -389,6 +392,8 @@ internal sealed class CanvasView : IDisposable
 
         _pointer = view;
 
+        if (DragAmount(view)) return;
+
         if (_stroke is BrushStroke stroke && _document.Layer(_painting) is ImageLayer painted)
         {
             Point at = _viewport.DocumentPoint(view, _document.Size);
@@ -486,6 +491,7 @@ internal sealed class CanvasView : IDisposable
     public void PointerUp()
     {
         _panning = false;
+        if (EndAmountDrag()) return;
 
         if (_stroke is not null)
         {
@@ -558,8 +564,9 @@ internal sealed class CanvasView : IDisposable
     /// keeping a stroke in tiles: the frame draws the tiles that changed, and the layer underneath
     /// is the buffer it always was.
     /// </remarks>
-    private LiveEdit? Live()
+    private LiveEdit? Live(int width, int height)
     {
+        if (Previewing(width, height) is LiveEdit previewed) return previewed;
         if (_stroke is not BrushStroke stroke || _document is null) return null;
         if (_document.Layer(_painting) is not ImageLayer layer) return null;
 
@@ -907,6 +914,12 @@ internal sealed class CanvasView : IDisposable
     public bool Key(int key, bool control)
     {
         if (_document is null) return false;
+
+        if (FilterKey(key, control))
+        {
+            NeedsRedraw = true;
+            return true;
+        }
 
         switch (key)
         {
@@ -1335,6 +1348,7 @@ internal sealed class CanvasView : IDisposable
     {
         _stroke?.Dispose();
         _strokeBase?.Release();
+        _preview?.Dispose();
         _surface?.Dispose();
         _backend.Dispose();
     }

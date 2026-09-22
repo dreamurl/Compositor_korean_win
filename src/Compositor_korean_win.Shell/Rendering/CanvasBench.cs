@@ -131,7 +131,7 @@ internal static class CanvasBench
     /// Four hundred megabytes of it, so the fill is one row built by hand and copied down the
     /// buffer: what is being measured is the drawing, not this.
     /// </remarks>
-    private static PixelBuffer Fill(int width, int height)
+    internal static PixelBuffer Fill(int width, int height)
     {
         PixelBuffer buffer = PixelBuffer.Allocate(width, height);
 

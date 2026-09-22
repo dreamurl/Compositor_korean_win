@@ -41,6 +41,18 @@ internal static class SelfTest
     /// </remarks>
     private const int FlatTolerance = 2;
 
+    /// <summary>
+    /// How far the two may sit apart once adjustment layers run over the exact scene.
+    /// </summary>
+    /// <remarks>
+    /// Both backends run the same adjustment code over their own composite, so this is the exact
+    /// pass's allowance stretched by what the adjustments do to a level of difference — a black
+    /// point and a bend in a curve each widen it a little. A wrong read, a mask weighted from the
+    /// wrong channel or a frame adjusted twice would move the mean by whole numbers.
+    /// </remarks>
+    private const int AdjustedMaxTolerance = 16;
+    private const double AdjustedMeanTolerance = 0.5;
+
     public static int Run(string? imagePath, string? reportPath)
     {
         var report = new StringBuilder();
@@ -121,6 +133,9 @@ internal static class SelfTest
             // not allowed to drift; the filters differ at edges by design and are only reported.
             if (render.Placement.FlatMax > FlatTolerance)
                 failures.Add($"Direct2D is placed differently from the reference: {render.Placement}");
+
+            if (render.Adjusted.Max > AdjustedMaxTolerance || render.Adjusted.Mean > AdjustedMeanTolerance)
+                failures.Add($"adjustment layers differ between the backends by {render.Adjusted}");
         }
         catch (Exception exception)
         {
@@ -166,6 +181,25 @@ internal static class SelfTest
             failures.Add("stroke bench failed: " + exception.Message);
         }
 
+        // M5 closes on the live preview: an adjustment layer touches the window's pixels once a
+        // frame, and a filter tried on a layer filters what is in view, not the layer.
+        AdjustBench.Result? adjust = null;
+        try
+        {
+            adjust = AdjustBench.Run(device, side: 10_000, width: 1280, height: 800);
+            if (!adjust.WithinBudget)
+            {
+                failures.Add($"a preview frame adjusts {adjust.PixelsAdjustedPerFrame} pixels for "
+                             + $"{adjust.Adjustments} adjustments and filters {adjust.PreviewFittedPixels} / "
+                             + $"{adjust.PreviewFullSizePixels} for a window of {adjust.ViewPixels}: "
+                             + "the cost is following the document");
+            }
+        }
+        catch (Exception exception)
+        {
+            failures.Add("adjust bench failed: " + exception.Message);
+        }
+
         long exeBytes = 0;
         string? exePath = Environment.ProcessPath;
         if (exePath is not null && File.Exists(exePath)) exeBytes = new FileInfo(exePath).Length;
@@ -175,7 +209,7 @@ internal static class SelfTest
             failures.Add($"{PixelBuffer.LiveCount} pixel buffers leaked");
 
         report.Append("{\n");
-        Line(report, "milestone", "M4");
+        Line(report, "milestone", "M5");
         Line(report, "shell", "win32-direct2d");
         Line(report, "driver", device.IsWarp ? "warp" : "hardware");
         Line(report, "adapter", device.Adapter);
@@ -203,6 +237,8 @@ internal static class SelfTest
             Line(report, "renderPlacementEdgeMean", render.Placement.EdgeMean);
             Line(report, "renderResampledMax", render.Resampled.Max);
             Line(report, "renderResampledMean", render.Resampled.Mean);
+            Line(report, "renderAdjustedMax", render.Adjusted.Max);
+            Line(report, "renderAdjustedMean", render.Adjusted.Mean);
         }
         if (canvas is not null)
         {
@@ -223,6 +259,23 @@ internal static class SelfTest
             Line(report, "strokeLargeLayerPixels", stroke.LargeLayerPixels);
             Line(report, "strokeWithinBudget", stroke.WithinBudget);
         }
+        if (adjust is not null)
+        {
+            Line(report, "adjustDocumentPixels", adjust.DocumentPixels);
+            Line(report, "adjustViewPixels", adjust.ViewPixels);
+            Line(report, "adjustLayers", adjust.Adjustments);
+            Line(report, "adjustPixelsPerFrame", adjust.PixelsAdjustedPerFrame);
+            Line(report, "adjustPlainFrameMs", adjust.PlainFrameMs);
+            Line(report, "adjustFrameMs", adjust.AdjustedFrameMs);
+            Line(report, "adjustChangeFrameMs", adjust.SettingsChangeFrameMs);
+            Line(report, "previewOpenMs", adjust.PreviewOpenMs);
+            Line(report, "previewFittedMs", adjust.PreviewFittedMs);
+            Line(report, "previewFittedPixels", adjust.PreviewFittedPixels);
+            Line(report, "previewFullSizeMs", adjust.PreviewFullSizeMs);
+            Line(report, "previewFullSizePixels", adjust.PreviewFullSizePixels);
+            Line(report, "adjustWithinBudget", adjust.WithinBudget);
+        }
+
         Support(report, "r8g8b8a8", rgba);
         Support(report, "b8g8r8a8", bgra);
         Failures(report, failures);

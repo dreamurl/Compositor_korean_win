@@ -243,9 +243,16 @@ internal sealed unsafe class MainWindow : IDisposable
                 break;
 
             case WM_KEYDOWN:
-                if ((int)wParam == VK_ESCAPE)
+                // Escape cancels whatever the canvas has open first, and only quits when nothing is.
+                if ((int)wParam == VK_ESCAPE && canvas?.Key(VK_ESCAPE, control: false) != true)
                 {
                     PostQuitMessage(0);
+                    break;
+                }
+
+                if ((int)wParam == VK_ESCAPE)
+                {
+                    window?.AfterInput();
                     break;
                 }
 
