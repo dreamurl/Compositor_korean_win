@@ -93,21 +93,40 @@ public static class LayerCompositor
     /// on a surface the size of the document its edges did that for free, and here they do not.
     /// </remarks>
     public static void DrawView(CanvasDocument document, CanvasViewport viewport,
-                                IRenderSurface surface, IRenderBackend backend, LiveEdit? live = null)
-    {
-        CanvasProjection projection = viewport.DeviceProjection(document.Size);
+                                IRenderSurface surface, IRenderBackend backend, LiveEdit? live = null) =>
+        DrawView(document, viewport, surface, backend, live, Point.Zero, area: null);
 
+    /// <summary>
+    /// Draws what <paramref name="viewport"/> shows into part of a surface: the view's own corner at
+    /// <paramref name="origin"/>, in the surface's pixels, and nothing outside <paramref name="area"/>.
+    /// </summary>
+    /// <remarks>
+    /// The window is more than the canvas once it has panels round it. The viewport keeps working
+    /// in the canvas's own coordinates, which is what every zoom and pan rule was written for, and
+    /// only the last step — onto the window — moves over by where the canvas sits.
+    /// </remarks>
+    public static void DrawView(CanvasDocument document, CanvasViewport viewport, IRenderSurface surface,
+                                IRenderBackend backend, LiveEdit? live, Point origin, Rect? area)
+    {
+        CanvasProjection projection = Placed(viewport.DeviceProjection(document.Size), origin);
+
+        if (area is Rect bounds) surface.PushClip(bounds);
         Rect canvas = projection.Apply(new Rect(0, 0, document.Width, document.Height));
         surface.PushClip(canvas);
         try
         {
-            Draw(document, surface, backend, projection, live, canvas);
+            Draw(document, surface, backend, projection, live, area is Rect within ? canvas.Intersect(within) : canvas);
         }
         finally
         {
             surface.PopClip();
+            if (area is not null) surface.PopClip();
         }
     }
+
+    /// <summary>A projection moved over by <paramref name="origin"/> surface pixels.</summary>
+    public static CanvasProjection Placed(CanvasProjection projection, Point origin) =>
+        projection with { Offset = new Point(projection.Offset.X + origin.X, projection.Offset.Y + origin.Y) };
 
     /// <summary>Draws <paramref name="document"/> onto an existing surface.</summary>
     public static void Draw(CanvasDocument document, IRenderSurface surface, IRenderBackend backend) =>

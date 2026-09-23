@@ -136,6 +136,19 @@ internal static class SelfTest
             failures.Add("menu check failed: " + exception.Message);
         }
 
+        // M6.4 closes on the window itself: every word the panels draw, in both languages.
+        UiCheck.Result? panels = null;
+        try
+        {
+            panels = UiCheck.Run(device, chosen, image, reportPath is null ? null : Path.GetDirectoryName(reportPath));
+            foreach (string text in panels.Untranslated) failures.Add("panel text not translated: " + text);
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine(exception);
+            failures.Add("panel check failed: " + exception.Message);
+        }
+
         // M2 closes on a pixel comparison: the same document through Direct2D and through the
         // reference rasteriser. Exact means 1:1 with Nearest, where nothing is resampled and the
         // two should agree on arithmetic alone.
@@ -290,6 +303,14 @@ internal static class SelfTest
             Line(report, "menuJpeg", menus.Jpeg);
             Line(report, "menuClipboard", menus.Clipboard);
             Line(report, "menuPassed", menus.Passed);
+        }
+
+        if (panels is not null)
+        {
+            Line(report, "panelStrings", panels.Strings);
+            Line(report, "panelUntranslated", panels.Untranslated.Count);
+            Line(report, "panelScreenshots", string.Join(" ", panels.Screenshots));
+            Line(report, "panelPassed", panels.Passed);
         }
 
         if (adjust is not null)

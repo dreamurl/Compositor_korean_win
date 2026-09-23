@@ -235,7 +235,7 @@ internal sealed partial class CanvasView
     /// <summary>The frame's stand-in for a layer being filtered, when one is.</summary>
     private LiveEdit? Previewing(int width, int height) =>
         _preview is FilterPreview preview && _document is not null
-            ? preview.Frame(_viewport.DeviceProjection(_document.Size), width, height)
+            ? preview.Frame(Projection(_document), width, height)
             : null;
 
     private static FilterKind KindFor(FilterCommand command) => command switch

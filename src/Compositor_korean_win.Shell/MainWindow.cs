@@ -7,6 +7,7 @@ using Vortice.DXGI;
 using Vortice.Mathematics;
 using SharpGen.Runtime;
 using static Compositor_korean_win.Shell.Win32;
+using Point = Compositor_korean_win.Core.Point;
 
 namespace Compositor_korean_win.Shell;
 
@@ -56,7 +57,7 @@ internal sealed unsafe class MainWindow : IDisposable
             WNDCLASSEXW windowClass = new()
             {
                 cbSize = (uint)Unsafe.SizeOf<WNDCLASSEXW>(),
-                style = CS_HREDRAW | CS_VREDRAW,
+                style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS,
                 lpfnWndProc = (nint)(delegate* unmanaged[Stdcall]<nint, uint, nuint, nint, nint>)&WndProc,
                 hInstance = instance,
                 hCursor = LoadCursorW(0, IDC_ARROW),
@@ -97,9 +98,32 @@ internal sealed unsafe class MainWindow : IDisposable
     public void AttachCanvas(CanvasView canvas)
     {
         Canvas = canvas;
-        GetClientRect(Handle, out RECT client);
-        canvas.Resize(Math.Max(1, client.Width), Math.Max(1, client.Height), BackingScale());
+        LayOut();
     }
+
+    /// <summary>The panels round the canvas, once they exist. The canvas then gets what they leave.</summary>
+    public Chrome? Chrome { get; private set; }
+
+    public void AttachChrome(Chrome chrome)
+    {
+        Chrome = chrome;
+        LayOut();
+    }
+
+    /// <summary>Tells the canvas which part of the window is its own.</summary>
+    private void LayOut()
+    {
+        if (Canvas is not CanvasView canvas) return;
+        GetClientRect(Handle, out RECT client);
+        int width = Math.Max(1, client.Width), height = Math.Max(1, client.Height);
+        double scale = BackingScale();
+
+        if (Chrome is Chrome chrome) canvas.Resize(chrome.CanvasArea(width, height, scale), width, height, scale);
+        else canvas.Resize(width, height, scale);
+    }
+
+    /// <summary>Redraws after a change the canvas did not make — a panel's.</summary>
+    public void Invalidate() => InvalidateRect(Handle, 0, false);
 
     /// <summary>The image the window shows. The window takes its own share of the buffer.</summary>
     public void SetImage(PixelBuffer image)
@@ -122,18 +146,30 @@ internal sealed unsafe class MainWindow : IDisposable
     {
         GetClientRect(Handle, out RECT client);
         _device.BindWindow(Handle, client.Width, client.Height, _format);
-        Canvas?.Resize(Math.Max(1, client.Width), Math.Max(1, client.Height), BackingScale());
+        LayOut();
         _sized = true;
     }
 
     /// <summary>Draws one frame: the canvas if there is one, otherwise the image, centred.</summary>
-    public void Render()
+    public void Render() => Render(present: true);
+
+    /// <summary>
+    /// Draws one frame, and presents it unless asked not to — the self-test reads a frame back
+    /// before presenting, since presenting leaves the back buffer's contents undefined.
+    /// </summary>
+    public void Render(bool present)
     {
         if (!_sized) return;
 
         if (Canvas is CanvasView canvas)
         {
             canvas.Render();
+            if (Chrome is Chrome chrome)
+            {
+                GetClientRect(Handle, out RECT client);
+                chrome.Draw(_device.D2DContext, Math.Max(1, client.Width), Math.Max(1, client.Height), BackingScale());
+            }
+            if (present) _device.Present();
             TimeToFirstFrame ??= ProcessUptime();
             return;
         }
@@ -182,6 +218,16 @@ internal sealed unsafe class MainWindow : IDisposable
     /// <summary>Whether a drag should pan rather than transform: space held, or the wheel pressed.</summary>
     private static bool IsPanning(bool middleButton) => middleButton || IsKeyDown(VK_SPACE);
 
+    private const nuint TooltipTimer = 1;
+
+    /// <summary>A button went down on a panel, so the drag that follows is the panel's.</summary>
+    private bool _uiHasPointer;
+
+    /// <summary>
+    /// Keys meant for a panel's own text box, looked at before they are dispatched. True when taken.
+    /// </summary>
+    public bool PreTranslate(in MSG message) => Chrome?.RenameKey(message) == true;
+
     private void AfterInput()
     {
         if (Canvas?.NeedsRedraw == true) InvalidateRect(Handle, 0, false);
@@ -210,12 +256,26 @@ internal sealed unsafe class MainWindow : IDisposable
                 }
                 break;
 
-            case WM_LBUTTONDOWN or WM_MBUTTONDOWN:
+            case WM_LBUTTONDOWN or WM_MBUTTONDOWN or WM_LBUTTONDBLCLK:
                 if (canvas is not null && window is not null)
                 {
                     SetCapture(hwnd);
-                    canvas.PointerDown(canvas.ToView(PositionX(lParam), PositionY(lParam)),
-                                       IsPanning(message == WM_MBUTTONDOWN));
+                    var at = new Point(PositionX(lParam), PositionY(lParam));
+                    window.Guarded(() =>
+                    {
+                        // A click anywhere ends a rename in progress, keeping what was typed.
+                        window.Chrome?.FinishRename(commit: true);
+
+                        if (message != WM_MBUTTONDOWN && window.Chrome?.Ui.PointerDown(at, message == WM_LBUTTONDBLCLK) == true)
+                        {
+                            window._uiHasPointer = true;
+                            window.Invalidate();
+                            return;
+                        }
+
+                        canvas.PointerDown(canvas.ToView(PositionX(lParam), PositionY(lParam)),
+                                           IsPanning(message == WM_MBUTTONDOWN));
+                    });
                     window.AfterInput();
                 }
                 break;
@@ -223,8 +283,19 @@ internal sealed unsafe class MainWindow : IDisposable
             case WM_MOUSEMOVE:
                 if (canvas is not null && window is not null)
                 {
-                    canvas.PointerMoved(canvas.ToView(PositionX(lParam), PositionY(lParam)),
-                                        IsKeyDown(VK_SHIFT), IsKeyDown(VK_MENU), IsKeyDown(VK_CONTROL));
+                    var at = new Point(PositionX(lParam), PositionY(lParam));
+                    window.Guarded(() =>
+                    {
+                        if (window.Chrome?.Ui is Ui ui && ui.PointerMoved(at))
+                        {
+                            window.Invalidate();
+                            if (ui.TooltipPending) SetTimer(hwnd, TooltipTimer, Ui.TooltipDelay + 50, 0);
+                        }
+                        if (window._uiHasPointer) return;
+
+                        canvas.PointerMoved(canvas.ToView(PositionX(lParam), PositionY(lParam)),
+                                            IsKeyDown(VK_SHIFT), IsKeyDown(VK_MENU), IsKeyDown(VK_CONTROL));
+                    });
                     window.AfterInput();
                 }
                 break;
@@ -233,9 +304,25 @@ internal sealed unsafe class MainWindow : IDisposable
                 if (canvas is not null && window is not null)
                 {
                     ReleaseCapture();
-                    canvas.PointerUp();
+                    var at = new Point(PositionX(lParam), PositionY(lParam));
+                    window.Guarded(() =>
+                    {
+                        if (window._uiHasPointer)
+                        {
+                            window._uiHasPointer = false;
+                            window.Chrome?.Ui.PointerUp(at);
+                            window.Invalidate();
+                            return;
+                        }
+                        canvas.PointerUp();
+                    });
                     window.AfterInput();
                 }
+                break;
+
+            case WM_TIMER when (nuint)wParam == TooltipTimer:
+                KillTimer(hwnd, TooltipTimer);
+                window?.Invalidate();
                 break;
 
             case WM_MOUSEWHEEL:
@@ -244,8 +331,11 @@ internal sealed unsafe class MainWindow : IDisposable
                     // The wheel reports the pointer on the desktop, not in the window.
                     var where = new POINT { X = PositionX(lParam), Y = PositionY(lParam) };
                     ScreenToClient(hwnd, ref where);
-                    canvas.Wheel(canvas.ToView(where.X, where.Y),
-                                 WheelDelta(wParam) / (double)WHEEL_DELTA);
+                    double notches = WheelDelta(wParam) / (double)WHEEL_DELTA;
+
+                    if (window.Chrome?.Scroll(new Point(where.X, where.Y), notches) == true) window.Invalidate();
+                    else if (window.Chrome?.Ui.Covers(new Point(where.X, where.Y)) != true)
+                        canvas.Wheel(canvas.ToView(where.X, where.Y), notches);
                     window.AfterInput();
                 }
                 break;

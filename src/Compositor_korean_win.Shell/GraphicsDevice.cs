@@ -184,6 +184,49 @@ internal sealed class GraphicsDevice : IDisposable
         _swapChain?.Present(1, PresentFlags.None);
     }
 
+    /// <summary>
+    /// The frame drawn so far, read back as RGBA — for the self-test's screenshots. Call it before
+    /// presenting: a flip swap chain leaves the back buffer undefined afterwards.
+    /// </summary>
+    public unsafe Core.PixelBuffer? CaptureBackBuffer()
+    {
+        if (_backBuffer is null) return null;
+
+        Vortice.Mathematics.SizeI size = _backBuffer.PixelSize;
+        Format format = _backBuffer.PixelFormat.Format;
+        var properties = new BitmapProperties1
+        {
+            BitmapOptions = BitmapOptions.CpuRead | BitmapOptions.CannotDraw,
+            PixelFormat = new Vortice.DCommon.PixelFormat(format, Vortice.DCommon.AlphaMode.Ignore),
+        };
+
+        using ID2D1Bitmap1 staging = D2DContext.CreateBitmap(size, properties);
+        staging.CopyFromBitmap(_backBuffer).CheckError();
+
+        MappedRectangle mapped = staging.Map(MapOptions.Read);
+        try
+        {
+            var pixels = Core.PixelBuffer.Allocate(size.Width, size.Height);
+            bool swap = format is Format.B8G8R8A8_UNorm or Format.B8G8R8A8_UNorm_SRgb;
+            for (int y = 0; y < size.Height; y++)
+            {
+                var source = new ReadOnlySpan<byte>((byte*)mapped.Bits + (long)y * mapped.Pitch, size.Width * 4);
+                Span<byte> row = pixels.Row(y);
+                source.CopyTo(row);
+                for (int x = 0; x < size.Width; x++)
+                {
+                    if (swap) (row[x * 4], row[x * 4 + 2]) = (row[x * 4 + 2], row[x * 4]);
+                    row[x * 4 + 3] = 255;
+                }
+            }
+            return pixels;
+        }
+        finally
+        {
+            staging.Unmap();
+        }
+    }
+
     private void ReleaseBackBuffer()
     {
         if (_backBuffer is null) return;

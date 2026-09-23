@@ -258,6 +258,80 @@ internal static unsafe partial class Win32
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool GetSaveFileNameW(ref OPENFILENAMEW dialog);
 
+    // Pop-up menus, the colour dialog, the rename box and timers, for the panels.
+
+    internal const uint TPM_RETURNCMD = 0x0100;
+    internal const uint TPM_NONOTIFY = 0x0080;
+    internal const uint WM_TIMER = 0x0113;
+    internal const uint WM_SETFONT = 0x0030;
+    internal const uint WM_LBUTTONDBLCLK = 0x0203;
+    internal const uint CS_DBLCLKS = 0x0008;
+    internal const uint EM_SETSEL = 0x00B1;
+    internal const uint WS_CHILD = 0x40000000;
+    internal const uint WS_BORDER = 0x00800000;
+    internal const uint ES_AUTOHSCROLL = 0x0080;
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct POINTSTRUCT
+    {
+        public int X, Y;
+    }
+
+    [LibraryImport("user32.dll")]
+    internal static partial int TrackPopupMenuEx(nint menu, uint flags, int x, int y, nint hwnd, nint parameters);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool ClientToScreen(nint hwnd, ref POINTSTRUCT point);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetCursorPos(out POINTSTRUCT point);
+
+    [LibraryImport("user32.dll")]
+    internal static partial nuint SetTimer(nint hwnd, nuint id, uint milliseconds, nint callback);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool KillTimer(nint hwnd, nuint id);
+
+    [LibraryImport("user32.dll")]
+    internal static partial nint SetFocus(nint hwnd);
+
+    [LibraryImport("user32.dll", EntryPoint = "GetWindowTextW")]
+    internal static partial int GetWindowTextW(nint hwnd, char* text, int max);
+
+    [LibraryImport("gdi32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial nint CreateFontW(int height, int width, int escapement, int orientation, int weight,
+                                             uint italic, uint underline, uint strikeOut, uint charSet,
+                                             uint outPrecision, uint clipPrecision, uint quality,
+                                             uint pitchAndFamily, string face);
+
+    [LibraryImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool DeleteObject(nint handle);
+
+    internal const uint CC_RGBINIT = 0x0001;
+    internal const uint CC_FULLOPEN = 0x0002;
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct CHOOSECOLORW
+    {
+        public uint lStructSize;
+        public nint hwndOwner;
+        public nint hInstance;
+        public uint rgbResult;
+        public uint* lpCustColors;
+        public uint Flags;
+        public nint lCustData;
+        public nint lpfnHook;
+        public nint lpTemplateName;
+    }
+
+    [LibraryImport("comdlg32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool ChooseColorW(ref CHOOSECOLORW dialog);
+
     // The clipboard.
 
     [LibraryImport("user32.dll", SetLastError = true)]

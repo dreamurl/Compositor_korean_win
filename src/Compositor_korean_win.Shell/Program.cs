@@ -43,10 +43,19 @@ internal static class Program
         window.Menu = menu;
         window.CanClose = files.ConfirmDiscard;
 
+        using var chrome = new Chrome(window.Handle, canvas, files.Open, menu.Run);
+        window.AttachChrome(chrome);
+
         window.Render();
 
         while (Win32.GetMessageW(out Win32.MSG message, 0, 0, 0) > 0)
         {
+            if (window.PreTranslate(message))
+            {
+                window.Invalidate();
+                continue;
+            }
+
             Win32.TranslateMessage(message);
             Win32.DispatchMessageW(message);
         }

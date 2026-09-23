@@ -169,6 +169,8 @@ jobs:
               "| 실행해 본 명령 | $($report.menuCommandsRun)개 |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
               "| 한국어 실행 취소 이름 | $($report.menuKoreanUndo) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
               "| 통과 | $($report.menuPassed) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 패널이 그린 문구 (두 언어, 모든 도구) | $($report.panelStrings)개, 번역 안 됨 $($report.panelUntranslated)개 |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 스크린샷 | $($report.panelScreenshots) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
               "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
             }
 

@@ -99,6 +99,10 @@ internal sealed partial class CanvasView : IDisposable
     private readonly DocumentHistory _history = new(ownsPixels: true);
 
     private IRenderSurface? _surface;
+    private Rect _area;
+    private Point _origin;
+    private int _windowWidth = 1;
+    private int _windowHeight = 1;
     private CanvasDocument? _document;
     private CanvasViewport _viewport = new();
     private double _scale = 1;
@@ -189,52 +193,105 @@ internal sealed partial class CanvasView : IDisposable
     }
 
     /// <summary>
-    /// The window changed size. <paramref name="scale"/> is device pixels per point.
+    /// The window changed size, or the panels round the canvas did. <paramref name="area"/> is the
+    /// canvas's part of the window in device pixels; <paramref name="scale"/> is device pixels per point.
     /// </summary>
-    public void Resize(int pixelWidth, int pixelHeight, double scale)
+    public void Resize(Rect area, int windowWidth, int windowHeight, double scale)
     {
         _scale = Math.Max(1, scale);
+        _area = area;
+        _origin = new Point(area.X, area.Y);
+        _windowWidth = Math.Max(1, windowWidth);
+        _windowHeight = Math.Max(1, windowHeight);
 
         // The back buffer is a new bitmap after a resize, so the surface borrowing it is stale.
         _surface?.Dispose();
         _surface = null;
 
-        _viewport = _viewport.Resized(new Size(pixelWidth / _scale, pixelHeight / _scale),
+        _viewport = _viewport.Resized(new Size(Math.Max(1, area.Width) / _scale, Math.Max(1, area.Height) / _scale),
                                       _scale, _document?.Size);
         NeedsRedraw = true;
     }
 
-    /// <summary>A point in device pixels, as the mouse messages give it, in view points.</summary>
-    public Point ToView(int x, int y) => new(x / _scale, y / _scale);
+    /// <summary>The whole window as the canvas, for callers with no panels round it.</summary>
+    public void Resize(int pixelWidth, int pixelHeight, double scale) =>
+        Resize(new Rect(0, 0, pixelWidth, pixelHeight), pixelWidth, pixelHeight, scale);
 
+    /// <summary>
+    /// A point in the window's device pixels, as the mouse messages give it, in the canvas's own
+    /// view points.
+    /// </summary>
+    public Point ToView(int x, int y) => new((x - _origin.X) / _scale, (y - _origin.Y) / _scale);
+
+    /// <summary>Where the canvas sits in the window, in device pixels.</summary>
+    public Rect Area => _area;
+
+    /// <summary>Document to window pixels: the viewport's projection, moved over to the canvas.</summary>
+    private CanvasProjection Projection(CanvasDocument document) =>
+        LayerCompositor.Placed(_viewport.DeviceProjection(document.Size), _origin);
+
+    /// <summary>
+    /// Draws the canvas into its part of the window. The window presents; the panels draw over the
+    /// rest first.
+    /// </summary>
     public void Render()
     {
         ID2D1DeviceContext context = _device.D2DContext;
-        int width = Math.Max(1, (int)Math.Round(_viewport.DeviceViewSize.Width, MidpointRounding.AwayFromZero));
-        int height = Math.Max(1, (int)Math.Round(_viewport.DeviceViewSize.Height, MidpointRounding.AwayFromZero));
 
-        // The desk the document lies on, and the sheet itself. A transparent layer shows the sheet
-        // rather than a checkerboard for now; the checkerboard is UI work and belongs with M6.
+        // The desk the document lies on, and a checkerboard where the document is transparent.
         context.BeginDraw();
-        context.Clear(new Color4(0.15f, 0.15f, 0.16f, 1.0f));
+        context.PushAxisAlignedClip(Raw(_area), AntialiasMode.Aliased);
+        context.Clear(new Color4(0.12f, 0.12f, 0.125f, 1.0f));
 
         if (_document is not null)
         {
-            using ID2D1SolidColorBrush paper = context.CreateSolidColorBrush(new Color4(1f, 1f, 1f, 1f));
-            context.FillRectangle(Raw(CanvasRect(_document)), paper);
+            Rect sheet = CanvasRect(_document);
+            ID2D1BitmapBrush checker = Checkerboard(context);
+            checker.Transform = Matrix3x2.CreateTranslation((float)Math.Round(sheet.X), (float)Math.Round(sheet.Y));
+            context.FillRectangle(Raw(sheet), checker);
         }
 
+        context.PopAxisAlignedClip();
         context.EndDraw().CheckError();
 
         if (_document is not null)
         {
-            _surface ??= _backend.CreateWindowSurface(width, height);
-            LayerCompositor.DrawView(_document, _viewport, _surface, _backend, Live(width, height));
+            _surface ??= _backend.CreateWindowSurface(_windowWidth, _windowHeight);
+            LayerCompositor.DrawView(_document, _viewport, _surface, _backend, Live(_windowWidth, _windowHeight),
+                                     _origin, _area);
             DrawOverlay(context);
         }
 
-        _device.Present();
         NeedsRedraw = false;
+    }
+
+    private ID2D1Bitmap1? _checkerBitmap;
+    private ID2D1BitmapBrush? _checker;
+
+    /// <summary>
+    /// The light and dark grey squares that stand for transparency, eight device pixels each,
+    /// as a repeating brush.
+    /// </summary>
+    private ID2D1BitmapBrush Checkerboard(ID2D1DeviceContext context)
+    {
+        if (_checker is not null) return _checker;
+
+        using PixelBuffer tile = PixelBuffer.Allocate(16, 16);
+        for (int y = 0; y < 16; y++)
+        {
+            Span<byte> row = tile.Row(y);
+            for (int x = 0; x < 16; x++)
+            {
+                byte level = ((x / 8) + (y / 8)) % 2 == 0 ? (byte)204 : (byte)153;
+                row[x * 4] = row[x * 4 + 1] = row[x * 4 + 2] = level;
+                row[x * 4 + 3] = 255;
+            }
+        }
+
+        _checkerBitmap = ImageLoader.Upload(context, tile, Vortice.DXGI.Format.R8G8B8A8_UNorm);
+        _checker = context.CreateBitmapBrush(_checkerBitmap,
+            new BitmapBrushProperties(ExtendMode.Wrap, ExtendMode.Wrap, BitmapInterpolationMode.NearestNeighbor));
+        return _checker;
     }
 
     // MARK: Input
@@ -584,7 +641,7 @@ internal sealed partial class CanvasView : IDisposable
             _distortPreview = new DistortPreview(layer);
         }
 
-        return _distortPreview!.Frame(corners, _viewport.DeviceProjection(_document.Size), width, height);
+        return _distortPreview!.Frame(corners, Projection(_document), width, height);
     }
 
     private LiveEdit? Live(int width, int height)
@@ -954,6 +1011,15 @@ internal sealed partial class CanvasView : IDisposable
 
         switch (key)
         {
+            // Photoshop's colour keys: X swaps foreground and background, D puts back black and white.
+            case Win32.VK_X when !control:
+                SwapColors();
+                break;
+
+            case Win32.VK_D when !control:
+                DefaultColors();
+                break;
+
             case Win32.VK_V when !control:
                 _tool = CanvasTool.Move;
                 break;
@@ -1153,7 +1219,7 @@ internal sealed partial class CanvasView : IDisposable
     // MARK: The overlay
 
     private Rect CanvasRect(CanvasDocument document) =>
-        _viewport.DeviceProjection(document.Size).Apply(new Rect(0, 0, document.Width, document.Height));
+        Projection(document).Apply(new Rect(0, 0, document.Width, document.Height));
 
     /// <summary>The selection's outline and handles, and any guide a move just landed on.</summary>
     private void DrawOverlay(ID2D1DeviceContext context)
@@ -1161,11 +1227,12 @@ internal sealed partial class CanvasView : IDisposable
         if (_document is null) return;
 
         // Device pixels, like the frame under it, so the overlay is crisp on a dense display.
-        CanvasProjection projection = _viewport.DeviceProjection(_document.Size);
+        CanvasProjection projection = Projection(_document);
         float thickness = (float)_scale;
         float half = (float)(4 * _scale);
 
         context.BeginDraw();
+        context.PushAxisAlignedClip(Raw(_area), AntialiasMode.Aliased);
 
         using ID2D1SolidColorBrush outline = context.CreateSolidColorBrush(new Color4(0.16f, 0.55f, 1f, 1f));
         using ID2D1SolidColorBrush fill = context.CreateSolidColorBrush(new Color4(1f, 1f, 1f, 1f));
@@ -1176,7 +1243,8 @@ internal sealed partial class CanvasView : IDisposable
 
         if (_tool != CanvasTool.Move || Box() is not LayerTransform box)
         {
-            context.EndDraw().CheckError();
+            context.PopAxisAlignedClip();
+        context.EndDraw().CheckError();
             return;
         }
 
@@ -1202,7 +1270,8 @@ internal sealed partial class CanvasView : IDisposable
             Square(context, projection.Apply(box.PointAt(unit)), half, fill, outline, thickness);
         }
 
-        context.EndDraw().CheckError();
+        context.PopAxisAlignedClip();
+            context.EndDraw().CheckError();
     }
 
     /// <summary>
@@ -1351,6 +1420,8 @@ internal sealed partial class CanvasView : IDisposable
         _history.Clear(_document);
         _document = null;
         _distortPreview?.Dispose();
+        _checker?.Dispose();
+        _checkerBitmap?.Dispose();
         _surface?.Dispose();
         _backend.Dispose();
     }
