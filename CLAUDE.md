@@ -78,5 +78,5 @@ gh api repos/dreamurl/Compositor_korean_win/actions/jobs/$jobid/logs | grep -E "
 
 ## 6. 현재 위치
 
-M0~M6 완료, 다음은 **M7(AI — 선택 영역 가장자리 다듬기, 배경 제거)**.
+M0~M7 완료, 다음은 **M8(배포 — Releases 자동화, 업데이트 피드)**. M7의 두 배포판(AI 포함판/미포함판)은 CI 아티팩트까지만 만들어 둔 상태다.
 C 커널은 전부 연결됐다. M3–M5가 미뤄 둔 UI 목록과 상세는 `docs/progress.md` 6.6절·7절.

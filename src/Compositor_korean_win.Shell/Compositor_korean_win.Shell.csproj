@@ -40,8 +40,8 @@
   <!--
     M7: two builds from one source. The AI build (the default) references ONNX Runtime with
     DirectML and ships its DLLs and the model beside the exe; the plain build (-p:WithAi=false)
-    references none of it, so its exe stays the size it was — the runtime's managed half alone
-    added four megabytes to it.
+    references none of it: no runtime to load, nothing of it in the exe (its managed half is about
+    0.7 MB of the AI build's), and nothing a missing DLL could break.
   -->
   <PropertyGroup>
     <WithAi Condition="'$(WithAi)' == ''">true</WithAi>

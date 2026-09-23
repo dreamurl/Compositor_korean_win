@@ -5,7 +5,7 @@ namespace Compositor_korean_win.Shell;
 /// <summary>The subject model for this build: the AI build's, loaded once and shared.</summary>
 /// <remarks>
 /// Compiled only into the AI build. The plain build has <c>SubjectModels.None.cs</c> in its place,
-/// with no ONNX Runtime referenced at all, which is what keeps its exe the size it was before M7.
+/// with no ONNX Runtime referenced at all, so nothing in it can reach for a DLL it does not have.
 /// </remarks>
 internal static class SubjectModels
 {
