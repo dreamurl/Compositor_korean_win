@@ -61,7 +61,7 @@ public static partial class Localizer
 
     /// <summary>
     /// A menu label as ordinary words: without the letter Alt reaches it by ("&amp;File",
-    /// "파일(&amp;F)") or the ellipsis that says a window opens.
+    /// "Layer(&amp;L)" in the Korean style) or the ellipsis that says a window opens.
     /// </summary>
     /// <remarks>What the history and the undo item show when they reuse a command's name.</remarks>
     public static string Plain(string label)
