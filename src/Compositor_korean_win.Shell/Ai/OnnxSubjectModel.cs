@@ -50,6 +50,9 @@ internal sealed class OnnxSubjectModel : ISubjectModel, IDisposable
     public static bool Availability =>
         File.Exists(Path.Combine(AppContext.BaseDirectory, "onnxruntime.dll")) && File.Exists(ModelPath);
 
+    /// <summary>Why DirectML was passed over for the CPU, when it was — for the report.</summary>
+    public static string? GpuError { get; private set; }
+
     /// <summary>
     /// The model loaded, or null with the reason. Loading is the slow part — a second or more — so
     /// the caller keeps the result.
@@ -72,8 +75,9 @@ internal sealed class OnnxSubjectModel : ISubjectModel, IDisposable
                 gpu.AppendExecutionProvider_DML(0);
                 return new OnnxSubjectModel(new InferenceSession(ModelPath, gpu), "DirectML");
             }
-            catch (OnnxRuntimeException)
+            catch (OnnxRuntimeException exception)
             {
+                GpuError = exception.Message;
                 using var cpu = new SessionOptions();
                 return new OnnxSubjectModel(new InferenceSession(ModelPath, cpu), "CPU");
             }

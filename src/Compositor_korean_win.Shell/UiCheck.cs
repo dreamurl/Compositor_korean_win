@@ -133,6 +133,21 @@ internal static class UiCheck
                     // A colour range rather than Master, so the spectrum bars and eyedroppers show too.
                     if (command == FilterCommand.HueSaturation)
                         canvas.FilterAdjustment = canvas.FilterAdjustment with { HsvSettings = new HueSaturationSettings { Range = ColorRange.Reds } };
+
+                    // Remove Background with its Advanced controls, once the model has answered — or
+                    // said why it cannot, in the plain build.
+                    if (command == FilterCommand.RemoveBackground)
+                    {
+                        canvas.FilterSettings = canvas.FilterSettings with
+                        {
+                            Background = new BackgroundSettings { Quality = BackgroundQuality.Advanced },
+                        };
+                        for (int wait = 0; wait < 2400 && canvas.BackgroundWorking; wait++)
+                        {
+                            Thread.Sleep(50);
+                            canvas.Tick();
+                        }
+                    }
                     strings += Sheet(window, chrome, language, command.ToString(), untranslated);
                     if (folder is not null && (language == Language.Korean || command == FilterCommand.Levels))
                         screenshots.Add(Screenshot(device, folder, $"ui-{Localizer.Code(language)}-{command.ToString().ToLowerInvariant()}.png"));

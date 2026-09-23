@@ -57,6 +57,41 @@ SharpGen.Runtime(같은 저작자, MIT)을 함께 사용한다.
 
 ---
 
+## AI 포함판에만 들어가는 것
+
+아래 셋은 **AI 포함판**(`Compositor_korean_win-ai.zip`)에만 들어 있다. 미포함판에는 없고,
+미포함판의 exe는 이들을 참조하지도 않는다. 원문 라이선스는 포함판의 `licenses/` 폴더에 함께 나간다.
+
+### ONNX Runtime (Microsoft)
+
+모델 실행 엔진. `onnxruntime.dll`, `onnxruntime_providers_shared.dll`, 그리고 exe 안에 컴파일된
+관리 바인딩(`Microsoft.ML.OnnxRuntime`).
+
+```
+MIT License
+
+Copyright (c) Microsoft Corporation
+```
+
+### DirectML (Microsoft)
+
+GPU 가속. `DirectML.dll`. Microsoft DirectML 라이선스(재배포 허용, 윈도우용 애플리케이션에 한함)를
+따르며 원문과 제3자 고지는 `licenses/DirectML-LICENSE.txt`, `licenses/DirectML-ThirdPartyNotices.txt`.
+
+### BiRefNet-lite (ZhengPeng)
+
+배경 제거 모델 `models/birefnet-lite-fp16.onnx`. 원본 가중치는
+[ZhengPeng7/BiRefNet](https://github.com/ZhengPeng7/BiRefNet), ONNX 변환본은
+[onnx-community/BiRefNet_lite-ONNX](https://huggingface.co/onnx-community/BiRefNet_lite-ONNX)(fp16).
+
+```
+MIT License
+
+Copyright (c) 2024 ZhengPeng
+```
+
+---
+
 ## 상표
 
 "Adobe" 와 "Photoshop" 은 Adobe Inc. 의 상표다.

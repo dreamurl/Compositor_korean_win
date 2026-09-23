@@ -261,6 +261,17 @@ internal static class AppCommands
             });
         }
 
+        // Remove Background needs the AI build. In the plain build it stays on the menu, greyed and
+        // saying where to get it, and counts as a command that cannot run here rather than one that
+        // failed to.
+        bool ai = CanvasView.CanRemoveBackgrounds;
+        commands.Add(new Command(CommandIds.FilterFirst + (int)FilterCommand.RemoveBackground, TextKey.FilterRemoveBackground,
+                                 () => canvas.StartFilter(FilterCommand.RemoveBackground, asLayer: false),
+                                 () => ai && canvas.CanFilter, Interactive: !ai)
+        {
+            DynamicLabel = ai ? Ellipsis(TextKey.FilterRemoveBackground) : () => Localizer.Text(TextKey.CommandRemoveBackgroundUnavailable),
+        });
+
         var layout = new List<MenuEntry.Submenu>
         {
             new(TextKey.MenuFile,
@@ -318,7 +329,11 @@ internal static class AppCommands
                 Item(CommandIds.SelectLayerPixels), Item(CommandIds.SelectMask), MenuEntry.Line,
                 Item(CommandIds.ExpandSelection), Item(CommandIds.ContractSelection),
             ]),
-            new(TextKey.MenuFilter, [.. Filters.Select(filter => Item(CommandIds.FilterFirst + (int)filter))]),
+            new(TextKey.MenuFilter,
+            [
+                .. Filters.Select(filter => Item(CommandIds.FilterFirst + (int)filter)), MenuEntry.Line,
+                Item(CommandIds.FilterFirst + (int)FilterCommand.RemoveBackground),
+            ]),
             new(TextKey.MenuView,
             [
                 Item(CommandIds.ZoomIn), Item(CommandIds.ZoomOut), MenuEntry.Line,

@@ -343,6 +343,20 @@ public enum TextKey
     HistoryReplaceMask,
     TooltipMaskLink,
     TooltipMaskUnlinked,
+
+    // Remove Background, the one command that needs the AI build.
+    FilterRemoveBackground,
+    CommandRemoveBackgroundUnavailable,
+    NoteRemoveBackground,
+    NoteFindingSubject,
+    NoteNoSubject,
+    NoteAiUnavailable,
+    NoteAiFailed,
+    QualityBasic,
+    QualityAdvanced,
+    LabelRefine,
+    LabelMatteContrast,
+    LabelShiftEdge,
 }
 
 /// <summary>
@@ -685,6 +699,18 @@ public static class TextTable
         (TextKey.HistoryReplaceMask, "Replace Layer Mask", "레이어 마스크 교체"),
         (TextKey.TooltipMaskLink, "Link the layer and its mask so they move together", "레이어와 마스크를 연결해 함께 움직입니다"),
         (TextKey.TooltipMaskUnlinked, "Unlinked: the mask moves on its own. Click to link", "연결 해제됨: 마스크가 따로 움직입니다. 클릭하면 연결합니다"),
+        (TextKey.FilterRemoveBackground, "Remove Background", "배경 제거"),
+        (TextKey.CommandRemoveBackgroundUnavailable, "Remove Background (AI build only)", "배경 제거 (AI 포함판 전용)"),
+        (TextKey.NoteRemoveBackground, "Hide the background behind a layer mask, keeping the foreground subjects. The pixels stay, so the background can be painted back at any time.", "전경의 피사체는 남기고 배경을 레이어 마스크로 가립니다. 픽셀은 그대로 남으므로 언제든 배경을 다시 칠해 되살릴 수 있습니다."),
+        (TextKey.NoteFindingSubject, "Finding the subject…", "피사체를 찾는 중…"),
+        (TextKey.NoteNoSubject, "No subject was found in this layer. Try an image with a more distinct subject.", "이 레이어에서 피사체를 찾지 못했습니다. 피사체가 더 뚜렷한 이미지로 시도해 보세요."),
+        (TextKey.NoteAiUnavailable, "Remove Background needs the AI build of Compositor.", "배경 제거는 AI 포함판에서 쓸 수 있습니다."),
+        (TextKey.NoteAiFailed, "The model could not run: {0}", "모델을 실행하지 못했습니다: {0}"),
+        (TextKey.QualityBasic, "Basic", "기본"),
+        (TextKey.QualityAdvanced, "Advanced", "고급"),
+        (TextKey.LabelRefine, "Refine", "다듬기"),
+        (TextKey.LabelMatteContrast, "Contrast", "대비"),
+        (TextKey.LabelShiftEdge, "Shift Edge", "가장자리 이동"),
     ];
 
     /// <summary>Phrases that are the same in both languages on purpose — names, not words.</summary>

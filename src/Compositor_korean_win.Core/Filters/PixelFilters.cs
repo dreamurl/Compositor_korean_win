@@ -50,6 +50,9 @@ public sealed record FilterSettings
     /// </summary>
     public uint Seed { get; init; }
 
+    /// <summary>Remove Background's settings.</summary>
+    public BackgroundSettings Background { get; init; } = new();
+
     public FilterSettings Normalized => this with
     {
         Radius = AdjustmentMath.Clamp(Radius, 0.1, 250, 1),

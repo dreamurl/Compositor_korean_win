@@ -35,9 +35,26 @@
   <ItemGroup>
     <PackageReference Include="Vortice.Direct2D1" Version="3.8.3" />
     <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
-    <!-- M7: background removal. The runtime's DLLs land beside the exe; only the AI build ships
-         them, with the model, and nothing binds to them until the feature is used. -->
+  </ItemGroup>
+
+  <!--
+    M7: two builds from one source. The AI build (the default) references ONNX Runtime with
+    DirectML and ships its DLLs and the model beside the exe; the plain build (-p:WithAi=false)
+    references none of it, so its exe stays the size it was — the runtime's managed half alone
+    added four megabytes to it.
+  -->
+  <PropertyGroup>
+    <WithAi Condition="'$(WithAi)' == ''">true</WithAi>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(WithAi)' == 'true'">
     <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.24.4" />
+    <Compile Remove="Ai\SubjectModels.None.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(WithAi)' != 'true'">
+    <Compile Remove="Ai\OnnxSubjectModel.cs" />
+    <Compile Remove="Ai\SubjectModels.Onnx.cs" />
   </ItemGroup>
 
   <!--

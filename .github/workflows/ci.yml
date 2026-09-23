@@ -67,6 +67,17 @@ jobs:
           -p:KernelLibraryPath="${{ steps.kernels.outputs.static }}"
           --output build/publish
 
+      # M7: the plain build — no ONNX Runtime referenced, no model, the exe the size it was. Built
+      # from the same sources with background removal compiled out.
+      - name: Publish the plain build
+        run: >
+          dotnet publish src/Compositor_korean_win.Shell/Compositor_korean_win.Shell.csproj
+          --configuration Release
+          --runtime win-x64
+          -p:KernelLibraryPath="${{ steps.kernels.outputs.static }}"
+          -p:WithAi=false
+          --output build/publish-plain
+
       # M7: the background-removal model, which only the AI build carries. Fetched once and kept in
       # the cache — 115 MB is not worth downloading on every push — and pinned to its hash, so a
       # changed upload cannot slip in under the same name.
@@ -104,6 +115,20 @@ jobs:
                                    -ArgumentList $arguments -Wait -PassThru -NoNewWindow
           "exit=$($process.ExitCode)" >> $env:GITHUB_OUTPUT
           if ($process.ExitCode -ne 0) { Write-Host "self-test exited with $($process.ExitCode)" }
+
+      # The plain build runs the same self-test: everything but the model has to pass there too,
+      # and Remove Background has to be present and unable to run.
+      - name: Self-test the plain build
+        id: plaintest
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          # Its own folder, so its screenshots do not overwrite the AI build's.
+          New-Item -ItemType Directory -Force build/plain | Out-Null
+          $arguments = @("--selftest", "--image", "assets/m0-test.png", "--report", "build/plain/report.json")
+          $process = Start-Process -FilePath "build/publish-plain/Compositor_korean_win.exe" `
+                                   -ArgumentList $arguments -Wait -PassThru -NoNewWindow
+          "exit=$($process.ExitCode)" >> $env:GITHUB_OUTPUT
 
       - name: Report
         shell: pwsh
@@ -210,6 +235,19 @@ jobs:
             "자체 검사가 보고서를 남기지 못했습니다." | Out-File -Append $env:GITHUB_STEP_SUMMARY
           }
 
+          if (Test-Path build/plain/report.json) {
+            $plain = Get-Content build/plain/report.json -Raw | ConvertFrom-Json
+            "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            "### M7 — AI 미포함판" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            "| 항목 | 값 |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            "|---|---|" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            "| 단일 exe | {0:N0} KB |" -f ($plain.exeBytes / 1KB) | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            "| 모델 | 설치 $($plain.aiInstalled), 통과 $($plain.aiPassed) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            "| 실패 | $($plain.failures.Count)개 |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            $plain.failures | ForEach-Object { "- $_" | Out-File -Append $env:GITHUB_STEP_SUMMARY }
+          }
+
           "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
           "### 배포물" | Out-File -Append $env:GITHUB_STEP_SUMMARY
           "배포 폴더의 파일 $($shipped.Count)개, 합계 {0:N0} KB" -f (($shipped | Measure-Object Length -Sum).Sum / 1KB) |
@@ -221,11 +259,52 @@ jobs:
         with:
           name: m0-build
           path: |
-            build/publish/**
             build/m0-report.json
+            build/plain/report.json
             build/*.png
             build/test-results/**
           if-no-files-found: warn
+
+      # The two downloads: the plain build, the exe alone; and the AI build, the exe with ONNX
+      # Runtime, DirectML and the model beside it. Each carries the licences of what is in it.
+      - name: Package
+        shell: pwsh
+        run: |
+          $packages = New-Item -ItemType Directory -Force build/packages
+          $notices = @("LICENSE", "THIRD-PARTY-NOTICES.md")
+
+          $plain = New-Item -ItemType Directory -Force build/package-plain
+          Copy-Item build/publish-plain/Compositor_korean_win.exe $plain
+          Copy-Item $notices $plain
+          Compress-Archive -Path "$plain/*" -DestinationPath "$packages/Compositor_korean_win.zip" -Force
+
+          $ai = New-Item -ItemType Directory -Force build/package-ai
+          Copy-Item build/publish/Compositor_korean_win.exe, build/publish/onnxruntime.dll,
+                    build/publish/onnxruntime_providers_shared.dll, build/publish/DirectML.dll $ai
+          Copy-Item build/publish/models (Join-Path $ai models) -Recurse
+          Copy-Item $notices $ai
+          $licences = New-Item -ItemType Directory -Force (Join-Path $ai licenses)
+          $nuget = Join-Path $env:USERPROFILE .nuget/packages
+          Copy-Item "$nuget/microsoft.ml.onnxruntime.directml/1.24.4/LICENSE" "$licences/onnxruntime-LICENSE.txt"
+          Copy-Item "$nuget/microsoft.ai.directml/1.15.4/LICENSE.txt" "$licences/DirectML-LICENSE.txt"
+          Copy-Item "$nuget/microsoft.ai.directml/1.15.4/ThirdPartyNotices.txt" "$licences/DirectML-ThirdPartyNotices.txt"
+          Copy-Item licenses/BiRefNet-LICENSE.txt $licences
+          Compress-Archive -Path "$ai/*" -DestinationPath "$packages/Compositor_korean_win-ai.zip" -Force
+
+          Get-ChildItem $packages | ForEach-Object { "- ``$($_.Name)`` {0:N1} MB" -f ($_.Length / 1MB) } |
+            Out-File -Append $env:GITHUB_STEP_SUMMARY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Compositor_korean_win
+          path: build/package-plain/**
+          retention-days: 14
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Compositor_korean_win-ai
+          path: build/package-ai/**
+          retention-days: 14
 
       - name: Fail if the self-test did not pass
         if: steps.selftest.outputs.exit != '0'
@@ -233,3 +312,10 @@ jobs:
         run: |
           if (Test-Path build/m0-report.json) { Get-Content build/m0-report.json -Raw | Write-Host }
           throw "self-test exited with $('${{ steps.selftest.outputs.exit }}')"
+
+      - name: Fail if the plain build's self-test did not pass
+        if: steps.plaintest.outputs.exit != '0'
+        shell: pwsh
+        run: |
+          if (Test-Path build/plain/report.json) { Get-Content build/plain/report.json -Raw | Write-Host }
+          throw "plain self-test exited with $('${{ steps.plaintest.outputs.exit }}')"

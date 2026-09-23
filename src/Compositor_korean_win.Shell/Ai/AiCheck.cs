@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Compositor_korean_win.Core;
+using Vortice.DXGI;
 
 namespace Compositor_korean_win.Shell;
 
@@ -19,14 +20,72 @@ internal static class AiCheck
                                   double Inside, double Outside, string? Error)
     {
         public bool Passed => !Installed || Error is null && Inside > 0.6 && Outside < 0.4;
+
+        /// <summary>Why DirectML was not used, when it was not.</summary>
+        public string? GpuError { get; init; }
+
+        /// <summary>What the canvas's Remove Background got wrong, or null; "not run" in the plain build.</summary>
+        public string? Canvas { get; init; }
     }
 
-    public static Result Run()
+    public static Result Run(GraphicsDevice device, Format format)
     {
-        if (!OnnxSubjectModel.Availability) return new Result(false, "none", 0, 0, 0, 0, null);
+        Result model = RunModel();
+        return model with { GpuError = SubjectModels.GpuError, Canvas = RunCanvas(device, format, model.Installed) };
+    }
+
+    /// <summary>
+    /// Filter › Remove Background through the canvas, the way the menu runs it: in the AI build the
+    /// disc's layer ends with a mask white over the disc and black around it, as one history step,
+    /// with the mask as the target; in the plain build the command is there and cannot run.
+    /// </summary>
+    private static string? RunCanvas(GraphicsDevice device, Format format, bool installed)
+    {
+        using var window = new MainWindow(device, format, 1024, 700, visible: false);
+        using var canvas = new CanvasView(device);
+        window.AttachCanvas(canvas);
+        var files = new DocumentFiles(window.Handle, canvas, format) { Quiet = true };
+        (List<Command> commands, List<MenuEntry.Submenu> layout) = AppCommands.Create(canvas, files, window.Handle);
+        using var menu = new MenuBar(window.Handle, commands, layout);
+
+        canvas.Open(DocumentFiles.FromImage(Disc(640, 480, 130), "disc"), path: null, "disc");
+        canvas.ChooseTopImageLayer();
+        Guid id = canvas.ActiveLayer!.Id;
+
+        bool ran = menu.Run(CommandIds.FilterFirst + (int)FilterCommand.RemoveBackground);
+        if (!installed) return ran ? "the plain build ran Remove Background" : null;
+        if (!ran) return "Remove Background did not run";
+
+        for (int wait = 0; wait < 2400 && canvas.BackgroundWorking; wait++)
+        {
+            Thread.Sleep(50);
+            canvas.Tick();
+        }
+        if (!canvas.BackgroundReady) return "the model did not answer: " + (canvas.BackgroundFailure ?? "timed out");
+
+        canvas.FilterSettings = canvas.FilterSettings with
+        {
+            Background = new BackgroundSettings { Quality = BackgroundQuality.Advanced, ShiftEdge = -2 },
+        };
+        string before = canvas.UndoName;
+        canvas.FinishFilter(keep: true);
+
+        ImageLayer layer = canvas.Document!.Layer(id)!;
+        if (layer.Mask is not LayerMask mask) return "no mask was laid down";
+        if (mask.Coverage.Width != 640 || mask.Coverage.Height != 480) return $"the mask is {mask.Coverage.Width}×{mask.Coverage.Height}";
+        int centre = mask.Coverage.Row(240)[320 * 4], corner = mask.Coverage.Row(10)[10 * 4];
+        if (centre < 200 || corner > 55) return $"the mask is {centre} over the disc and {corner} in the corner";
+        if (canvas.UndoName == before) return "no history step";
+        if (!canvas.EditingMask) return "the new mask is not the target";
+        return null;
+    }
+
+    private static Result RunModel()
+    {
+        if (!SubjectModels.Installed) return new Result(false, "none", 0, 0, 0, 0, null);
 
         var clock = Stopwatch.StartNew();
-        using OnnxSubjectModel? model = OnnxSubjectModel.Load(out string? error);
+        ISubjectModel? model = SubjectModels.Shared(out string? error);
         double loadMs = clock.Elapsed.TotalMilliseconds;
         if (model is null) return new Result(true, "none", loadMs, 0, 0, 0, error ?? "did not load");
 

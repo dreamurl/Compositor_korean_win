@@ -74,6 +74,9 @@ internal sealed partial class FilterSheet(CanvasView canvas, Chrome host) : Shee
             : new FilterSettings { Seed = Settings.Seed };
     };
 
+    /// <summary>Remove Background has nothing to keep until the model has answered.</summary>
+    public override bool CanAccept => Command != FilterCommand.RemoveBackground || canvas.BackgroundReady;
+
     public override void Accept() => canvas.FinishFilter(keep: true);
 
     public override void Cancel() => canvas.FinishFilter(keep: false);
@@ -153,9 +156,45 @@ internal sealed partial class FilterSheet(CanvasView canvas, Chrome host) : Shee
             case FilterCommand.GradientMap:
                 GradientMap(layout);
                 break;
+
+            case FilterCommand.RemoveBackground:
+                RemoveBackground(layout);
+                break;
         }
 
         if (canvas.FilterLimitedToSelection) layout.Note(Localizer.Text(TextKey.NoteLimitedToSelection));
+    }
+
+    /// <summary>
+    /// Upstream's Remove Background sheet: what it does, Basic or Advanced, and Advanced's three
+    /// ways of working the model's mask — none of which runs the model again.
+    /// </summary>
+    private void RemoveBackground(SheetLayout layout)
+    {
+        layout.Note(Localizer.Text(TextKey.NoteRemoveBackground));
+
+        if (canvas.BackgroundWorking) layout.Note(Localizer.Text(TextKey.NoteFindingSubject));
+        else if (canvas.BackgroundFailure is string failure) layout.Note(failure, warning: true);
+
+        BackgroundSettings background = Settings.Background;
+        void Set(BackgroundSettings changed) => Settings = Settings with { Background = changed };
+
+        layout.Choice(Localizer.Text(TextKey.LabelQuality),
+        [
+            (Localizer.Text(TextKey.QualityBasic), background.Quality == BackgroundQuality.Basic,
+             () => Set(background with { Quality = BackgroundQuality.Basic })),
+            (Localizer.Text(TextKey.QualityAdvanced), background.Quality == BackgroundQuality.Advanced,
+             () => Set(background with { Quality = BackgroundQuality.Advanced })),
+        ]);
+
+        if (background.Quality != BackgroundQuality.Advanced) return;
+
+        layout.Slider(Localizer.Text(TextKey.LabelRefine), background.Refine, 0, 40, 0,
+                      value => Set(Settings.Background with { Refine = value }), Px);
+        layout.Slider(Localizer.Text(TextKey.LabelMatteContrast), background.Contrast, 0, 100, 0,
+                      value => Set(Settings.Background with { Contrast = value }), "%");
+        layout.Slider(Localizer.Text(TextKey.LabelShiftEdge), background.ShiftEdge, -10, 10, 0,
+                      value => Set(Settings.Background with { ShiftEdge = value }), Px);
     }
 
     private void GradientMap(SheetLayout layout)

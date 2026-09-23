@@ -116,6 +116,10 @@ internal sealed unsafe class MainWindow : IDisposable
     public void AttachCanvas(CanvasView canvas)
     {
         Canvas = canvas;
+        // A model run finishing on its own thread asks for a frame; InvalidateRect may be called
+        // from any thread, and the frame it brings picks the result up (CanvasView.Tick).
+        nint handle = Handle;
+        canvas.Wake = () => InvalidateRect(handle, 0, false);
         LayOut();
     }
 
@@ -178,6 +182,7 @@ internal sealed unsafe class MainWindow : IDisposable
     public void Render(bool present)
     {
         if (!_sized) return;
+        Canvas?.Tick();
 
         if (Canvas is CanvasView canvas)
         {

@@ -179,9 +179,10 @@ internal static class SelfTest
         AiCheck.Result? aiCheck = null;
         try
         {
-            aiCheck = AiCheck.Run();
+            aiCheck = AiCheck.Run(device, chosen);
             if (!aiCheck.Passed)
                 failures.Add($"ai: {aiCheck.Error ?? "subject not found"} (inside {aiCheck.Inside:F2}, outside {aiCheck.Outside:F2})");
+            if (aiCheck.Canvas is string wrong) failures.Add("ai canvas: " + wrong);
         }
         catch (Exception exception)
         {
@@ -369,7 +370,9 @@ internal static class SelfTest
             Line(report, "aiRunMs", aiCheck.RunMs);
             Line(report, "aiInside", aiCheck.Inside);
             Line(report, "aiOutside", aiCheck.Outside);
-            Line(report, "aiPassed", aiCheck.Passed);
+            Line(report, "aiPassed", aiCheck.Passed && aiCheck.Canvas is null);
+            // The runtime's own words, so kept out of the JSON's way.
+            Line(report, "aiGpuError", (aiCheck.GpuError ?? "").Replace('\\', '/').Replace('"', '\'').ReplaceLineEndings(" "));
         }
 
         if (toolsCheck is not null)

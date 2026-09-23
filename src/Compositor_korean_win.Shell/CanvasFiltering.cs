@@ -17,6 +17,9 @@ internal enum FilterCommand
     MotionBlur,
     AddNoise,
     LensCorrection,
+
+    /// <summary>Hides the background behind a layer mask — the one command that needs the AI build.</summary>
+    RemoveBackground,
 }
 
 /// <summary>
@@ -54,7 +57,7 @@ internal sealed partial class CanvasView
     private readonly Dictionary<FilterCommand, FilterSettings> _lastFilterSettings = [];
 
     /// <summary>Whether a command is open, which takes the keys and the pointer until it closes.</summary>
-    public bool IsFiltering => _preview is not null || _adjusting is not null;
+    public bool IsFiltering => _preview is not null || _adjusting is not null || _background is not null;
 
     /// <summary>The open command, while one is.</summary>
     public FilterCommand? OpenFilter => IsFiltering ? _command : null;
@@ -63,7 +66,7 @@ internal sealed partial class CanvasView
     public bool FilteringLayer => _adjusting is not null;
 
     /// <summary>Whether the open command runs over pixels inside a selection only.</summary>
-    public bool FilterLimitedToSelection => _preview is not null && _selection is not null;
+    public bool FilterLimitedToSelection => (_preview is not null || _background is not null) && _selection is not null;
 
     internal static bool IsAdjustment(FilterCommand command) => command <= FilterCommand.Grain;
 
@@ -79,6 +82,7 @@ internal sealed partial class CanvasView
         FilterCommand.GaussianBlur => TextKey.FilterGaussianBlur,
         FilterCommand.MotionBlur => TextKey.FilterMotionBlur,
         FilterCommand.AddNoise => TextKey.FilterAddNoise,
+        FilterCommand.RemoveBackground => TextKey.FilterRemoveBackground,
         _ => TextKey.FilterLensCorrection,
     };
 
@@ -200,13 +204,23 @@ internal sealed partial class CanvasView
         // Pixels to run over: a layer with an image, not a folder and not an adjustment.
         if (chosen is not { Image: not null, IsGroup: false, Adjustment: null }) return;
 
+        if (command == FilterCommand.RemoveBackground)
+        {
+            StartBackground(chosen);
+            return;
+        }
+
         _preview = new FilterPreview(chosen, KindFor(command), _filterSettings, _selection);
     }
 
     /// <summary>Puts the settings where the canvas draws from.</summary>
     private void ShowFilter()
     {
-        if (_preview is not null)
+        if (_background is not null)
+        {
+            ShowBackground();
+        }
+        else if (_preview is not null)
         {
             _preview.Settings = _filterSettings;
         }
@@ -227,6 +241,7 @@ internal sealed partial class CanvasView
     public void FinishFilter(bool keep)
     {
         ReleaseSource();
+        FinishBackground(keep);
 
         if (_preview is FilterPreview preview)
         {
