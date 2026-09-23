@@ -245,7 +245,7 @@ internal sealed unsafe class MainWindow : IDisposable
                 return 1; // Direct2D covers every pixel; letting Win32 erase first only flickers.
 
             case WM_PAINT:
-                window?.Render();
+                window?.Guarded(window.Render);
                 break;
 
             case WM_SIZE:

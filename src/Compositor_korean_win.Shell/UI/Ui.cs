@@ -117,7 +117,7 @@ internal sealed class Ui : IDisposable
 
         IDWriteTextFormat Make(double points, FontWeight weight, TextAlignment alignment)
         {
-            IDWriteTextFormat format = _writer.CreateTextFormat(family, null!, weight, Vortice.DirectWrite.FontStyle.Normal,
+            IDWriteTextFormat format = _writer.CreateTextFormat(family, weight, Vortice.DirectWrite.FontStyle.Normal,
                                                                 FontStretch.Normal, P(points), locale);
             format.TextAlignment = alignment;
             format.ParagraphAlignment = ParagraphAlignment.Center;
