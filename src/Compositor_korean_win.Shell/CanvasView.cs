@@ -614,13 +614,8 @@ internal sealed partial class CanvasView : IDisposable
 
         if (corners is null || _document is null) return;
         if (_chosen.Count != 1 || _document.Layer(_chosen.First()) is not ImageLayer layer) return;
-        if (layer.Image is not PixelBuffer image) return;
-
-        (PixelBuffer Pixels, LayerTransform Placement)? warped = QuadWarp.Resample(image, corners);
-        if (warped is null) return;
-
-        _document = _document.Replacing(
-            layer with { Image = warped.Value.Pixels, Transform = warped.Value.Placement });
+        // The mask goes with the pixels as its link says (QuadWarp.Distort).
+        if (QuadWarp.Distort(layer, corners) is ImageLayer distorted) _document = _document.Replacing(distorted);
     }
 
     // MARK: Painting

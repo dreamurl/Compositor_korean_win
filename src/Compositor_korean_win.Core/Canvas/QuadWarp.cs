@@ -149,6 +149,95 @@ public static class QuadWarp
         return (result, placement);
     }
 
+    /// <summary>
+    /// A layer resampled into <paramref name="corners"/>, its mask with it as upstream's
+    /// <c>distort(at:transform:corners:)</c> has it. Null when the corners cannot be warped into.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A linked mask on the layer's own grid is resampled through the same corners into the same
+    /// box, so it stays on the pixels it was drawn over. A linked mask placed apart takes the same
+    /// perspective over its own box: each of its corners goes where the layer's map sends that
+    /// point, and what the warp leaves around it shows the mask's edge level, as the renderer does
+    /// beyond a placed mask. An unlinked mask stays where it was on the document.
+    /// </para>
+    /// <para>
+    /// A single-pixel mask says the same thing everywhere, so it passes through unchanged.
+    /// </para>
+    /// </remarks>
+    public static ImageLayer? Distort(ImageLayer layer, IReadOnlyList<Point> corners)
+    {
+        if (layer.Image is not PixelBuffer image) return null;
+        if (Resample(image, corners) is not (PixelBuffer pixels, LayerTransform placement)) return null;
+
+        LayerMask? mask = layer.Mask;
+        if (mask is { Coverage.Width: 1, Coverage.Height: 1 })
+        {
+            // Uniform: nothing to carry.
+        }
+        else if (mask is { IsLinked: true, Placement: null })
+        {
+            mask = MaskInto(mask.Coverage, corners, outside: null, null, null) is (PixelBuffer warped, _)
+                ? mask with { Coverage = warped }
+                : mask with { Placement = layer.Transform };
+        }
+        else if (mask is { IsLinked: true, Placement: LayerTransform apart })
+        {
+            Point[] carried = [.. TransformDrag.CornersOf(apart).Select(point => Carry(corners, layer.Transform, point))];
+            if (IsUsable(carried) && MaskInto(mask.Coverage, carried, mask.Beyond(), null, null) is (PixelBuffer moved, LayerTransform box))
+                mask = mask with { Coverage = moved, Placement = box };
+        }
+        else if (mask is LayerMask unlinked)
+        {
+            mask = unlinked with { Placement = unlinked.Placement ?? layer.Transform };
+        }
+
+        return layer with { Image = pixels, Transform = placement, Mask = mask, Shape = null };
+    }
+
+    /// <summary>
+    /// Where <paramref name="corners"/>' map takes a document point, reading the point in the
+    /// layer's unit square first — how a mask placed apart follows its layer into a distortion.
+    /// </summary>
+    public static Point Carry(IReadOnlyList<Point> corners, LayerTransform layer, Point document)
+    {
+        Point unit = LayerGeometry.ToPixels(layer, document, 1, 1);
+        double[] m = Map(corners);
+        double w = m[6] * unit.X + m[7] * unit.Y + m[8];
+        if (Math.Abs(w) < 1e-12) return document;
+        return new Point((m[0] * unit.X + m[1] * unit.Y + m[2]) / w, (m[3] * unit.X + m[4] * unit.Y + m[5]) / w);
+    }
+
+    /// <summary>
+    /// A mask resampled into <paramref name="corners"/>, opaque again. The resampler treats what
+    /// lies past the quadrilateral as transparent; a mask has no transparency, so that is turned
+    /// into a level. With <paramref name="outside"/> null the grey is simply unpremultiplied — right
+    /// for a mask on its layer's grid, where the layer's own pixels are just as transparent there.
+    /// With a level it is laid over that level — right for a mask placed apart, whose surroundings
+    /// show its edge.
+    /// </summary>
+    public static (PixelBuffer Pixels, LayerTransform Placement)? MaskInto(
+        PixelBuffer coverage, IReadOnlyList<Point> corners, byte? outside, DownsamplePyramid? pyramid, PixelRect? clip)
+    {
+        if (Resample(coverage, corners, pyramid, clip) is not (PixelBuffer warped, LayerTransform placement)) return null;
+
+        for (int y = 0; y < warped.Height; y++)
+        {
+            Span<byte> row = warped.Row(y);
+            for (int x = 0; x < warped.Width; x++)
+            {
+                int i = x * 4, alpha = row[i + 3];
+                int level = outside is byte beyond
+                    ? row[i] + beyond * (255 - alpha) / 255
+                    : alpha == 0 ? 0 : row[i] * 255 / alpha;
+                row[i] = row[i + 1] = row[i + 2] = (byte)Math.Clamp(level, 0, 255);
+                row[i + 3] = 255;
+            }
+        }
+
+        return (warped, placement);
+    }
+
     /// <summary>Twice the signed area of the quadrilateral — the shoelace sum.</summary>
     private static double Area(IReadOnlyList<Point> corners)
     {

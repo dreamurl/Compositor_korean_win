@@ -18,15 +18,17 @@ namespace Compositor_korean_win.Core;
 /// it, and both backends draw the same pixels (docs/progress.md 6).
 /// </para>
 /// <para>
-/// A mask sharing the layer's grid stays where the layer was during the drag, since the drawn
-/// pixels no longer share that grid. Committing leaves the mask over the layer's new box, so the two
-/// differ for a masked layer until the button comes up.
+/// A linked mask sharing the layer's grid is warped with the pixels into the same box every frame,
+/// so the preview is what letting go leaves. A mask placed apart is shown where it is until the
+/// button comes up; only committing carries it (<see cref="QuadWarp.Distort"/>).
 /// </para>
 /// </remarks>
 public sealed class DistortPreview(ImageLayer layer) : IDisposable
 {
     private readonly DownsamplePyramid _pyramid = new();
     private PixelBuffer? _last;
+    private PixelBuffer? _lastMask;
+    private readonly DownsamplePyramid _maskPyramid = new();
 
     public ImageLayer Layer { get; } = layer;
 
@@ -59,13 +61,34 @@ public sealed class DistortPreview(ImageLayer layer) : IDisposable
             Sampling = LayerSampling.Nearest,
         };
 
-        return new LiveEdit(Layer.Id, new BufferSource(pixels) { Cacheable = false }) { Placement = onDocument };
+        // A linked mask on the layer's grid is warped with it, into the same box, so the preview
+        // shows what letting go will leave. A single-pixel mask needs no warping to say the same.
+        PixelBuffer? mask = null;
+        if (Layer.Mask is { IsEnabled: true, IsLinked: true, Placement: null } owned)
+        {
+            if (owned.Coverage is { Width: 1, Height: 1 })
+            {
+                mask = owned.Coverage;
+            }
+            else
+            {
+                _lastMask?.Release();
+                _lastMask = QuadWarp.MaskInto(owned.Coverage, onSurface, outside: null, _maskPyramid,
+                                              new PixelRect(0, 0, width, height))?.Pixels;
+                mask = _lastMask;
+            }
+        }
+
+        return new LiveEdit(Layer.Id, new BufferSource(pixels) { Cacheable = false }) { Placement = onDocument, Mask = mask };
     }
 
     public void Dispose()
     {
         _last?.Release();
         _last = null;
+        _lastMask?.Release();
+        _lastMask = null;
         _pyramid.Dispose();
+        _maskPyramid.Dispose();
     }
 }

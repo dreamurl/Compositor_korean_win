@@ -49,6 +49,12 @@ public sealed record LiveEdit(Guid LayerId, IPixelSource Source)
     /// layer's own box, which covers the same pixels.
     /// </remarks>
     public LayerTransform? Placement { get; init; }
+
+    /// <summary>
+    /// The layer's own mask in <see cref="Source"/>'s grid, when the edit has one of its own — a
+    /// distortion drag warps a mask that shares the layer's grid along with the pixels.
+    /// </summary>
+    public PixelBuffer? Mask { get; init; }
 }
 
 public static class LayerCompositor
@@ -554,7 +560,12 @@ public static class LayerCompositor
             clips.Add(projection.Apply(PlacedClip(placed, placement)));
 
         PixelBuffer? ownMask = layer.Mask is { IsEnabled: true } mask && mask.Placement is null ? mask.Coverage : null;
-        if (ownMask is not null && moved is not null)
+        if (ownMask is not null && standIn?.Mask is PixelBuffer carried)
+        {
+            // The edit brought the mask along into its own grid.
+            ownMask = carried;
+        }
+        else if (ownMask is not null && moved is not null)
         {
             clips.Add(projection.Apply(new MaskClip(ownMask, layer.Transform)));
             ownMask = null;

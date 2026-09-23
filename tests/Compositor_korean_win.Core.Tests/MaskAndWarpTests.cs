@@ -330,4 +330,79 @@ public class MaskAndWarpTests
 
         Assert.Equal(0, RenderFixture.At(frame, 15, 10).A);
     }
+
+    // MARK: Distorting a masked layer
+
+    private static Point[] Square(double x, double y, double size) =>
+        [new(x, y), new(x + size, y), new(x + size, y + size), new(x, y + size)];
+
+    [Fact]
+    public void ALinkedMaskOnTheLayersGridIsDistortedWithThePixels()
+    {
+        using PixelBuffer image = RenderFixture.Solid(20, 20, 200, 0, 0);
+        using PixelBuffer coverage = RenderFixture.Coverage(20, 20, (x, _) => x < 10 ? (byte)0 : (byte)255);
+        ImageLayer layer = RenderFixture.Layer("a", image) with { Mask = new LayerMask { Coverage = coverage } };
+
+        ImageLayer distorted = QuadWarp.Distort(layer, Square(0, 0, 40))!;
+
+        Assert.Null(distorted.Mask!.Placement);
+        Assert.Equal((40, 40), (distorted.Mask.Coverage.Width, distorted.Mask.Coverage.Height));
+        Assert.Equal((0, 0, 0, 255), RenderFixture.At(distorted.Mask.Coverage, 8, 20));
+        Assert.Equal((255, 255, 255, 255), RenderFixture.At(distorted.Mask.Coverage, 32, 20));
+
+        distorted.Image!.Release();
+        distorted.Mask.Coverage.Release();
+    }
+
+    [Fact]
+    public void ALinkedMaskPlacedApartTakesTheSamePerspective()
+    {
+        using PixelBuffer image = RenderFixture.Solid(20, 20, 200, 0, 0);
+        using PixelBuffer coverage = RenderFixture.Coverage(10, 20, (_, _) => 255);
+        ImageLayer layer = RenderFixture.Layer("a", image) with
+        {
+            Mask = new LayerMask { Coverage = coverage, Placement = new LayerTransform(Point.Zero, new Size(10, 20)) },
+        };
+
+        // The whole layer carried 100 to the right: the mask's box goes with it.
+        ImageLayer distorted = QuadWarp.Distort(layer, Square(100, 0, 20))!;
+        LayerTransform box = distorted.Mask!.Placement!;
+
+        Assert.Equal(100, box.Origin.X, 0.5);
+        Assert.Equal(10, box.Size.Width, 0.5);
+        Assert.True(distorted.Mask.IsLinked);
+
+        distorted.Image!.Release();
+        distorted.Mask.Coverage.Release();
+    }
+
+    [Fact]
+    public void AnUnlinkedMaskStaysWhereItWasWhenItsLayerIsDistorted()
+    {
+        using PixelBuffer image = RenderFixture.Solid(20, 20, 200, 0, 0);
+        using PixelBuffer coverage = RenderFixture.Coverage(20, 20, (x, _) => (byte)(x * 12));
+        ImageLayer layer = RenderFixture.Layer("a", image, 5, 5) with
+        {
+            Mask = new LayerMask { Coverage = coverage, IsLinked = false },
+        };
+
+        ImageLayer distorted = QuadWarp.Distort(layer, Square(0, 0, 40))!;
+
+        Assert.Same(coverage, distorted.Mask!.Coverage);
+        Assert.Equal(layer.Transform, distorted.Mask.Placement);
+        distorted.Image!.Release();
+    }
+
+    [Fact]
+    public void ASinglePixelMaskPassesThroughADistortion()
+    {
+        using PixelBuffer image = RenderFixture.Solid(20, 20, 200, 0, 0);
+        ImageLayer layer = RenderFixture.Layer("a", image) with { Mask = LayerMask.Solid(revealing: false) };
+
+        ImageLayer distorted = QuadWarp.Distort(layer, Square(0, 0, 40))!;
+
+        Assert.Same(layer.Mask!.Coverage, distorted.Mask!.Coverage);
+        distorted.Image!.Release();
+        layer.Mask.Coverage.Release();
+    }
 }
