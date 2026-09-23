@@ -92,6 +92,7 @@ internal static class CommandIds
     public const int ImportImages = 105;
     public const int ExportJpeg = 106;
     public const int Close = 107;
+    public const int New = 108;
 
     public const int Undo = 200;
     public const int Redo = 201;
@@ -102,6 +103,8 @@ internal static class CommandIds
     public const int AdjustFirst = 300;
     public const int FlipCanvasHorizontal = 310;
     public const int FlipCanvasVertical = 311;
+    public const int CanvasSize = 312;
+    public const int ImageSize = 313;
 
     public const int SelectAll = 400;
     public const int Deselect = 401;

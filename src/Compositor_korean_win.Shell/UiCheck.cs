@@ -45,6 +45,8 @@ internal static class UiCheck
         window.Menu = menu;
         using var chrome = new Chrome(window.Handle, canvas, () => { }, menu.Run);
         window.AttachChrome(chrome);
+        files.Chrome = chrome;
+        menu.Blocked = () => chrome.HasSheet;
 
         try
         {
@@ -94,6 +96,21 @@ internal static class UiCheck
                     if (folder is not null && (language == Language.Korean || command == FilterCommand.Levels))
                         screenshots.Add(Screenshot(device, folder, $"ui-{Localizer.Code(language)}-{command.ToString().ToLowerInvariant()}.png"));
                     canvas.Key(Win32.VK_ESCAPE, control: false);
+                    device.Present();
+                }
+
+                // The document's own sheets, opened as their menu items open them.
+                foreach ((int id, string name) in new[]
+                {
+                    (CommandIds.New, "new"), (CommandIds.CanvasSize, "canvassize"),
+                    (CommandIds.ImageSize, "imagesize"), (CommandIds.ExportJpeg, "jpeg"),
+                })
+                {
+                    canvas.ChooseTopImageLayer();
+                    if (!menu.Run(id)) untranslated.Add($"{Localizer.Code(language)}: {name} did not run");
+                    strings += Sheet(window, chrome, language, name, untranslated);
+                    if (folder is not null) screenshots.Add(Screenshot(device, folder, $"ui-{Localizer.Code(language)}-{name}.png"));
+                    chrome.SheetKey(Win32.VK_ESCAPE, control: false, shift: false);
                     device.Present();
                 }
 

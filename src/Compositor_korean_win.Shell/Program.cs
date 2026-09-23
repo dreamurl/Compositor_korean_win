@@ -45,6 +45,8 @@ internal static class Program
 
         using var chrome = new Chrome(window.Handle, canvas, files.Open, menu.Run);
         window.AttachChrome(chrome);
+        files.Chrome = chrome;
+        menu.Blocked = () => chrome.HasSheet;
 
         window.Render();
 

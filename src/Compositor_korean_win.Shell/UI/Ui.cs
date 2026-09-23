@@ -578,6 +578,9 @@ internal sealed class Ui : IDisposable
     /// <summary>The box was just focused, so the first key typed replaces what it showed.</summary>
     private bool _fresh;
 
+    /// <summary>Whether a control is being dragged — a slider mid-way, which work can wait for.</summary>
+    public bool Dragging => _dragging is not null;
+
     /// <summary>Whether a number box has the keyboard.</summary>
     public bool Typing => _focus is not null;
 

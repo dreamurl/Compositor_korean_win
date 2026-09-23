@@ -80,25 +80,63 @@ public static class DocumentCommands
                          Math.Floor((toHeight - fromHeight) * (anchor / 3) / 2.0));
     }
 
-    /// <summary>The canvas made a new size, the content shifted to keep to the anchor.</summary>
-    public static CanvasDocument? ResizeCanvas(CanvasDocument document, int width, int height, int anchor)
+    /// <summary>
+    /// The canvas made a new size, the content shifted to keep to the anchor. With an
+    /// <paramref name="extension"/> colour, the space a larger canvas adds is filled with it, on a
+    /// layer of its own at the bottom — upstream's "Canvas Extension", which keeps the old content's
+    /// layers as they were.
+    /// </summary>
+    public static CanvasDocument? ResizeCanvas(CanvasDocument document, int width, int height, int anchor, Rgba? extension = null)
     {
+        ArgumentNullException.ThrowIfNull(document);
         if (!IsValidSize(width, height) || (width == document.Width && height == document.Height)) return null;
 
         Point offset = AnchorOffset(document.Width, document.Height, width, height, anchor);
         LayerTransform Moved(LayerTransform transform) =>
             transform with { Origin = new Point(transform.Origin.X + offset.X, transform.Origin.Y + offset.Y) };
 
-        return document with
+        List<ImageLayer> layers = [.. document.Layers.Select(layer => layer with
         {
-            Width = width,
-            Height = height,
-            Layers = document.Layers.Select(layer => layer with
+            Transform = Moved(layer.Transform),
+            Mask = layer.Mask is { Placement: LayerTransform placement } mask ? mask with { Placement = Moved(placement) } : layer.Mask,
+        })];
+
+        if (extension is Rgba colour && (width > document.Width || height > document.Height))
+        {
+            layers.Insert(0, new ImageLayer
             {
-                Transform = Moved(layer.Transform),
-                Mask = layer.Mask is { Placement: LayerTransform placement } mask ? mask with { Placement = Moved(placement) } : layer.Mask,
-            }).ToEquatableList(),
-        };
+                Id = Guid.NewGuid(),
+                Name = Localizer.Text(TextKey.LayerCanvasExtension),
+                Transform = new LayerTransform(Point.Zero, new Size(width, height)),
+                Image = Extension(width, height, colour,
+                                  new PixelRect((int)offset.X, (int)offset.Y, document.Width, document.Height)),
+            });
+        }
+
+        return document with { Width = width, Height = height, Layers = layers.ToEquatableList() };
+    }
+
+    /// <summary>A canvas of one colour with the old canvas's place left clear.</summary>
+    private static PixelBuffer Extension(int width, int height, Rgba colour, PixelRect old)
+    {
+        PixelBuffer pixels = PixelBuffer.Allocate(width, height);
+        double a = colour.A / 255.0;
+        byte r = (byte)Math.Round(colour.R * a), g = (byte)Math.Round(colour.G * a), b = (byte)Math.Round(colour.B * a);
+
+        for (int y = 0; y < height; y++)
+        {
+            Span<byte> row = pixels.Row(y);
+            bool inside = y >= old.Y && y < old.Y + old.Height;
+            for (int x = 0; x < width; x++)
+            {
+                if (inside && x >= old.X && x < old.X + old.Width) continue;
+                row[x * 4] = r;
+                row[x * 4 + 1] = g;
+                row[x * 4 + 2] = b;
+                row[x * 4 + 3] = colour.A;
+            }
+        }
+        return pixels;
     }
 
     /// <summary>

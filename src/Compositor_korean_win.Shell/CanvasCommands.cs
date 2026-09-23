@@ -268,4 +268,54 @@ internal sealed partial class CanvasView
                 : new Point(point.X, before.Height - point.Y));
         }
     }
+
+    /// <summary>Image › Canvas Size: a new canvas size, the content kept to the anchor, the new space filled or not.</summary>
+    public void ResizeCanvas(int width, int height, int anchor, Rgba? extension)
+    {
+        if (_document is not CanvasDocument before) return;
+        Point offset = DocumentCommands.AnchorOffset(before.Width, before.Height, width, height, anchor);
+        Edit(TextKey.SheetCanvasSize, document =>
+            DocumentCommands.ResizeCanvas(document, width, height, anchor, extension) is CanvasDocument next ? (next, null) : null);
+        if (ReferenceEquals(_document, before)) return;
+
+        _selection = _selection?.Transformed(point => new Point(point.X + offset.X, point.Y + offset.Y));
+        FitOnScreen();
+    }
+
+    /// <summary>Image › Image Size with Resample on: every layer resampled to the new size.</summary>
+    public void ResizeImage(int width, int height, double resolution)
+    {
+        if (_document is not CanvasDocument before) return;
+        Edit(TextKey.SheetImageSize, document =>
+            DocumentCommands.ResizeImage(document, width, height, resolution) is CanvasDocument next ? (next, null) : null);
+        if (ReferenceEquals(_document, before)) return;
+
+        double sx = (double)width / before.Width, sy = (double)height / before.Height;
+        _selection = _selection?.Transformed(point => new Point(point.X * sx, point.Y * sy));
+        FitOnScreen();
+    }
+
+    /// <summary>Image › Image Size with Resample off: the resolution alone.</summary>
+    public void SetResolution(double resolution) =>
+        Edit(TextKey.SheetImageSize, document =>
+            document.Resolution == resolution ? null : (document with { Resolution = resolution }, null));
+
+    /// <summary>
+    /// The chosen layer placed by numbers — the options bar's X, Y, W, H, scale and angle — as one
+    /// history step, its mask moving with it.
+    /// </summary>
+    public void ChangeTransform(Func<LayerTransform, LayerTransform> change) =>
+        Edit(TextKey.HistoryTransformLayer, document =>
+        {
+            if (ActiveLayer is not { IsGroup: false } layer) return null;
+            LayerTransform next = change(layer.Transform);
+            if (next == layer.Transform || !next.IsValid) return null;
+            return (document.Replacing(layer with
+            {
+                Transform = next,
+                Mask = layer.Mask is { Placement: LayerTransform placement } mask
+                    ? mask with { Placement = placement.Following(layer.Transform, next) }
+                    : layer.Mask,
+            }), layer.Id);
+        });
 }

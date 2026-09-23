@@ -84,6 +84,12 @@ internal sealed unsafe class MenuBar : IDisposable
     private static string Label(Command command) =>
         command.Shortcuts is [Shortcut first, ..] ? command.Text + "\t" + first.Display : command.Text;
 
+    /// <summary>
+    /// True while nothing on the menus may run — a sheet is open, and holds the rest of the window
+    /// still until it closes. The items grey out rather than vanish, as they do under any dialog.
+    /// </summary>
+    public Func<bool>? Blocked { get; set; }
+
     /// <summary>Brings a menu that is about to open up to date. Answers WM_INITMENUPOPUP.</summary>
     public void Refresh(nint popup)
     {
@@ -97,7 +103,7 @@ internal sealed unsafe class MenuBar : IDisposable
             if (command.DynamicLabel is not null)
                 ModifyMenuW(popup, (uint)position, MF_BYPOSITION | MF_STRING, id, Label(command));
 
-            EnableMenuItem(popup, id, MF_BYCOMMAND | (command.CanRun ? MF_ENABLED : MF_GRAYED));
+            EnableMenuItem(popup, id, MF_BYCOMMAND | (command.CanRun && Blocked?.Invoke() != true ? MF_ENABLED : MF_GRAYED));
 
             if (command.Checked is Func<bool> ticked)
                 CheckMenuItem(popup, id, MF_BYCOMMAND | (ticked() ? MF_CHECKED : MF_UNCHECKED));
@@ -107,6 +113,7 @@ internal sealed unsafe class MenuBar : IDisposable
     /// <summary>Runs a command the menu chose. Answers WM_COMMAND.</summary>
     public bool Run(int id)
     {
+        if (Blocked?.Invoke() == true) return false;
         if (!_commands.TryGetValue(id, out Command? command) || !command.CanRun) return false;
         command.Run();
         return true;

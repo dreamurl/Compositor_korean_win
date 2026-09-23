@@ -40,7 +40,14 @@ internal static class AppCommands
 
         var commands = new List<Command>
         {
+            new(CommandIds.New, TextKey.CommandNew, files.NewCanvas, Idle, [new(VK_N, Control: true)], Interactive: true),
             new(CommandIds.Open, TextKey.CommandOpen, files.Open, Idle, [new(VK_O, Control: true)], Interactive: true),
+            new(CommandIds.CanvasSize, TextKey.CommandCanvasSize,
+                () => files.Chrome?.Open(new CanvasSizeSheet(canvas, files.Chrome)), Editable,
+                [new(VK_C, Control: true, Alt: true)], Interactive: true),
+            new(CommandIds.ImageSize, TextKey.CommandImageSize,
+                () => files.Chrome?.Open(new ImageSizeSheet(canvas)), Editable,
+                [new(VK_I, Control: true, Alt: true)], Interactive: true),
             new(CommandIds.Save, TextKey.CommandSave, files.Save, Editable, [new(VK_S, Control: true)], Interactive: true),
             new(CommandIds.SaveAs, TextKey.CommandSaveAs, files.SaveAs, Editable,
                 [new(VK_S, Control: true, Shift: true)], Interactive: true),
@@ -242,7 +249,7 @@ internal static class AppCommands
         {
             new(TextKey.MenuFile,
             [
-                Item(CommandIds.Open), Item(CommandIds.ImportImages), MenuEntry.Line,
+                Item(CommandIds.New), Item(CommandIds.Open), Item(CommandIds.ImportImages), MenuEntry.Line,
                 Item(CommandIds.Close), Item(CommandIds.Save), Item(CommandIds.SaveAs), MenuEntry.Line,
                 Item(CommandIds.ExportPng), Item(CommandIds.ExportJpeg), MenuEntry.Line,
                 Item(CommandIds.Exit),
@@ -269,6 +276,7 @@ internal static class AppCommands
                     Item(CommandIds.Invert),
                 ]),
                 MenuEntry.Line,
+                Item(CommandIds.ImageSize), Item(CommandIds.CanvasSize), MenuEntry.Line,
                 Item(CommandIds.FlipCanvasHorizontal), Item(CommandIds.FlipCanvasVertical),
             ]),
             new(TextKey.MenuLayer,

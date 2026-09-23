@@ -53,6 +53,9 @@ internal sealed unsafe class Chrome : IDisposable
     private Rect _layersList;
 
     private readonly List<Sheet> _sheets = [];
+
+    /// <summary>Whether the options bar's width and height keep the layer's proportions.</summary>
+    private bool _lockRatio = true;
     private readonly List<Rect> _sheetAreas = [];
     private Rect _canvasArea;
 
@@ -219,22 +222,58 @@ internal sealed unsafe class Chrome : IDisposable
                 break;
             }
 
-            case CanvasTool.Move when _canvas.ActiveLayer is ImageLayer layer:
+            case CanvasTool.Move when _canvas.ActiveLayer is { IsGroup: false } layer:
             {
+                // Upstream's TransformInspector: the chosen layer's placement, typed. Each number
+                // typed is one history step, as a drag is.
                 LayerTransform t = layer.Transform;
-                (TextKey? Label, string Letter, string Value)[] fields =
-                [
-                    (null, "X", Number(t.Origin.X)), (null, "Y", Number(t.Origin.Y)),
-                    (TextKey.LabelWidth, "", Number(t.Size.Width)), (TextKey.LabelHeight, "", Number(t.Size.Height)),
-                    (TextKey.LabelAngle, "", Number(t.Rotation) + "°"),
-                ];
-                foreach ((TextKey? label, string letter, string value) in fields)
+                var pixelSize = new Core.Size(layer.Image?.Width ?? t.Size.Width, layer.Image?.Height ?? t.Size.Height);
+
+                void Box(string name, bool user, double value, int points, Action<double> set, string suffix = "")
                 {
-                    string name = label is TextKey key ? Localizer.Text(key) : letter;
                     float nameWidth = _ui.Measure(name) + _ui.P(6);
-                    Rect area = Next(110);
-                    _ui.Text(name, new Rect(area.X, area.Y, nameWidth, area.Height), Ui.Dim, user: label is null);
-                    _ui.Text(value, new Rect(area.X + nameWidth, area.Y, area.Width - nameWidth, area.Height), Ui.Ink, user: true);
+                    Rect area = Next(points);
+                    _ui.Text(name, new Rect(area.X, area.Y, nameWidth, area.Height), Ui.Dim, user: user);
+                    float suffixWidth = suffix.Length > 0 ? _ui.Measure(suffix) + _ui.P(4) : 0;
+                    _ui.Field(new Rect(area.X + nameWidth, area.Y, area.Width - nameWidth - suffixWidth, area.Height),
+                              "transform " + name, value, 2, set);
+                    if (suffix.Length > 0)
+                        _ui.Text(suffix, new Rect(area.MaxX - suffixWidth + _ui.P(4), area.Y, suffixWidth, area.Height), Ui.Dim, user: true);
+                }
+
+                void Resize(double value, bool width) => _canvas.ChangeTransform(current =>
+                {
+                    if (value < 1) return current;
+                    Core.Size size = current.Size;
+                    return current with
+                    {
+                        Size = width
+                            ? new Core.Size(value, _lockRatio ? size.Height * value / size.Width : size.Height)
+                            : new Core.Size(_lockRatio ? size.Width * value / size.Height : size.Width, value),
+                    };
+                });
+
+                Box("X", true, t.Origin.X, 92, value => _canvas.ChangeTransform(c => c with { Origin = new Point(value, c.Origin.Y) }));
+                Box("Y", true, t.Origin.Y, 92, value => _canvas.ChangeTransform(c => c with { Origin = new Point(c.Origin.X, value) }));
+                Box(Localizer.Text(TextKey.LabelWidth), false, t.Size.Width, 108, value => Resize(value, width: true));
+                Box(Localizer.Text(TextKey.LabelHeight), false, t.Size.Height, 108, value => Resize(value, width: false));
+
+                Rect chain = Next(20);
+                _ui.Button(chain, () => _lockRatio = !_lockRatio, Localizer.Text(TextKey.TooltipLockRatio), active: _lockRatio,
+                           face: face => Icons.Chain(_ui, face, _lockRatio ? Ui.Ink : Ui.Dim));
+
+                Box(Localizer.Text(TextKey.LabelScale), false, t.ScalePercent(pixelSize), 112,
+                    value => _canvas.ChangeTransform(c => value > 0 ? c.ScaledToPercent(value, pixelSize) : c), "%");
+                Box(Localizer.Text(TextKey.LabelAngle), false, t.Rotation, 100,
+                    value => _canvas.ChangeTransform(c => c with { Rotation = value % 360 }), "°");
+
+                foreach ((TextKey label, bool horizontal) in new[] { (TextKey.ButtonFlipHorizontal, true), (TextKey.ButtonFlipVertical, false) })
+                {
+                    string text = Localizer.Text(label);
+                    Rect button = Next(_ui.Measure(text) / _ui.Scale + 20);
+                    _ui.Fill(button, Ui.Raised);
+                    _ui.Button(button, () => _canvas.ChangeTransform(c =>
+                        horizontal ? c with { FlipX = !c.FlipX } : c with { FlipY = !c.FlipY }), null, label: text);
                 }
                 break;
             }

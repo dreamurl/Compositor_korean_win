@@ -137,7 +137,8 @@ internal sealed class SheetLayout
         Rect row = Take(RowPoints);
         if (Measuring) return;
 
-        float fieldWidth = Ui.P(62), unitWidth = Ui.P(unit.Length == 0 ? 0 : 34);
+        // The unit column is kept even for a row without one, so every track in a sheet is the same length.
+        float fieldWidth = Ui.P(62), unitWidth = Ui.P(34);
         Ui.Text(label, new Rect(row.X, row.Y, LabelWidth, row.Height), Ui.Dim);
 
         var track = new Rect(row.X + LabelWidth + Ui.P(6), row.Y,

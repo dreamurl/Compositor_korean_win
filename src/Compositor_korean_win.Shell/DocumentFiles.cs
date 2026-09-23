@@ -170,20 +170,56 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
     public void ExportJpeg()
     {
         if (canvas.Document is not CanvasDocument document) return;
-        if (Pick(save: true, Filter((TextKey.FileTypeJpeg, "*.jpg;*.jpeg")), "jpg", canvas.Title) is not string path) return;
+
+        PixelBuffer pixels;
+        using (var backend = new SoftwareRenderBackend()) pixels = LayerCompositor.Render(document, backend);
+
+        // The quality and matte are chosen on a sheet, which owns the composite from here; without
+        // the panels — the self-test's menus — it goes straight to the file at the default quality.
+        if (Chrome is Chrome chrome)
+        {
+            chrome.Open(new JpegSheet(pixels, SaveJpeg, chrome));
+            return;
+        }
 
         try
         {
-            using var backend = new SoftwareRenderBackend();
-            using PixelBuffer pixels = LayerCompositor.Render(document, backend);
-            ImageWriter.WriteJpeg(pixels, path);
+            SaveJpeg(ImageWriter.EncodeJpeg(pixels, ImageWriter.DefaultQuality, (1, 1, 1)));
+        }
+        finally
+        {
+            pixels.Release();
+        }
+    }
+
+    /// <summary>Asks where, and writes an encoded JPEG there. False when the user cancels or it fails.</summary>
+    private bool SaveJpeg(byte[] encoded)
+    {
+        if (Pick(save: true, Filter((TextKey.FileTypeJpeg, "*.jpg;*.jpeg")), "jpg", canvas.Title) is not string path) return false;
+
+        try
+        {
+            File.WriteAllBytes(path, encoded);
+            return true;
         }
         catch (Exception exception)
         {
             Console.Error.WriteLine(exception);
             Report(TextKey.ErrorCannotSave, path, exception);
+            return false;
         }
     }
+
+    /// <summary>The panels, for the sheets File's commands open. Set once the panels exist.</summary>
+    public Chrome? Chrome { get; set; }
+
+    /// <summary>File › New: the size sheet, then — once any changes to the open document are dealt with — a blank canvas.</summary>
+    public void NewCanvas() =>
+        Chrome?.Open(new NewCanvasSheet((width, height) =>
+        {
+            if (!ConfirmDiscard()) return;
+            canvas.Open(DocumentCommands.New(width, height, 72, background: null));
+        }));
 
     /// <summary>A document holding one image as its only layer, the canvas its size.</summary>
     public static CanvasDocument FromImage(PixelBuffer pixels, string name)

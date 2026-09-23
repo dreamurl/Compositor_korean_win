@@ -55,6 +55,33 @@ public class DocumentCommandsTests
     }
 
     [Fact]
+    public void ACanvasExtensionColourFillsOnlyTheNewSpace()
+    {
+        using PixelBuffer pixels = Solid(4, 4, 1, 2, 3);
+        ImageLayer layer = Layer("a", pixels, 0, 0);
+
+        CanvasDocument next = DocumentCommands.ResizeCanvas(Document(4, 4, layer), 8, 6, anchor: 0, new Rgba(255, 0, 0))!;
+        ImageLayer extension = next.Layers[0];
+
+        try
+        {
+            Assert.Equal(2, next.Layers.Count);
+            Assert.Equal(layer.Id, next.Layers[1].Id);
+            Assert.Equal((0, 0, 0, 0), At(extension.Image!, 3, 3)); // where the old canvas was
+            Assert.Equal((255, 0, 0, 255), At(extension.Image!, 4, 0));
+            Assert.Equal((255, 0, 0, 255), At(extension.Image!, 0, 5));
+        }
+        finally
+        {
+            extension.Image!.Release();
+        }
+
+        // A smaller canvas has no new space to fill.
+        CanvasDocument cropped = DocumentCommands.ResizeCanvas(Document(4, 4, layer), 2, 2, anchor: 0, new Rgba(255, 0, 0))!;
+        Assert.Single(cropped.Layers);
+    }
+
+    [Fact]
     public void ImageSizeResamplesEachLayerIntoItsNewBox()
     {
         using PixelBuffer pixels = Solid(10, 10, 200, 100, 50);
