@@ -204,6 +204,12 @@ internal static unsafe partial class Win32
     // Message boxes and the common file dialogs.
 
     internal const uint MB_OK = 0x0000;
+    internal const uint MB_YESNOCANCEL = 0x0003;
+    internal const uint MB_ICONWARNING = 0x0030;
+    internal const int IDCANCEL = 2;
+    internal const int IDYES = 6;
+    internal const int IDNO = 7;
+    internal const uint OFN_ALLOWMULTISELECT = 0x00000200;
     internal const uint MB_ICONERROR = 0x0010;
     internal const uint MB_ICONINFORMATION = 0x0040;
 

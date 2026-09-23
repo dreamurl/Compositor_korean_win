@@ -46,8 +46,15 @@ internal static class AppCommands
                 [new(VK_S, Control: true, Shift: true)], Interactive: true),
             new(CommandIds.ExportPng, TextKey.CommandExportPng, files.ExportPng, Editable,
                 [new(VK_E, Control: true, Shift: true)], Interactive: true),
-            new(CommandIds.Exit, TextKey.CommandExit, () => PostQuitMessage(0), null,
-                [new(VK_Q, Control: true)], Interactive: true),
+            new(CommandIds.Exit, TextKey.CommandExit, () =>
+                {
+                    if (files.ConfirmDiscard()) PostQuitMessage(0);
+                }, null, [new(VK_Q, Control: true)], Interactive: true),
+            new(CommandIds.ImportImages, TextKey.CommandImportImages, files.ImportImages, Editable, Interactive: true),
+            new(CommandIds.ExportJpeg, TextKey.CommandExportJpeg, files.ExportJpeg, Editable,
+                [new(VK_S, Control: true, Shift: true, Alt: true)], Interactive: true),
+            new(CommandIds.Close, TextKey.CommandClose, files.Close, () => canvas.HasDocument && !canvas.IsFiltering,
+                [new(VK_W, Control: true)], Interactive: true),
 
             new(CommandIds.Undo, TextKey.CommandUndo, canvas.Undo, () => canvas.CanUndo, [new(VK_Z, Control: true)])
             {
@@ -235,8 +242,9 @@ internal static class AppCommands
         {
             new(TextKey.MenuFile,
             [
-                Item(CommandIds.Open), MenuEntry.Line,
-                Item(CommandIds.Save), Item(CommandIds.SaveAs), Item(CommandIds.ExportPng), MenuEntry.Line,
+                Item(CommandIds.Open), Item(CommandIds.ImportImages), MenuEntry.Line,
+                Item(CommandIds.Close), Item(CommandIds.Save), Item(CommandIds.SaveAs), MenuEntry.Line,
+                Item(CommandIds.ExportPng), Item(CommandIds.ExportJpeg), MenuEntry.Line,
                 Item(CommandIds.Exit),
             ]),
             new(TextKey.MenuEdit,

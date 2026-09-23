@@ -22,6 +22,37 @@ internal sealed partial class CanvasView
 
     public bool HasDocument => _document is not null;
 
+    /// <summary>Closes the document, freeing its pixels and its history.</summary>
+    public void Close()
+    {
+        _preview?.Dispose();
+        _preview = null;
+        _adjusting = null;
+        _history.Clear(_document);
+        _document = null;
+        _selection = null;
+        _chosen.Clear();
+        FilePath = null;
+        NeedsRedraw = true;
+    }
+
+    /// <summary>Images brought in as layers, one step for them all. The document takes the pixels.</summary>
+    public void AddImages(IReadOnlyList<(PixelBuffer Pixels, string Name)> images)
+    {
+        if (images.Count == 0) return;
+        Edit(TextKey.CommandImportImages, document =>
+        {
+            CanvasDocument next = document;
+            Guid? chosen = Primary;
+            foreach ((PixelBuffer pixels, string name) in images)
+            {
+                (next, Guid added) = DocumentCommands.AddImage(next, pixels, name, chosen);
+                chosen = added;
+            }
+            return (next, chosen);
+        });
+    }
+
     public bool IsModified => _history.IsModified;
 
     /// <summary>The layer a save records as active.</summary>

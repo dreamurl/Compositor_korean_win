@@ -37,6 +37,9 @@ internal sealed unsafe class MainWindow : IDisposable
     /// <summary>The menu bar, and through it every command and its shortcut.</summary>
     public MenuBar? Menu { get; set; }
 
+    /// <summary>Asked before the window closes; false keeps it open (unsaved changes, cancelled).</summary>
+    public Func<bool>? CanClose { get; set; }
+
     /// <summary>Set once the first frame has been presented.</summary>
     public TimeSpan? TimeToFirstFrame { get; private set; }
 
@@ -271,6 +274,10 @@ internal sealed unsafe class MainWindow : IDisposable
 
             case WM_CAPTURECHANGED:
                 canvas?.PointerUp();
+                break;
+
+            case WM_CLOSE:
+                if (window?.CanClose?.Invoke() == false) return 0;
                 break;
 
             case WM_DESTROY:

@@ -41,6 +41,7 @@ internal static class Program
         (List<Command> commands, List<MenuEntry.Submenu> layout) = AppCommands.Create(canvas, files, window.Handle);
         using var menu = new MenuBar(window.Handle, commands, layout);
         window.Menu = menu;
+        window.CanClose = files.ConfirmDiscard;
 
         window.Render();
 

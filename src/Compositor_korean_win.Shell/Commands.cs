@@ -89,6 +89,9 @@ internal static class CommandIds
     public const int SaveAs = 102;
     public const int ExportPng = 103;
     public const int Exit = 104;
+    public const int ImportImages = 105;
+    public const int ExportJpeg = 106;
+    public const int Close = 107;
 
     public const int Undo = 200;
     public const int Redo = 201;

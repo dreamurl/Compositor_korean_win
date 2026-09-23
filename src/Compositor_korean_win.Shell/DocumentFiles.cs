@@ -24,12 +24,66 @@ namespace Compositor_korean_win.Shell;
 /// </remarks>
 internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format format)
 {
+    private const string ImagePatterns = "*.png;*.jpg;*.jpeg;*.tif;*.tiff;*.bmp;*.gif;*.heic";
+
+    /// <summary>
+    /// Asks whether to save a changed document before it goes. False when the user cancels, or asked
+    /// to save and then did not.
+    /// </summary>
+    public bool ConfirmDiscard()
+    {
+        if (!canvas.HasDocument || !canvas.IsModified) return true;
+
+        int answer = MessageBoxW(owner, Localizer.Format(TextKey.PromptSaveChanges, canvas.Title),
+                                 Localizer.Text(TextKey.AppTitle), MB_YESNOCANCEL | MB_ICONWARNING);
+        if (answer == IDNO) return true;
+        if (answer != IDYES) return false;
+
+        Save();
+        return !canvas.IsModified;
+    }
+
+    /// <summary>File › Close: the document goes, once any changes are dealt with.</summary>
+    public void Close()
+    {
+        if (ConfirmDiscard()) canvas.Close();
+    }
+
+    /// <summary>Asks for images and adds each as a layer in the middle of the canvas.</summary>
+    public void ImportImages()
+    {
+        if (!canvas.HasDocument) return;
+
+        string filter = Filter((TextKey.FileTypeImages, ImagePatterns));
+        List<string> paths = PickMany(filter);
+        if (paths.Count == 0) return;
+
+        var images = new List<(PixelBuffer, string)>();
+        using var loader = new ImageLoader();
+        foreach (string path in paths)
+        {
+            try
+            {
+                images.Add((loader.Load(path, FormatProbe.WicFormatFor(format)), Path.GetFileNameWithoutExtension(path)));
+            }
+            catch (Exception exception)
+            {
+                Console.Error.WriteLine(exception);
+                Report(TextKey.ErrorCannotOpen, path, exception);
+            }
+        }
+
+        canvas.AddImages(images);
+    }
+
     /// <summary>Asks for a project or an image and opens it.</summary>
     public void Open()
     {
+        if (!ConfirmDiscard()) return;
+
         string filter = Filter(
             (TextKey.FileTypeProject, "*.comp"),
-            (TextKey.FileTypeImages, "*.png;*.jpg;*.jpeg;*.tif;*.tiff;*.bmp;*.gif;*.heic"));
+            (TextKey.FileTypeImages, ImagePatterns));
 
         if (Pick(save: false, filter, defaultExtension: null, suggested: null) is not string path) return;
 
@@ -101,6 +155,28 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
             using var backend = new SoftwareRenderBackend();
             using PixelBuffer pixels = LayerCompositor.Render(document, backend);
             File.WriteAllBytes(path, Png.Encode(pixels));
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine(exception);
+            Report(TextKey.ErrorCannotSave, path, exception);
+        }
+    }
+
+    /// <summary>
+    /// Asks where, then writes the composited document there as a JPEG, over white — JPEG has no
+    /// transparency, and white is what the canvas shows under it.
+    /// </summary>
+    public void ExportJpeg()
+    {
+        if (canvas.Document is not CanvasDocument document) return;
+        if (Pick(save: true, Filter((TextKey.FileTypeJpeg, "*.jpg;*.jpeg")), "jpg", canvas.Title) is not string path) return;
+
+        try
+        {
+            using var backend = new SoftwareRenderBackend();
+            using PixelBuffer pixels = LayerCompositor.Render(document, backend);
+            ImageWriter.WriteJpeg(pixels, path);
         }
         catch (Exception exception)
         {
@@ -189,5 +265,36 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
             bool chosen = save ? GetSaveFileNameW(ref dialog) : GetOpenFileNameW(ref dialog);
             return chosen ? new string(file) : null;
         }
+    }
+
+    /// <summary>An open dialog that takes several files. Empty when the user cancels.</summary>
+    private List<string> PickMany(string filter)
+    {
+        const int Capacity = 65536;
+        char* files = stackalloc char[Capacity];
+        files[0] = '\0';
+
+        fixed (char* filters = filter)
+        {
+            var dialog = new OPENFILENAMEW
+            {
+                lStructSize = (uint)sizeof(OPENFILENAMEW),
+                hwndOwner = owner,
+                lpstrFilter = filters,
+                nFilterIndex = 1,
+                lpstrFile = files,
+                nMaxFile = Capacity,
+                Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_FILEMUSTEXIST | OFN_ALLOWMULTISELECT,
+            };
+
+            if (!GetOpenFileNameW(ref dialog)) return [];
+        }
+
+        // One file comes back as a full path; several as the folder, then each name, each ended by a
+        // null and the whole by two.
+        var parts = new List<string>();
+        for (char* part = files; *part != '\0'; part += parts[^1].Length + 1) parts.Add(new string(part));
+
+        return parts.Count <= 1 ? parts : [.. parts.Skip(1).Select(name => Path.Combine(parts[0], name))];
     }
 }
