@@ -174,6 +174,8 @@ internal sealed partial class CanvasView
         _distortPreview?.Dispose();
         _distortPreview = null;
         _distorting = null;
+        _cropFrame = null;
+        _cropDragging = false;
     }
 
     /// <summary>Every tab's pixels and history freed, for when the canvas goes.</summary>

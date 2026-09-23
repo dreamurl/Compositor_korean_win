@@ -365,6 +365,14 @@ public enum TextKey
     UpdateLatest,
     UpdateFailed,
     UpdateUnreadable,
+
+    // The Crop tool.
+    ToolCrop,
+    LabelAspectRatio,
+    CropRatioFree,
+    CropRatioOriginal,
+    NoteFrameSize,
+    ButtonApplyCrop,
 }
 
 /// <summary>
@@ -725,6 +733,12 @@ public static class TextTable
         (TextKey.UpdateLatest, "You have the latest version ({0}).", "최신 버전입니다({0})."),
         (TextKey.UpdateFailed, "Could not check for updates: {0}", "업데이트를 확인하지 못했습니다: {0}"),
         (TextKey.UpdateUnreadable, "the update feed could not be read", "업데이트 정보를 읽을 수 없습니다"),
+        (TextKey.ToolCrop, "Crop Tool", "자르기 도구"),
+        (TextKey.LabelAspectRatio, "Ratio", "가로세로 비율"),
+        (TextKey.CropRatioFree, "Free", "자유"),
+        (TextKey.CropRatioOriginal, "Original", "원본 비율"),
+        (TextKey.NoteFrameSize, "{0} × {1} px", "{0} × {1}픽셀"),
+        (TextKey.ButtonApplyCrop, "Apply Crop", "자르기 적용"),
     ];
 
     /// <summary>Phrases that are the same in both languages on purpose — names, not words.</summary>

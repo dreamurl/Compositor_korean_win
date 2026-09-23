@@ -46,6 +46,9 @@ internal enum CanvasTool
 
     /// <summary>Drags out a rectangle, a rounded rectangle or an ellipse.</summary>
     Shape,
+
+    /// <summary>Frames what the canvas becomes.</summary>
+    Crop,
 }
 
 /// <summary>Which tools make a stroke rather than a drag or a click.</summary>
@@ -307,6 +310,12 @@ internal sealed partial class CanvasView : IDisposable
             return;
         }
 
+        if (_tool == CanvasTool.Crop)
+        {
+            BeginCrop(pixel, view, symmetric: Win32.IsKeyDown(Win32.VK_MENU));
+            return;
+        }
+
         if (_tool.Paints())
         {
             BeginStroke(pixel, alt: Win32.IsKeyDown(Win32.VK_MENU));
@@ -449,6 +458,12 @@ internal sealed partial class CanvasView : IDisposable
 
         _pointer = view;
 
+        if (_cropDragging)
+        {
+            DragCrop(_viewport.DocumentPoint(view, _document.Size), alt);
+            return;
+        }
+
         if (_stroke is not null || _warp is not null)
         {
             Point at = _viewport.DocumentPoint(view, _document.Size);
@@ -553,6 +568,12 @@ internal sealed partial class CanvasView : IDisposable
     {
         _panning = false;
         if (IsFiltering) return;
+
+        if (_cropDragging)
+        {
+            EndCrop();
+            return;
+        }
 
         if (_warp is not null)
         {
@@ -991,6 +1012,7 @@ internal sealed partial class CanvasView : IDisposable
         CanvasTool.MagicWand => TextKey.ToolMagicWand,
         CanvasTool.Gradient => TextKey.ToolGradient,
         CanvasTool.Shape => TextKey.ToolShape,
+        CanvasTool.Crop => TextKey.ToolCrop,
         _ => TextKey.HistoryEdit,
     };
 
@@ -1086,6 +1108,18 @@ internal sealed partial class CanvasView : IDisposable
                 ClosePolygon();
                 break;
 
+            case Win32.VK_RETURN when _tool == CanvasTool.Crop:
+                ApplyCrop();
+                break;
+
+            case Win32.VK_ESCAPE when _tool == CanvasTool.Crop && _cropFrame is not null:
+                CancelCrop();
+                break;
+
+            case Win32.VK_C when !control:
+                _tool = CanvasTool.Crop;
+                break;
+
             case Win32.VK_B when !control:
                 _tool = CanvasTool.Brush;
                 break;
@@ -1135,6 +1169,8 @@ internal sealed partial class CanvasView : IDisposable
                 return false;
         }
 
+        // A frame belongs to the Crop tool; leaving the tool drops it, as upstream's does.
+        if (_tool != CanvasTool.Crop) _cropFrame = null;
         NeedsRedraw = true;
         return true;
     }
@@ -1296,6 +1332,7 @@ internal sealed partial class CanvasView : IDisposable
         using ID2D1SolidColorBrush shadow = context.CreateSolidColorBrush(new Color4(0f, 0f, 0f, 0.65f));
 
         DrawSelection(context, projection, fill, shadow, thickness);
+        DrawCrop(context, projection, fill, outline, thickness, half);
 
         if (_tool != CanvasTool.Move || Box() is not LayerTransform box)
         {

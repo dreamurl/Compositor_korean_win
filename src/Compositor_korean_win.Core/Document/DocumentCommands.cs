@@ -91,7 +91,25 @@ public static class DocumentCommands
         ArgumentNullException.ThrowIfNull(document);
         if (!IsValidSize(width, height) || (width == document.Width && height == document.Height)) return null;
 
-        Point offset = AnchorOffset(document.Width, document.Height, width, height, anchor);
+        return Shifted(document, width, height, AnchorOffset(document.Width, document.Height, width, height, anchor), extension);
+    }
+
+    /// <summary>
+    /// Image › Crop, or the Crop tool's Apply: the canvas becomes <paramref name="frame"/>, in the
+    /// old canvas's pixels, and every layer moves with it — upstream's crop, a canvas resize with the
+    /// content offset. Nothing is cut from any layer, so what falls outside the frame is still
+    /// there to move back in; a frame reaching past the canvas grows it.
+    /// </summary>
+    public static CanvasDocument? Crop(CanvasDocument document, PixelRect frame)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        if (!IsValidSize(frame.Width, frame.Height)) return null;
+        if (frame.X == 0 && frame.Y == 0 && frame.Width == document.Width && frame.Height == document.Height) return null;
+        return Shifted(document, frame.Width, frame.Height, new Point(-frame.X, -frame.Y), extension: null);
+    }
+
+    private static CanvasDocument Shifted(CanvasDocument document, int width, int height, Point offset, Rgba? extension)
+    {
         LayerTransform Moved(LayerTransform transform) =>
             transform with { Origin = new Point(transform.Origin.X + offset.X, transform.Origin.Y + offset.Y) };
 

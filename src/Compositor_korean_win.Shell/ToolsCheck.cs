@@ -164,6 +164,30 @@ internal static class ToolsCheck
                 Expect(canvas.UndoName != undoBefore, $"{mode} left no history step");
                 Expect(canvas.CanEdit, $"{mode} was still under way after the pointer came up");
             }
+
+            // The Crop tool: a frame dragged inside the canvas, applied with Enter, becomes the canvas
+            // as one step, the layer moved and nothing cut.
+            canvas.SetTool(CanvasTool.Crop);
+            Expect(canvas.CropFrame is { X: 0, Y: 0 } whole && whole.Width == w && whole.Height == h,
+                   "the Crop tool did not start with the whole canvas framed");
+            CanvasDocument uncropped = canvas.Document!;
+            LayerTransform placedBefore = uncropped.Layer(id)!.Transform;
+            Point CropView(double x, double y) => canvas.Viewport.ViewPoint(new Point(x, y), uncropped.Size);
+            // Well inside, away from the canvas edges the frame would snap to.
+            canvas.PointerDown(CropView(w * 0.2, h * 0.25), pan: false);
+            canvas.PointerMoved(CropView(w * 0.5, h * 0.5), shift: false, alt: false, control: false);
+            canvas.PointerMoved(CropView(w * 0.7, h * 0.75), shift: false, alt: false, control: false);
+            canvas.PointerUp();
+            Core.Rect frame = canvas.CropFrame!.Value;
+            canvas.Key(Win32.VK_RETURN, control: false);
+            CanvasDocument cropped = canvas.Document!;
+            Expect(cropped.Width == (int)frame.Width && cropped.Height == (int)frame.Height,
+                   $"cropping to {frame.Width}×{frame.Height} left a {cropped.Width}×{cropped.Height} canvas");
+            ImageLayer croppedLayer = cropped.Layer(id)!;
+            Expect(croppedLayer.Transform.Origin == new Point(placedBefore.Origin.X - frame.X, placedBefore.Origin.Y - frame.Y)
+                   && ReferenceEquals(croppedLayer.Image, uncropped.Layer(id)!.Image), "cropping did not just move the layer");
+            canvas.Undo();
+            Expect(canvas.Document!.Width == w && canvas.Document.Height == h, "undo did not put the canvas back");
         }
         catch (Exception exception)
         {

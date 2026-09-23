@@ -29,7 +29,7 @@ internal sealed unsafe class Chrome : IDisposable
 
     private static readonly (CanvasTool Tool, char Key)[] Tools =
     [
-        (CanvasTool.Move, 'V'), (CanvasTool.RectangleMarquee, 'M'), (CanvasTool.EllipseMarquee, 'M'),
+        (CanvasTool.Move, 'V'), (CanvasTool.Crop, 'C'), (CanvasTool.RectangleMarquee, 'M'), (CanvasTool.EllipseMarquee, 'M'),
         (CanvasTool.Lasso, 'L'), (CanvasTool.PolygonLasso, 'L'), (CanvasTool.MagicWand, 'W'),
         (CanvasTool.Brush, 'B'), (CanvasTool.Eraser, 'E'), (CanvasTool.CloneStamp, 'S'),
         (CanvasTool.Heal, 'J'), (CanvasTool.Blur, 'R'), (CanvasTool.Gradient, 'G'), (CanvasTool.Shape, 'U'),
@@ -216,6 +216,37 @@ internal sealed unsafe class Chrome : IDisposable
                          () => _canvas.Brush = _canvas.Brush with { HealingMode = SpotHealingMode.ProximityMatch }),
                     ]);
                 }
+                break;
+            }
+
+            case CanvasTool.Crop:
+            {
+                // Upstream's CropControls: the proportion, the frame's size, Cancel and Apply.
+                CropRatio ratio = _canvas.CropRatio;
+                Segment(ref x, y, h, Localizer.Text(TextKey.LabelAspectRatio),
+                [
+                    (Localizer.Text(TextKey.CropRatioFree), ratio == CropRatio.Free, () => _canvas.CropRatio = CropRatio.Free),
+                    (Localizer.Text(TextKey.CropRatioOriginal), ratio == CropRatio.Original, () => _canvas.CropRatio = CropRatio.Original),
+                    ("1:1", ratio == CropRatio.Square, () => _canvas.CropRatio = CropRatio.Square),
+                    ("4:3", ratio == CropRatio.FourByThree, () => _canvas.CropRatio = CropRatio.FourByThree),
+                    ("16:9", ratio == CropRatio.SixteenByNine, () => _canvas.CropRatio = CropRatio.SixteenByNine),
+                ]);
+
+                if (_canvas.CropFrame is Rect frame)
+                {
+                    string size = Localizer.Format(TextKey.NoteFrameSize, (int)frame.Width, (int)frame.Height);
+                    float sizeWidth = _ui.Measure(size) + _ui.P(18);
+                    _ui.Text(size, new Rect(x, bar.Y, sizeWidth, bar.Height), Ui.Ink);
+                    x += sizeWidth;
+                }
+
+                string cancel = Localizer.Text(TextKey.DialogCancel), apply = Localizer.Text(TextKey.ButtonApplyCrop);
+                Rect cancelArea = Next(_ui.Measure(cancel) / _ui.Scale + 24);
+                _ui.Fill(cancelArea, Ui.Raised);
+                _ui.Button(cancelArea, _canvas.CancelCrop, null, label: cancel);
+                Rect applyArea = Next(_ui.Measure(apply) / _ui.Scale + 24);
+                _ui.Fill(applyArea, Ui.Raised);
+                _ui.Button(applyArea, _canvas.ApplyCrop, null, enabled: _canvas.CanApplyCrop, label: apply);
                 break;
             }
 

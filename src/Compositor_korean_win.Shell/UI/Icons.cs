@@ -32,6 +32,11 @@ internal static class Icons
             case CanvasTool.MagicWand: Wand(ui, area, colour); break;
             case CanvasTool.Gradient: Gradient(ui, area, colour); break;
             case CanvasTool.Shape: Shape(ui, area, colour); break;
+            case CanvasTool.Crop:
+                // Photoshop's two crossing corners.
+                Stroke(ui, area, colour, (5, 1), (5, 15), (19, 15));
+                Stroke(ui, area, colour, (1, 5), (15, 5), (15, 19));
+                break;
         }
     }
 
