@@ -79,4 +79,5 @@ gh api repos/dreamurl/Compositor_korean_win/actions/jobs/$jobid/logs | grep -E "
 ## 6. 현재 위치
 
 M0~M8 완료. 릴리스는 `v*` 태그 푸시로 만들어진다(`docs/progress.md` 9절). 최신: v1.0.1.
+원본 대비 아직 없는 기능(자르기 도구, 선택 픽셀 변형, 레이어 패널 드래그 등)은 `docs/progress.md` 10절.
 C 커널은 전부 연결됐다. M3–M5가 미뤄 둔 UI 목록과 상세는 `docs/progress.md` 6.6절·7절.
