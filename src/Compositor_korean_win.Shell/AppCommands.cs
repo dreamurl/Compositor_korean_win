@@ -1,0 +1,181 @@
+using Compositor_korean_win.Core;
+using static Compositor_korean_win.Shell.Win32;
+
+namespace Compositor_korean_win.Shell;
+
+/// <summary>
+/// Every command the program has, and the menus they sit in.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The menus follow upstream's — File, Edit, Image, Layer, Select, Filter, View — with Photoshop for
+/// Windows' shortcuts where upstream's Mac ones translate (⌘ to Ctrl). Two things move to where a
+/// Windows user looks for them: the language, under Edit › Preferences as in Photoshop, and About,
+/// under Help rather than the application menu Windows does not have.
+/// </para>
+/// <para>
+/// Only commands that work are listed. The rest of upstream's menus arrive with the Core operations
+/// behind them (docs/progress.md 7, M6.3).
+/// </para>
+/// </remarks>
+internal static class AppCommands
+{
+    private static readonly FilterCommand[] Adjustments =
+    [
+        FilterCommand.Levels, FilterCommand.Curves, FilterCommand.HueSaturation,
+        FilterCommand.Exposure, FilterCommand.GradientMap, FilterCommand.Grain,
+    ];
+
+    private static readonly FilterCommand[] Filters =
+    [
+        FilterCommand.GaussianBlur, FilterCommand.MotionBlur, FilterCommand.AddNoise, FilterCommand.LensCorrection,
+    ];
+
+    public static (List<Command> Commands, List<MenuEntry.Submenu> Layout) Create(
+        CanvasView canvas, DocumentFiles files, nint owner)
+    {
+        bool Idle() => !canvas.IsFiltering;
+        bool Editable() => canvas.CanEdit;
+
+        var commands = new List<Command>
+        {
+            new(CommandIds.Open, TextKey.CommandOpen, files.Open, Idle, [new(VK_O, Control: true)], Interactive: true),
+            new(CommandIds.Save, TextKey.CommandSave, files.Save, Editable, [new(VK_S, Control: true)], Interactive: true),
+            new(CommandIds.SaveAs, TextKey.CommandSaveAs, files.SaveAs, Editable,
+                [new(VK_S, Control: true, Shift: true)], Interactive: true),
+            new(CommandIds.ExportPng, TextKey.CommandExportPng, files.ExportPng, Editable,
+                [new(VK_E, Control: true, Shift: true)], Interactive: true),
+            new(CommandIds.Exit, TextKey.CommandExit, () => PostQuitMessage(0), null,
+                [new(VK_Q, Control: true)], Interactive: true),
+
+            new(CommandIds.Undo, TextKey.CommandUndo, canvas.Undo, () => canvas.CanUndo, [new(VK_Z, Control: true)])
+            {
+                DynamicLabel = () => canvas.CanUndo
+                    ? Localizer.Format(TextKey.CommandUndoNamed, canvas.UndoName)
+                    : Localizer.Text(TextKey.CommandUndo),
+            },
+            new(CommandIds.Redo, TextKey.CommandRedo, canvas.Redo, () => canvas.CanRedo,
+                [new(VK_Z, Control: true, Shift: true), new(VK_Y, Control: true)])
+            {
+                DynamicLabel = () => canvas.CanRedo
+                    ? Localizer.Format(TextKey.CommandRedoNamed, canvas.RedoName)
+                    : Localizer.Text(TextKey.CommandRedo),
+            },
+
+            // Changing the language is not something the self-test's command run should do behind
+            // its back — it checks each language on purpose — so these count as interactive.
+            new(CommandIds.LanguageEnglish, TextKey.LanguageEnglish, () => Localizer.Current = Language.English,
+                Interactive: true)
+            {
+                Checked = () => Localizer.Current == Language.English,
+            },
+            new(CommandIds.LanguageKorean, TextKey.LanguageKorean, () => Localizer.Current = Language.Korean,
+                Interactive: true)
+            {
+                Checked = () => Localizer.Current == Language.Korean,
+            },
+
+            new(CommandIds.SelectAll, TextKey.CommandSelectAll, canvas.SelectAll, Editable, [new(VK_A, Control: true)]),
+            new(CommandIds.Deselect, TextKey.CommandDeselect, canvas.Deselect,
+                () => Editable() && canvas.HasSelection, [new(VK_D, Control: true)]),
+
+            new(CommandIds.DuplicateLayer, TextKey.CommandDuplicateLayer, canvas.DuplicateLayer,
+                () => canvas.CanDuplicateLayer, [new(VK_J, Control: true)]),
+
+            new(CommandIds.ZoomIn, TextKey.CommandZoomIn, () => canvas.Zoom(closer: true), () => canvas.HasDocument,
+                [new(VK_OEM_PLUS, Control: true), new(VK_ADD, Control: true)]),
+            new(CommandIds.ZoomOut, TextKey.CommandZoomOut, () => canvas.Zoom(closer: false), () => canvas.HasDocument,
+                [new(VK_OEM_MINUS, Control: true), new(VK_SUBTRACT, Control: true)]),
+            new(CommandIds.FitOnScreen, TextKey.CommandFitOnScreen, canvas.FitOnScreen, () => canvas.HasDocument,
+                [new(VK_0, Control: true)]),
+            new(CommandIds.ActualPixels, TextKey.CommandActualPixels, canvas.ActualPixels, () => canvas.HasDocument,
+                [new(VK_1, Control: true)]),
+
+            new(CommandIds.About, TextKey.CommandAbout,
+                () => MessageBoxW(owner, Localizer.Text(TextKey.AboutText), Localizer.Text(TextKey.AppTitle),
+                                  MB_OK | MB_ICONINFORMATION),
+                Interactive: true),
+        };
+
+        // Image › Adjustments: run over the chosen layer's pixels. Photoshop's keys for the three
+        // that have them.
+        foreach (FilterCommand adjustment in Adjustments)
+        {
+            Shortcut[]? keys = adjustment switch
+            {
+                FilterCommand.Levels => [new(VK_L, Control: true)],
+                FilterCommand.Curves => [new(VK_M, Control: true)],
+                FilterCommand.HueSaturation => [new(VK_U, Control: true)],
+                _ => null,
+            };
+
+            commands.Add(new Command(CommandIds.AdjustFirst + (int)adjustment, CanvasView.FilterTitle(adjustment),
+                                     () => canvas.StartFilter(adjustment, asLayer: false), () => canvas.CanFilter, keys)
+            {
+                DynamicLabel = Ellipsis(CanvasView.FilterTitle(adjustment)),
+            });
+
+            commands.Add(new Command(CommandIds.AdjustmentLayerFirst + (int)adjustment, CanvasView.FilterTitle(adjustment),
+                                     () => canvas.StartFilter(adjustment, asLayer: true),
+                                     () => canvas.CanAddAdjustmentLayer)
+            {
+                DynamicLabel = Ellipsis(CanvasView.FilterTitle(adjustment)),
+            });
+        }
+
+        foreach (FilterCommand filter in Filters)
+        {
+            commands.Add(new Command(CommandIds.FilterFirst + (int)filter, CanvasView.FilterTitle(filter),
+                                     () => canvas.StartFilter(filter, asLayer: false), () => canvas.CanFilter)
+            {
+                DynamicLabel = Ellipsis(CanvasView.FilterTitle(filter)),
+            });
+        }
+
+        var layout = new List<MenuEntry.Submenu>
+        {
+            new(TextKey.MenuFile,
+            [
+                Item(CommandIds.Open), MenuEntry.Line,
+                Item(CommandIds.Save), Item(CommandIds.SaveAs), Item(CommandIds.ExportPng), MenuEntry.Line,
+                Item(CommandIds.Exit),
+            ]),
+            new(TextKey.MenuEdit,
+            [
+                Item(CommandIds.Undo), Item(CommandIds.Redo), MenuEntry.Line,
+                new MenuEntry.Submenu(TextKey.MenuPreferences,
+                [
+                    new MenuEntry.Submenu(TextKey.MenuLanguage,
+                        [Item(CommandIds.LanguageEnglish), Item(CommandIds.LanguageKorean)]),
+                ]),
+            ]),
+            new(TextKey.MenuImage,
+            [
+                new MenuEntry.Submenu(TextKey.MenuAdjustments,
+                    [.. Adjustments.Select(adjustment => Item(CommandIds.AdjustFirst + (int)adjustment))]),
+            ]),
+            new(TextKey.MenuLayer,
+            [
+                new MenuEntry.Submenu(TextKey.MenuNewAdjustmentLayer,
+                    [.. Adjustments.Select(adjustment => Item(CommandIds.AdjustmentLayerFirst + (int)adjustment))]),
+                MenuEntry.Line,
+                Item(CommandIds.DuplicateLayer),
+            ]),
+            new(TextKey.MenuSelect, [Item(CommandIds.SelectAll), Item(CommandIds.Deselect)]),
+            new(TextKey.MenuFilter, [.. Filters.Select(filter => Item(CommandIds.FilterFirst + (int)filter))]),
+            new(TextKey.MenuView,
+            [
+                Item(CommandIds.ZoomIn), Item(CommandIds.ZoomOut), MenuEntry.Line,
+                Item(CommandIds.FitOnScreen), Item(CommandIds.ActualPixels),
+            ]),
+            new(TextKey.MenuHelp, [Item(CommandIds.About)]),
+        };
+
+        return (commands, layout);
+
+        static MenuEntry Item(int id) => new MenuEntry.Item(id);
+
+        // An entry that opens a window of its own ends in an ellipsis, in either language.
+        static Func<string> Ellipsis(TextKey key) => () => Localizer.Text(key) + "…";
+    }
+}

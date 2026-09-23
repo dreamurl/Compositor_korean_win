@@ -159,6 +159,19 @@ jobs:
               "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
             }
 
+            if ($null -ne $report.menuItems) {
+              "### M6 — UI·다국어" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 항목 | 값 |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "|---|---|" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 메뉴 항목 (영어+한국어) | $($report.menuItems)개 |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 번역 안 된 항목 | $($report.menuUntranslated)개 |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 실행해 본 명령 | $($report.menuCommandsRun)개 |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 한국어 실행 취소 이름 | $($report.menuKoreanUndo) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 통과 | $($report.menuPassed) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            }
+
             if ($report.failures.Count -gt 0) {
               "### 실패" | Out-File -Append $env:GITHUB_STEP_SUMMARY
               $report.failures | ForEach-Object { "- $_" | Out-File -Append $env:GITHUB_STEP_SUMMARY }

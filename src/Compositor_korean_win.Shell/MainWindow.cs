@@ -34,6 +34,9 @@ internal sealed unsafe class MainWindow : IDisposable
     /// <summary>The canvas this window shows, once one has been opened.</summary>
     public CanvasView? Canvas { get; set; }
 
+    /// <summary>The menu bar, and through it every command and its shortcut.</summary>
+    public MenuBar? Menu { get; set; }
+
     /// <summary>Set once the first frame has been presented.</summary>
     public TimeSpan? TimeToFirstFrame { get; private set; }
 
@@ -244,25 +247,26 @@ internal sealed unsafe class MainWindow : IDisposable
                 }
                 break;
 
-            case WM_KEYDOWN:
-                // Escape cancels whatever the canvas has open first, and only quits when nothing is.
-                if ((int)wParam == VK_ESCAPE && canvas?.Key(VK_ESCAPE, control: false) != true)
+            case WM_KEYDOWN or WM_SYSKEYDOWN:
+                if (canvas is not null && window is not null && window.KeyDown((int)wParam, canvas))
                 {
-                    PostQuitMessage(0);
-                    break;
-                }
-
-                if ((int)wParam == VK_ESCAPE)
-                {
-                    window?.AfterInput();
-                    break;
-                }
-
-                if (canvas is not null && window is not null)
-                {
-                    canvas.Key((int)wParam, IsKeyDown(VK_CONTROL));
                     window.AfterInput();
+                    return 0;
                 }
+                break;
+
+            case WM_COMMAND:
+                // The high word is 0 for a menu; accelerators and controls are not in play.
+                if (window is not null && (wParam >> 16) == 0)
+                {
+                    window.Guarded(() => window.Menu?.Run((int)(wParam & 0xFFFF)));
+                    window.AfterInput();
+                    return 0;
+                }
+                break;
+
+            case WM_INITMENUPOPUP:
+                window?.Menu?.Refresh((nint)wParam);
                 break;
 
             case WM_CAPTURECHANGED:
@@ -275,6 +279,49 @@ internal sealed unsafe class MainWindow : IDisposable
         }
 
         return DefWindowProcW(hwnd, message, wParam, lParam);
+    }
+
+    /// <summary>
+    /// Sends a key where it belongs. True when something took it.
+    /// </summary>
+    /// <remarks>
+    /// An open filter comes first, since it owns Enter and Escape and holds everything else back
+    /// until it closes; then the commands' shortcuts; then the canvas's own single keys — tools,
+    /// brush size, nudging. A key nobody takes goes on to Windows, which is how Alt and F10 still
+    /// reach the menu bar.
+    /// </remarks>
+    private bool KeyDown(int key, CanvasView canvas)
+    {
+        bool control = IsKeyDown(VK_CONTROL), shift = IsKeyDown(VK_SHIFT), alt = IsKeyDown(VK_MENU);
+        bool taken = false;
+
+        Guarded(() =>
+        {
+            if (canvas.IsFiltering && canvas.Key(key, control)) taken = true;
+            else if (Menu?.TryShortcut(new Shortcut(key, control, shift, alt)) == true) taken = true;
+            else if (!alt) taken = canvas.Key(key, control);
+        });
+
+        return taken;
+    }
+
+    /// <summary>
+    /// Runs something the user asked for, and reports rather than dies if it throws.
+    /// </summary>
+    /// <remarks>
+    /// This is called from the window procedure, which native code calls: an exception escaping
+    /// it cannot unwind into Windows and would end the process. The log gets the detail.
+    /// </remarks>
+    internal void Guarded(Action action)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine(exception);
+        }
     }
 
     /// <summary>Puts the title in the language just chosen.</summary>

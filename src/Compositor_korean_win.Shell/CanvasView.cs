@@ -94,7 +94,9 @@ internal sealed partial class CanvasView : IDisposable
 
     private readonly GraphicsDevice _device;
     private readonly Direct2DBackend _backend;
-    private readonly DocumentHistory _history = new();
+    // The canvas owns the pixels of its documents: a step the history drops frees what only it
+    // held, and closing a document frees the rest.
+    private readonly DocumentHistory _history = new(ownsPixels: true);
 
     private IRenderSurface? _surface;
     private CanvasDocument? _document;
@@ -173,10 +175,14 @@ internal sealed partial class CanvasView : IDisposable
     /// <summary>Set whenever something changed that the window has not drawn yet.</summary>
     public bool NeedsRedraw { get; private set; } = true;
 
-    public void Open(CanvasDocument document)
+    public void Open(CanvasDocument document, string? path = null)
     {
+        _preview?.Dispose();
+        _preview = null;
+        _adjusting = null;
+        _history.Clear(_document);
         _document = document;
-        _history.Reset();
+        FilePath = path;
         _chosen.Clear();
         if (document.Layers.LastOrDefault(layer => !layer.IsGroup && layer.Image is not null) is ImageLayer top)
             _chosen.Add(top.Id);
@@ -950,14 +956,6 @@ internal sealed partial class CanvasView : IDisposable
 
         switch (key)
         {
-            case Win32.VK_0 when control:
-                _viewport = _viewport.Fit(_document.Size);
-                break;
-
-            case Win32.VK_1 when control:
-                _viewport = _viewport.ZoomedTo(1, _viewport.Center, _document.Size);
-                break;
-
             case Win32.VK_V when !control:
                 _tool = CanvasTool.Move;
                 break;
@@ -1019,24 +1017,8 @@ internal sealed partial class CanvasView : IDisposable
                 };
                 break;
 
-            case Win32.VK_A when control:
-                _selection = DocumentSelection.Rectangle(new Rect(0, 0, _document.Width, _document.Height));
-                break;
-
-            case Win32.VK_D when control:
-                _selection = null;
-                break;
-
             case Win32.VK_LEFT or Win32.VK_RIGHT or Win32.VK_UP or Win32.VK_DOWN:
                 Nudge(key, Win32.IsKeyDown(Win32.VK_SHIFT) ? 10 : 1);
-                break;
-
-            case Win32.VK_Z when control:
-                Step(_history.Undo());
-                break;
-
-            case Win32.VK_Y when control:
-                Step(_history.Redo());
                 break;
 
             default:
@@ -1045,14 +1027,6 @@ internal sealed partial class CanvasView : IDisposable
 
         NeedsRedraw = true;
         return true;
-
-        void Step(HistorySnapshot? snapshot)
-        {
-            if (snapshot is null) return;
-            _document = snapshot.Document;
-            _chosen.Clear();
-            if (snapshot.ActiveLayerId is Guid active) _chosen.Add(active);
-        }
     }
 
     /// <summary>
@@ -1376,6 +1350,8 @@ internal sealed partial class CanvasView : IDisposable
         _stroke?.Dispose();
         _strokeBase?.Release();
         _preview?.Dispose();
+        _history.Clear(_document);
+        _document = null;
         _distortPreview?.Dispose();
         _surface?.Dispose();
         _backend.Dispose();

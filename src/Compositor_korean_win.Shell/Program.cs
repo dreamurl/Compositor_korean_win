@@ -36,6 +36,12 @@ internal static class Program
 
         window.AttachCanvas(canvas);
         canvas.Open(Open(imagePath, format));
+
+        var files = new DocumentFiles(window.Handle, canvas, format);
+        (List<Command> commands, List<MenuEntry.Submenu> layout) = AppCommands.Create(canvas, files, window.Handle);
+        using var menu = new MenuBar(window.Handle, commands, layout);
+        window.Menu = menu;
+
         window.Render();
 
         while (Win32.GetMessageW(out Win32.MSG message, 0, 0, 0) > 0)
@@ -63,22 +69,7 @@ internal static class Program
 
         using var loader = new ImageLoader();
         PixelBuffer pixels = loader.Load(imagePath, FormatProbe.WicFormatFor(format));
-
-        var layer = new ImageLayer
-        {
-            Id = Guid.NewGuid(),
-            Name = Path.GetFileNameWithoutExtension(imagePath),
-            Image = pixels,
-            Transform = new LayerTransform(Point.Zero, new Size(pixels.Width, pixels.Height)),
-        };
-
-        return new CanvasDocument
-        {
-            Id = Guid.NewGuid(),
-            Width = pixels.Width,
-            Height = pixels.Height,
-            Layers = new EquatableList<ImageLayer>([layer]),
-        };
+        return DocumentFiles.FromImage(pixels, Path.GetFileNameWithoutExtension(imagePath));
     }
 
     private static string? ValueOf(string[] args, string name)

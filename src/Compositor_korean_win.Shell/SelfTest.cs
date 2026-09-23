@@ -119,6 +119,20 @@ internal static class SelfTest
             failures.Add("window/present failed: " + exception.Message);
         }
 
+        // M6.2 closes on the menu: both languages read back from Windows, every command run.
+        MenuCheck.Result? menus = null;
+        try
+        {
+            menus = MenuCheck.Run(device, chosen, image);
+            foreach (string label in menus.Untranslated) failures.Add("menu not translated: " + label);
+            foreach (string command in menus.NeverRan) failures.Add("command never became runnable: " + command);
+            foreach (string error in menus.Errors) failures.Add("command failed: " + error);
+        }
+        catch (Exception exception)
+        {
+            failures.Add("menu check failed: " + exception.Message);
+        }
+
         // M2 closes on a pixel comparison: the same document through Direct2D and through the
         // reference rasteriser. Exact means 1:1 with Nearest, where nothing is resampled and the
         // two should agree on arithmetic alone.
@@ -212,7 +226,7 @@ internal static class SelfTest
             failures.Add($"{PixelBuffer.LiveCount} pixel buffers leaked");
 
         report.Append("{\n");
-        Line(report, "milestone", "M5");
+        Line(report, "milestone", "M6");
         Line(report, "shell", "win32-direct2d");
         Line(report, "driver", device.IsWarp ? "warp" : "hardware");
         Line(report, "adapter", device.Adapter);
@@ -264,6 +278,15 @@ internal static class SelfTest
             Line(report, "strokeLargeLayerPixels", stroke.LargeLayerPixels);
             Line(report, "strokeWithinBudget", stroke.WithinBudget);
         }
+        if (menus is not null)
+        {
+            Line(report, "menuItems", menus.Items);
+            Line(report, "menuUntranslated", menus.Untranslated.Count);
+            Line(report, "menuCommandsRun", menus.CommandsRun);
+            Line(report, "menuKoreanUndo", menus.KoreanUndo);
+            Line(report, "menuPassed", menus.Passed);
+        }
+
         if (adjust is not null)
         {
             Line(report, "adjustDocumentPixels", adjust.DocumentPixels);

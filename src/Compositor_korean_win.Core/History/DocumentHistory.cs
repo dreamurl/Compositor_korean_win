@@ -45,6 +45,14 @@ public readonly record struct HistoryName(TextKey? Key, string? Literal = null, 
 /// Two limits keep it bounded: a hundred steps, and 256 MiB of pixels held by history alone.
 /// Whichever is reached first drops the oldest step.
 /// </para>
+/// <para>
+/// A history built with <c>ownsPixels</c> also frees what it drops. Pixels are unmanaged, so a
+/// step falling off the end freed nothing until M6 — a stroke on a hundred-megapixel layer left
+/// 400 MB behind for good. The rule is reachability: a dropped step's buffers are released once
+/// neither the current document nor any step still kept refers to them, which is exactly when
+/// nothing can bring them back. The canvas owns its documents this way; code that manages its own
+/// buffers, as the tests do, leaves the flag off.
+/// </para>
 /// </remarks>
 public sealed class DocumentHistory
 {
@@ -59,12 +67,17 @@ public sealed class DocumentHistory
     private HistoryName _pendingName = TextKey.HistoryEdit;
     private int _depth;
 
-    public DocumentHistory(int entryLimit = 100, long retainedByteLimit = 256L * 1024 * 1024)
+    public DocumentHistory(int entryLimit = 100, long retainedByteLimit = 256L * 1024 * 1024,
+                           bool ownsPixels = false)
     {
         EntryLimit = Math.Max(0, entryLimit);
         RetainedByteLimit = Math.Max(0, retainedByteLimit);
+        OwnsPixels = ownsPixels;
         _savedRevision = _revision;
     }
+
+    /// <summary>Whether dropping a step frees the pixels only it held.</summary>
+    public bool OwnsPixels { get; }
 
     public int EntryLimit { get; }
     public long RetainedByteLimit { get; }
@@ -126,7 +139,11 @@ public sealed class DocumentHistory
 
         _revision = Guid.NewGuid();
         _past.Add(new Entry(_pendingName, before, new HistorySnapshot(document, selection, _revision)));
+
+        // A new step ends the redo branch: nothing can reach those steps again.
+        List<Entry> abandoned = [.. _future];
         _future.Clear();
+        Forget(abandoned, document);
         Trim(document);
     }
 
@@ -191,12 +208,58 @@ public sealed class DocumentHistory
 
     private void Trim(CanvasDocument? current)
     {
+        var dropped = new List<Entry>();
         while (_past.Count + _future.Count > EntryLimit || RetainedBytes(current) > RetainedByteLimit)
         {
             // The oldest undo step goes first; only once there are none left does redo give way.
-            if (_past.Count > 0) _past.RemoveAt(0);
-            else if (_future.Count > 0) _future.RemoveAt(0);
+            if (_past.Count > 0) { dropped.Add(_past[0]); _past.RemoveAt(0); }
+            else if (_future.Count > 0) { dropped.Add(_future[0]); _future.RemoveAt(0); }
             else break;
         }
+        Forget(dropped, current);
+    }
+
+    /// <summary>
+    /// Releases the buffers of <paramref name="dropped"/> steps that nothing kept still reaches.
+    /// </summary>
+    private void Forget(List<Entry> dropped, CanvasDocument? current)
+    {
+        if (!OwnsPixels || dropped.Count == 0) return;
+
+        var reachable = new HashSet<PixelBuffer>(BuffersOf(current));
+        if (_pending is HistorySnapshot pending) reachable.UnionWith(BuffersOf(pending.Document));
+        foreach (Entry entry in _past.Concat(_future))
+        {
+            reachable.UnionWith(BuffersOf(entry.Before.Document));
+            reachable.UnionWith(BuffersOf(entry.After.Document));
+        }
+
+        var released = new HashSet<PixelBuffer>();
+        foreach (Entry entry in dropped)
+        {
+            foreach (PixelBuffer buffer in BuffersOf(entry.Before.Document).Concat(BuffersOf(entry.After.Document)))
+                if (!reachable.Contains(buffer) && released.Add(buffer)) buffer.Release();
+        }
+    }
+
+    /// <summary>
+    /// Forgets every step and, when it owns them, frees every buffer the steps and
+    /// <paramref name="current"/> hold — for closing a document.
+    /// </summary>
+    public void Clear(CanvasDocument? current)
+    {
+        if (OwnsPixels)
+        {
+            var all = new HashSet<PixelBuffer>(BuffersOf(current));
+            if (_pending is HistorySnapshot pending) all.UnionWith(BuffersOf(pending.Document));
+            foreach (Entry entry in _past.Concat(_future))
+            {
+                all.UnionWith(BuffersOf(entry.Before.Document));
+                all.UnionWith(BuffersOf(entry.After.Document));
+            }
+            foreach (PixelBuffer buffer in all) buffer.Release();
+        }
+
+        Reset();
     }
 }

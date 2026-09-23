@@ -4,7 +4,7 @@ using Size = Compositor_korean_win.Core.Size;
 
 namespace Compositor_korean_win.Shell;
 
-/// <summary>The Image and Filter menus' entries, as the keys reach them for now.</summary>
+/// <summary>The Image and Filter menus' entries that open a preview.</summary>
 internal enum FilterCommand
 {
     Levels,
@@ -35,11 +35,10 @@ internal enum FilterCommand
 /// layer above the chosen one instead, which the ordinary compositor already draws — so its preview
 /// is simply the document being drawn with the new settings, and Escape takes the layer away again.
 /// </para>
-/// <list type="table">
-/// <item><term>Ctrl+L / Ctrl+M / Ctrl+U</term><description>Levels, Curves, Hue/Saturation (Photoshop's keys)</description></item>
-/// <item><term>F2 / F3 / F4</term><description>Exposure, Gradient Map, Grain</description></item>
-/// <item><term>F5 / F6 / F7 / F8</term><description>Gaussian Blur, Motion Blur, Add Noise, Lens Correction</description></item>
-/// </list>
+/// <para>
+/// The Image, Layer and Filter menus open these (<see cref="AppCommands"/>); M5's function-key
+/// stand-ins went when the menus came.
+/// </para>
 /// </remarks>
 internal sealed partial class CanvasView
 {
@@ -61,25 +60,10 @@ internal sealed partial class CanvasView
     /// <summary>Whether a command is open, which takes the keys and the pointer until it closes.</summary>
     public bool IsFiltering => _preview is not null || _adjusting is not null;
 
-    private static FilterCommand? CommandFor(int key, bool control) => (key, control) switch
-    {
-        (Win32.VK_L, true) => FilterCommand.Levels,
-        (Win32.VK_M, true) => FilterCommand.Curves,
-        (Win32.VK_U, true) => FilterCommand.HueSaturation,
-        (Win32.VK_F2, false) => FilterCommand.Exposure,
-        (Win32.VK_F3, false) => FilterCommand.GradientMap,
-        (Win32.VK_F4, false) => FilterCommand.Grain,
-        (Win32.VK_F5, false) => FilterCommand.GaussianBlur,
-        (Win32.VK_F6, false) => FilterCommand.MotionBlur,
-        (Win32.VK_F7, false) => FilterCommand.AddNoise,
-        (Win32.VK_F8, false) => FilterCommand.LensCorrection,
-        _ => null,
-    };
-
     private static bool IsAdjustment(FilterCommand command) => command <= FilterCommand.Grain;
 
     /// <summary>What menus and the history call it.</summary>
-    internal static TextKey Title(FilterCommand command) => command switch
+    internal static TextKey FilterTitle(FilterCommand command) => command switch
     {
         FilterCommand.Levels => TextKey.AdjustLevels,
         FilterCommand.Curves => TextKey.AdjustCurves,
@@ -117,12 +101,24 @@ internal sealed partial class CanvasView
             }
         }
 
-        if (key == Win32.VK_ESCAPE) return false;
-        if (CommandFor(key, control) is not FilterCommand command) return false;
-
-        Start(command, asLayer: Win32.IsKeyDown(Win32.VK_SHIFT) && IsAdjustment(command));
-        return true;
+        return false;
     }
+
+    /// <summary>Opens a command from the Image, Layer or Filter menu.</summary>
+    public void StartFilter(FilterCommand command, bool asLayer)
+    {
+        if (IsFiltering) return;
+        Start(command, asLayer && IsAdjustment(command));
+        NeedsRedraw = true;
+    }
+
+    /// <summary>Whether a command could run over the chosen layer's pixels now.</summary>
+    public bool CanFilter =>
+        !IsFiltering && _document is not null && Primary is Guid id
+        && _document.Layer(id) is { Image: not null, IsGroup: false, Adjustment: null };
+
+    /// <summary>Whether an adjustment layer could be added now.</summary>
+    public bool CanAddAdjustmentLayer => !IsFiltering && _document is not null;
 
     private void Start(FilterCommand command, bool asLayer)
     {
@@ -142,14 +138,14 @@ internal sealed partial class CanvasView
             {
                 Id = Guid.NewGuid(),
                 // A layer's name is the user's from here on, so it is fixed in today's language.
-                Name = Localizer.Text(Title(command)),
+                Name = Localizer.Text(FilterTitle(command)),
                 Transform = new LayerTransform(Point.Zero, new Size(_document.Width, _document.Height)),
                 ParentId = chosen?.ParentId,
                 Adjustment = AdjustmentFor(command, _amount),
             };
 
             _beforeAdjusting = _document;
-            _history.Begin(HistoryName.Of(TextKey.HistoryAdjustmentLayer, Title(command)), _document, layer.Id);
+            _history.Begin(HistoryName.Of(TextKey.HistoryAdjustmentLayer, FilterTitle(command)), _document, layer.Id);
 
             var layers = _document.Layers.ToList();
             layers.Insert(Math.Clamp(index, 0, layers.Count), layer);
@@ -173,7 +169,7 @@ internal sealed partial class CanvasView
 
             if (keep && _document is not null)
             {
-                _history.Begin(Title(_command), _document, preview.Layer.Id);
+                _history.Begin(FilterTitle(_command), _document, preview.Layer.Id);
                 _document = _document.Replacing(preview.Commit());
                 _history.End(_document, preview.Layer.Id);
             }

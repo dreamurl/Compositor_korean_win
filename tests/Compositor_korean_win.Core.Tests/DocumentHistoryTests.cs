@@ -221,4 +221,34 @@ public class DocumentHistoryTests
 
         foreach (PixelBuffer frame in frames) frame.Release();
     }
+
+    [Fact]
+    public void AnOwningHistoryFreesWhatItDropsAndNothingElse()
+    {
+        int before = PixelBuffer.LiveCount;
+        var history = new DocumentHistory(entryLimit: 2, ownsPixels: true);
+
+        PixelBuffer first = PixelBuffer.Allocate(4, 4);
+        ImageLayer layer = RenderFixture.Layer("paint", first);
+        CanvasDocument document = RenderFixture.Document(4, 4, layer);
+
+        // Four strokes, each a new buffer. With room for two steps, the oldest two fall off, and
+        // with them the first two buffers — nothing kept can reach those any more.
+        for (int stroke = 0; stroke < 4; stroke++)
+        {
+            history.Begin("stroke", document, layer.Id);
+            layer = layer with { Image = PixelBuffer.Allocate(4, 4) };
+            document = document.Replacing(layer);
+            history.End(document, layer.Id);
+        }
+
+        Assert.Equal(before + 3, PixelBuffer.LiveCount);
+
+        // Undoing drops nothing: the step undone can still be redone.
+        history.Undo();
+        Assert.Equal(before + 3, PixelBuffer.LiveCount);
+
+        history.Clear(document);
+        Assert.Equal(before, PixelBuffer.LiveCount);
+    }
 }
