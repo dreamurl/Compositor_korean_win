@@ -951,7 +951,8 @@ internal sealed unsafe class Chrome : IDisposable
         _ui.Text(zoom, new Rect(pad, bar.Y, _ui.P(70), bar.Height), Ui.Ink, Ui.TextSize.Small);
         _ui.Text(size, new Rect(pad + _ui.P(80), bar.Y, _ui.P(200), bar.Height), Ui.Dim, Ui.TextSize.Small);
         _ui.Text(_canvas.Title, new Rect(pad + _ui.P(290), bar.Y, _ui.P(400), bar.Height), Ui.Dim, Ui.TextSize.Small,
-                 user: _canvas.FilePath is not null);
+                 // A file's or an image's name is the user's; only "Untitled" is the interface's own word.
+                 user: _canvas.Title != Localizer.Text(TextKey.DocumentUntitled));
     }
 
     private void Welcome(Rect area)
