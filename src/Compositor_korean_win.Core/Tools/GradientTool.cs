@@ -10,6 +10,13 @@ public enum GradientKind
     Radial,
 }
 
+/// <summary>Which palette colours make the two ends of a gradient.</summary>
+public enum GradientStyle
+{
+    ForegroundToBackground,
+    ForegroundToTransparent,
+}
+
 /// <summary>A gradient: two colours, a direction and a shape.</summary>
 public sealed record GradientSettings
 {
@@ -19,7 +26,21 @@ public sealed record GradientSettings
 
     public Rgba To { get; init; } = Rgba.White;
 
+    public GradientStyle Style { get; init; } = GradientStyle.ForegroundToTransparent;
+
+    public bool Reversed { get; init; }
+
     public double Opacity { get; init; } = 1;
+
+    /// <summary>The actual endpoints after style and direction have been applied.</summary>
+    public (Rgba From, Rgba To) Colours()
+    {
+        Rgba first = From;
+        Rgba second = Style == GradientStyle.ForegroundToBackground
+            ? To
+            : new Rgba(From.R, From.G, From.B, 0);
+        return Reversed ? (second, first) : (first, second);
+    }
 }
 
 /// <summary>
@@ -87,10 +108,11 @@ public static class GradientTool
 
         t = Math.Clamp(t, 0, 1);
 
-        return new Rgba(Between(settings.From.R, settings.To.R, t),
-                        Between(settings.From.G, settings.To.G, t),
-                        Between(settings.From.B, settings.To.B, t),
-                        Between(settings.From.A, settings.To.A, t));
+        (Rgba from, Rgba to) = settings.Colours();
+        return new Rgba(Between(from.R, to.R, t),
+                        Between(from.G, to.G, t),
+                        Between(from.B, to.B, t),
+                        Between(from.A, to.A, t));
     }
 
     private static byte Between(byte from, byte to, double t) =>

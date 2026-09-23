@@ -107,6 +107,7 @@ public class ToolTests
                                                      {
                                                          From = new Rgba(0, 0, 0),
                                                          To = new Rgba(255, 255, 255),
+                                                         Style = GradientStyle.ForegroundToBackground,
                                                      });
 
         Assert.InRange(RenderFixture.At(filled, 0, 8).R, 0, 8);
@@ -126,6 +127,7 @@ public class ToolTests
                                                          Kind = GradientKind.Radial,
                                                          From = new Rgba(0, 0, 0),
                                                          To = new Rgba(255, 255, 255),
+                                                         Style = GradientStyle.ForegroundToBackground,
                                                      });
 
         int middle = RenderFixture.At(filled, 32, 32).R;
@@ -138,11 +140,42 @@ public class ToolTests
     }
 
     [Fact]
+    public void AForegroundToTransparentGradientKeepsTheForegroundRgbAndFadesItsAlpha()
+    {
+        using PixelBuffer filled = GradientTool.Draw(null, 16, 1, new Point(0, 0), new Point(16, 0),
+            new GradientSettings { From = new Rgba(220, 40, 60), To = new Rgba(1, 2, 3) });
+
+        var start = RenderFixture.At(filled, 0, 0);
+        var end = RenderFixture.At(filled, 15, 0);
+        Assert.True(start.R > end.R);
+        Assert.True(start.A > end.A);
+        Assert.InRange(end.A, 0, 16);
+    }
+
+    [Fact]
+    public void ReversingAGradientSwapsItsEnds()
+    {
+        var settings = new GradientSettings
+        {
+            From = new Rgba(10, 20, 30),
+            To = new Rgba(210, 220, 230),
+            Style = GradientStyle.ForegroundToBackground,
+            Reversed = true,
+        };
+        using PixelBuffer filled = GradientTool.Draw(null, 16, 1, new Point(0, 0), new Point(16, 0), settings);
+
+        Assert.True(RenderFixture.At(filled, 0, 0).R > RenderFixture.At(filled, 15, 0).R);
+    }
+
+    [Fact]
     public void AGradientStaysInsideTheSelection()
     {
         DocumentSelection selection = DocumentSelection.Rectangle(new Rect(0, 0, 32, 16));
         using PixelBuffer filled = GradientTool.Draw(null, 64, 16, new Point(0, 8), new Point(64, 8),
-                                                     new GradientSettings(), selection);
+                                                     new GradientSettings
+                                                     {
+                                                         Style = GradientStyle.ForegroundToBackground,
+                                                     }, selection);
 
         Assert.Equal(255, RenderFixture.At(filled, 10, 8).A);
         Assert.Equal(0, RenderFixture.At(filled, 40, 8).A);

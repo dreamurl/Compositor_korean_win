@@ -10,6 +10,7 @@ internal sealed partial class CanvasView
     {
         if (IsFiltering || _stroke is not null) return;
         SettleFloating();
+        if (tool != CanvasTool.Gradient) CommitGradient();
         if (tool != CanvasTool.Crop) _cropFrame = null;
         _tool = tool;
         NeedsRedraw = true;

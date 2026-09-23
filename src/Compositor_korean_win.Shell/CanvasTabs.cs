@@ -66,6 +66,7 @@ internal sealed partial class CanvasView
     public void Open(CanvasDocument document, string? path = null, string? name = null)
     {
         if (!CanSwitchTab) return;
+        CommitGradient();
         Stash();
 
         _tabs.Add(new DocumentTab { Document = document, FilePath = path, Name = name });
@@ -78,6 +79,7 @@ internal sealed partial class CanvasView
     public void SwitchTo(int index)
     {
         if (index == _active || index < 0 || index >= _tabs.Count || !CanSwitchTab) return;
+        CommitGradient();
         Stash();
         Bring(index);
     }
@@ -93,6 +95,8 @@ internal sealed partial class CanvasView
     public void Close()
     {
         if (_active < 0) return;
+
+        CommitGradient();
 
         _preview?.Dispose();
         _preview = null;
@@ -170,6 +174,7 @@ internal sealed partial class CanvasView
         _lasso = null;
         _marqueeFrom = null;
         _shapeFrom = null;
+        CancelGradient();
         _movingFrom = null;
         _distortPreview?.Dispose();
         _distortPreview = null;

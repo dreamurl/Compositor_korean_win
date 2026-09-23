@@ -134,6 +134,7 @@ internal sealed partial class CanvasView
     /// <summary>Makes one layer the only chosen one — the self-test's click on a layer.</summary>
     internal void Choose(Guid id)
     {
+        if (_gradientFrom is not null && id != _gradientTarget) CommitGradient();
         _chosen.Clear();
         _chosen.Add(id);
         NeedsRedraw = true;

@@ -195,7 +195,16 @@ internal sealed partial class CanvasView : IDisposable
 
     public ShapeSettings Shape { get; set; } = new();
 
-    public GradientSettings Gradient { get; set; } = new();
+    private GradientSettings _gradient = new();
+    public GradientSettings Gradient
+    {
+        get => _gradient;
+        set
+        {
+            _gradient = value;
+            if (_gradientFrom is not null) RefreshGradient();
+        }
+    }
 
     public WandSettings Wand { get; set; } = new();
 
@@ -345,6 +354,12 @@ internal sealed partial class CanvasView : IDisposable
         if (_tool.Paints())
         {
             BeginStroke(pixel, alt: Win32.IsKeyDown(Win32.VK_MENU));
+            return;
+        }
+
+        if (_tool == CanvasTool.Gradient)
+        {
+            BeginGradient(pixel);
             return;
         }
 
@@ -538,7 +553,9 @@ internal sealed partial class CanvasView : IDisposable
 
         if (_shapeFrom is not null)
         {
-            _shapeTo = _viewport.DocumentPoint(view, _document.Size);
+            Point shapeAt = _viewport.DocumentPoint(view, _document.Size);
+            if (_tool == CanvasTool.Gradient) DragGradient(shapeAt);
+            else _shapeTo = shapeAt;
             NeedsRedraw = true;
             return;
         }
@@ -724,6 +741,7 @@ internal sealed partial class CanvasView : IDisposable
     private LiveEdit? Live(int width, int height)
     {
         if (Previewing(width, height) is LiveEdit previewed) return previewed;
+        if (GradientLive() is LiveEdit gradient) return gradient;
         if (Distorted(width, height) is LiveEdit distorted) return distorted;
         if (Warped() is LiveEdit warped) return warped;
         // A stroke on a mask is shown through the mask the document holds while it lasts.
@@ -969,18 +987,19 @@ internal sealed partial class CanvasView : IDisposable
     private void EndShape(Point corner)
     {
         Point end = _shapeTo;
+        if (_tool == CanvasTool.Gradient)
+        {
+            EndGradientDrag();
+            return;
+        }
         _shapeFrom = null;
         NeedsRedraw = true;
 
         if (_document is null || Primary is not Guid id
             || _document.Layer(id) is not ImageLayer layer) return;
 
-        // On a mask only the gradient means anything: a shape is a layer's own pixels.
-        if (EditingMask)
-        {
-            if (_tool == CanvasTool.Gradient) MaskGradient(layer, corner, end);
-            return;
-        }
+        // A shape is a layer's own pixels and cannot be drawn on a mask.
+        if (EditingMask) return;
 
         if (layer.IsGroup) return;
 
@@ -997,18 +1016,10 @@ internal sealed partial class CanvasView : IDisposable
         Point to = LayerGeometry.ToPixels(placement, end, width, height);
         DocumentSelection? restricted = Restricted(placement);
 
-        PixelBuffer drawn;
-        if (_tool == CanvasTool.Gradient)
-        {
-            drawn = GradientTool.Draw(layer.Image, width, height, from, to, Gradient, restricted);
-        }
-        else
-        {
-            var box = Rect.FromBounds(Math.Min(from.X, to.X), Math.Min(from.Y, to.Y),
-                                      Math.Max(from.X, to.X), Math.Max(from.Y, to.Y));
-            if (box.IsEmpty) return;
-            drawn = ShapeTool.Draw(layer.Image, width, height, box, Shape, restricted);
-        }
+        var box = Rect.FromBounds(Math.Min(from.X, to.X), Math.Min(from.Y, to.Y),
+                                  Math.Max(from.X, to.X), Math.Max(from.Y, to.Y));
+        if (box.IsEmpty) return;
+        PixelBuffer drawn = ShapeTool.Draw(layer.Image, width, height, box, Shape, restricted);
 
         _history.Begin(Name(_tool), _document, id);
         _document = _document.Replacing(layer with { Image = drawn, Transform = placement });
@@ -1160,6 +1171,20 @@ internal sealed partial class CanvasView : IDisposable
         {
             NeedsRedraw = true;
             return true;
+        }
+
+        if (HasPendingGradient)
+        {
+            if (key == Win32.VK_RETURN)
+            {
+                CommitGradient();
+                return true;
+            }
+            if (key == Win32.VK_ESCAPE)
+            {
+                CancelGradient();
+                return true;
+            }
         }
 
         // Floating pixels: Enter lays them down, Escape puts them back, the arrows nudge them; any
@@ -1540,19 +1565,20 @@ internal sealed partial class CanvasView : IDisposable
         if (_marqueeFrom is Point start) Outline(InProgress(start));
 
         // The gradient's line and the shape's outline, while they are being dragged out.
-        if (_shapeFrom is Point corner)
+        if (_gradientFrom is Point gradientStart)
         {
-            if (_tool == CanvasTool.Gradient)
-            {
-                Outline([corner, _shapeTo]);
-            }
-            else
-            {
-                var box = Rect.FromBounds(Math.Min(corner.X, _shapeTo.X), Math.Min(corner.Y, _shapeTo.Y),
-                                          Math.Max(corner.X, _shapeTo.X), Math.Max(corner.Y, _shapeTo.Y));
-                if (!box.IsEmpty) Outline(ShapeTool.Outline(box, Shape).Shapes[0].Loops[0].Points);
-            }
+            Outline([gradientStart, _gradientTo]);
+            Handle(gradientStart);
+            Handle(_gradientTo);
         }
+        else if (_shapeFrom is Point corner)
+        {
+            var box = Rect.FromBounds(Math.Min(corner.X, _shapeTo.X), Math.Min(corner.Y, _shapeTo.Y),
+                                      Math.Max(corner.X, _shapeTo.X), Math.Max(corner.Y, _shapeTo.Y));
+            if (!box.IsEmpty) Outline(ShapeTool.Outline(box, Shape).Shapes[0].Loops[0].Points);
+        }
+
+        void Handle(Point point) => Square(context, projection.Apply(point), (float)(4 * _scale), light, dark, thickness);
 
         void Outline(IReadOnlyList<Point> points)
         {
@@ -1623,6 +1649,7 @@ internal sealed partial class CanvasView : IDisposable
 
     public void Dispose()
     {
+        CancelGradient();
         _stroke?.Dispose();
         _strokeBase?.Release();
         _warp?.Dispose();

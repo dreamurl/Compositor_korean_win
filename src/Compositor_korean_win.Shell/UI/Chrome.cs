@@ -299,8 +299,29 @@ internal sealed unsafe class Chrome : IDisposable
                     (Localizer.Text(TextKey.GradientRadial), gradient.Kind == GradientKind.Radial,
                      () => _canvas.Gradient = _canvas.Gradient with { Kind = GradientKind.Radial }),
                 ]);
+                Segment(ref x, y, h, "",
+                [
+                    (Localizer.Text(TextKey.GradientForegroundBackground),
+                     gradient.Style == GradientStyle.ForegroundToBackground,
+                     () => _canvas.Gradient = _canvas.Gradient with { Style = GradientStyle.ForegroundToBackground }),
+                    (Localizer.Text(TextKey.GradientForegroundTransparent),
+                     gradient.Style == GradientStyle.ForegroundToTransparent,
+                     () => _canvas.Gradient = _canvas.Gradient with { Style = GradientStyle.ForegroundToTransparent }),
+                ]);
+                _ui.Check(Next(90), Localizer.Text(TextKey.LabelReverse), gradient.Reversed,
+                          () => _canvas.Gradient = _canvas.Gradient with { Reversed = !_canvas.Gradient.Reversed });
                 _ui.Slider(Next(180), Localizer.Text(TextKey.LabelOpacity), gradient.Opacity, Percent(gradient.Opacity),
                            f => _canvas.Gradient = _canvas.Gradient with { Opacity = Math.Max(0.01, Math.Round(f, 2)) });
+                if (_canvas.HasPendingGradient)
+                {
+                    string cancel = Localizer.Text(TextKey.DialogCancel), apply = Localizer.Text(TextKey.ButtonApply);
+                    Rect cancelArea = Next(_ui.Measure(cancel) / _ui.Scale + 24);
+                    _ui.Fill(cancelArea, Ui.Raised);
+                    _ui.Button(cancelArea, _canvas.CancelGradient, null, label: cancel);
+                    Rect applyArea = Next(_ui.Measure(apply) / _ui.Scale + 24);
+                    _ui.Fill(applyArea, Ui.Raised);
+                    _ui.Button(applyArea, _canvas.CommitGradient, null, label: apply);
+                }
                 break;
             }
 

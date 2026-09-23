@@ -95,9 +95,21 @@ internal static class ToolsCheck
 
             // A gradient on the mask runs from its black to its white.
             canvas.SetTool(CanvasTool.Gradient);
+            canvas.Gradient = canvas.Gradient with { Style = GradientStyle.ForegroundToBackground };
             Drag(0, w, h * 0.5);
+            Expect(canvas.HasPendingGradient, "a gradient was committed before it could be adjusted");
+            canvas.Key(Win32.VK_RETURN, control: false);
+            Expect(!canvas.HasPendingGradient, "Enter did not apply the pending gradient");
             ImageLayer graded = canvas.Document!.Layer(id)!;
             Expect(Level(graded, 0.02, 0.5) < 40 && Level(graded, 0.98, 0.5) > 215, "a gradient on the mask did not run black to white");
+
+            // A second gradient stays pending and Escape leaves the committed pixels untouched.
+            PixelBuffer committedMask = graded.Mask!.Coverage;
+            Drag(w, 0, h * 0.5);
+            Expect(canvas.HasPendingGradient, "a replacement gradient did not remain pending");
+            canvas.Key(Win32.VK_ESCAPE, control: false);
+            Expect(!canvas.HasPendingGradient && ReferenceEquals(canvas.Document!.Layer(id)!.Mask!.Coverage, committedMask),
+                   "Escape did not discard the pending gradient");
 
             // Filters are for pixels.
             Expect(!canvas.CanFilter, "a filter could start on a mask");
