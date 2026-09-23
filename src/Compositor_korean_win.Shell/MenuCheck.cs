@@ -59,6 +59,11 @@ internal static class MenuCheck
             PixelRegion.Copy(image, new PixelRect(0, 0, image.Width, image.Height)), "second"), path: null, "second");
         canvas.SwitchTo(0);
 
+        // A layer with a mask from the start, for the commands that read one (Mask's Black Areas),
+        // leaving the photo without one for Add Layer Mask.
+        canvas.AddLayer();
+        canvas.AddMask();
+
         var files = new DocumentFiles(window.Handle, canvas, format);
         (List<Command> commands, List<MenuEntry.Submenu> layout) = AppCommands.Create(canvas, files, window.Handle);
         using var menu = new MenuBar(window.Handle, commands, layout);
