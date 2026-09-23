@@ -130,8 +130,7 @@ internal sealed class Ui : IDisposable
 
         IDWriteTextFormat Make(double points, FontWeight weight, TextAlignment alignment)
         {
-            IDWriteTextFormat format = _writer.CreateTextFormat(family, weight, Vortice.DirectWrite.FontStyle.Normal,
-                                                                FontStretch.Normal, P(points));
+            IDWriteTextFormat format = NewFormat(family, weight, P(points), korean ? "ko-kr" : "en-us");
             format.TextAlignment = alignment;
             format.ParagraphAlignment = ParagraphAlignment.Center;
             format.WordWrapping = WordWrapping.NoWrap;
@@ -197,8 +196,49 @@ internal sealed class Ui : IDisposable
     public float Measure(string text, TextSize size = TextSize.Body)
     {
         IDWriteTextFormat format = size == TextSize.Small ? _small! : size == TextSize.Title ? _title! : _body!;
-        using IDWriteTextLayout layout = _writer.CreateTextLayout(text, format, 10_000, 1_000);
+        using IDWriteTextLayout layout = NewLayout(text, format, 10_000, 1_000);
         return layout.Metrics.Width;
+    }
+
+    // The wrapper's CreateTextFormat and CreateTextLayout threw a NullReferenceException from inside
+    // themselves in the trimmed NativeAOT build — with a system font collection passed as null, which
+    // DirectWrite itself accepts. These call the two slots of IDWriteFactory's table directly and
+    // wrap what comes back; everything else about the objects goes through the wrapper as usual.
+
+    /// <summary>IDWriteFactory::CreateTextFormat, the table's sixteenth entry.</summary>
+    private unsafe IDWriteTextFormat NewFormat(string family, FontWeight weight, float size, string locale)
+    {
+        nint factory = _writer.NativePointer;
+        var create = (delegate* unmanaged[Stdcall]<nint, char*, nint, int, int, int, float, char*, nint*, int>)(*(nint**)factory)[15];
+
+        nint format;
+        int result;
+        fixed (char* name = family)
+        fixed (char* place = locale)
+        {
+            result = create(factory, name, 0, (int)weight, (int)Vortice.DirectWrite.FontStyle.Normal,
+                            (int)FontStretch.Normal, size, place, &format);
+        }
+
+        if (result < 0 || format == 0) throw new InvalidOperationException($"CreateTextFormat failed: 0x{result:X8}");
+        return new IDWriteTextFormat(format);
+    }
+
+    /// <summary>IDWriteFactory::CreateTextLayout, the table's nineteenth entry.</summary>
+    private unsafe IDWriteTextLayout NewLayout(string text, IDWriteTextFormat format, float width, float height)
+    {
+        nint factory = _writer.NativePointer;
+        var create = (delegate* unmanaged[Stdcall]<nint, char*, uint, nint, float, float, nint*, int>)(*(nint**)factory)[18];
+
+        nint layout;
+        int result;
+        fixed (char* characters = text)
+        {
+            result = create(factory, characters, (uint)text.Length, format.NativePointer, width, height, &layout);
+        }
+
+        if (result < 0 || layout == 0) throw new InvalidOperationException($"CreateTextLayout failed: 0x{result:X8}");
+        return new IDWriteTextLayout(layout);
     }
 
     // MARK: Controls
