@@ -256,9 +256,27 @@ internal static class ToolsCheck
 
             canvas.SetTool(CanvasTool.Eyedropper);
             canvas.ForegroundColor = new Rgba(1, 2, 3);
+            // Disabling a mask does not stop targeting it. Sampling must leave the palette alone
+            // until the layer's pixels are chosen, just as it does in the interactive canvas.
+            Expect(canvas.EditingMask, "disabling the mask unexpectedly changed the edit target");
             canvas.PointerDown(Middle(), pan: false);
             canvas.PointerUp();
-            Expect(canvas.ForegroundColor != new Rgba(1, 2, 3), "the Eyedropper took no colour");
+            Expect(canvas.ForegroundColor == new Rgba(1, 2, 3), "the Eyedropper changed the palette while targeting a mask");
+
+            canvas.ClickLayer(id, control: false, shift: false, [id]);
+            Expect(!canvas.EditingMask, "choosing the layer did not leave mask editing before sampling");
+            if (canvas.CompositeColour(new Point(w / 2.0, h / 2.0)) is (double red, double green, double blue))
+            {
+                var expected = new Rgba((byte)Math.Round(red * 255), (byte)Math.Round(green * 255), (byte)Math.Round(blue * 255));
+                canvas.ForegroundColor = new Rgba((byte)(expected.R ^ 255), expected.G, expected.B);
+                canvas.PointerDown(Middle(), pan: false);
+                canvas.PointerUp();
+                Expect(canvas.ForegroundColor == expected, "the Eyedropper did not take the displayed colour");
+            }
+            else
+            {
+                Expect(false, "the Eyedropper check had no visible pixel to sample");
+            }
         }
         catch (Exception exception)
         {
