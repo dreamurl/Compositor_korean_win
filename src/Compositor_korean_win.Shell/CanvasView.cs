@@ -183,9 +183,7 @@ internal sealed partial class CanvasView : IDisposable
         _history.Clear(_document);
         _document = document;
         FilePath = path;
-        _chosen.Clear();
-        if (document.Layers.LastOrDefault(layer => !layer.IsGroup && layer.Image is not null) is ImageLayer top)
-            _chosen.Add(top.Id);
+        ChooseTopImageLayer();
         _viewport = _viewport.Fit(document.Size);
         NeedsRedraw = true;
     }

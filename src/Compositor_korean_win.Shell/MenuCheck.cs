@@ -73,7 +73,12 @@ internal static class MenuCheck
             {
                 foreach (Command command in commands.OrderBy(command => command.Id))
                 {
-                    if (command.Interactive || !command.CanRun) continue;
+                    if (command.Interactive) continue;
+
+                    // Adding an adjustment layer chooses it, as it should, and an adjustment layer
+                    // has no pixels to filter; a user would click back on the picture, and so does this.
+                    if (!command.CanRun) canvas.ChooseTopImageLayer();
+                    if (!command.CanRun) continue;
 
                     try
                     {

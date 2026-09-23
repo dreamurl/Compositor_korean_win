@@ -98,4 +98,16 @@ internal sealed partial class CanvasView
         _viewport = _viewport.ZoomedTo(zoom, _viewport.Center, _document.Size);
         NeedsRedraw = true;
     }
+
+    /// <summary>Chooses the topmost layer with pixels, as opening a document does.</summary>
+    internal void ChooseTopImageLayer()
+    {
+        _chosen.Clear();
+        if (_document?.Layers.LastOrDefault(layer => !layer.IsGroup && layer.Image is not null && layer.Adjustment is null)
+            is ImageLayer top)
+        {
+            _chosen.Add(top.Id);
+        }
+        NeedsRedraw = true;
+    }
 }
