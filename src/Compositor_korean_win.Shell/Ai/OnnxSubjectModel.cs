@@ -91,13 +91,26 @@ internal sealed class OnnxSubjectModel : ISubjectModel, IDisposable
         }
     }
 
+    /// <summary>One run at a time on this session.</summary>
+    /// <remarks>
+    /// The DirectML provider does not take two runs on one session at once: on an RTX 4060 the
+    /// second of two overlapping runs failed in DmlCommandRecorder (80004005), while each alone ran
+    /// in two seconds. Overlap is ordinary here — Cancel leaves a run going and reopening the sheet
+    /// starts another — so the runs queue instead. The CPU provider would allow it, which is why the
+    /// GPU-less CI never showed the failure.
+    /// </remarks>
+    private readonly Lock _running = new();
+
     public float[] Predict(float[] planes)
     {
         var tensor = new DenseTensor<float>(planes, [1, 3, Side, Side]);
-        using IDisposableReadOnlyCollection<DisposableNamedOnnxValue> results =
-            _session.Run([NamedOnnxValue.CreateFromTensor(_input, tensor)]);
-        DisposableNamedOnnxValue result = results.First(value => value.Name == _output);
-        return [.. result.AsEnumerable<float>()];
+        lock (_running)
+        {
+            using IDisposableReadOnlyCollection<DisposableNamedOnnxValue> results =
+                _session.Run([NamedOnnxValue.CreateFromTensor(_input, tensor)]);
+            DisposableNamedOnnxValue result = results.First(value => value.Name == _output);
+            return [.. result.AsEnumerable<float>()];
+        }
     }
 
     public void Dispose() => _session.Dispose();

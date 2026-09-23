@@ -407,9 +407,11 @@ jobs:
           Copy-Item build/packages/Compositor_korean_win-ai.zip "$out/Compositor_korean_win-ai-$version.zip"
           $page = "https://github.com/${{ github.repository }}/releases/tag/$tag"
           @{ version = $version; page = $page } | ConvertTo-Json | Set-Content "$out/update.json" -Encoding utf8NoBOM
-          Get-ChildItem $out -File | Where-Object Name -ne "SHA256SUMS.txt" | ForEach-Object {
+          # LF line endings, so `sha256sum -c` reads it as it comes; Set-Content would write CRLF.
+          $sums = Get-ChildItem $out -File | Where-Object Name -ne "SHA256SUMS.txt" | ForEach-Object {
             "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)"
-          } | Set-Content "$out/SHA256SUMS.txt" -Encoding utf8NoBOM
+          }
+          [IO.File]::WriteAllText((Join-Path $out "SHA256SUMS.txt"), ($sums -join "`n") + "`n")
           gh release create $tag (Get-ChildItem $out -File).FullName --title "Compositor 한국어판 $version" --notes-file installer/release-notes.md
           if ($LASTEXITCODE -ne 0) { throw "gh release create: $LASTEXITCODE" }
 
