@@ -10,7 +10,7 @@ public class SelectionAndPixelCommandsTests
     private static double Area(DocumentSelection selection, int width, int height) =>
         selection.Levels(new PixelRect(0, 0, width, height)).Sum(level => level / 255.0);
 
-    private static byte At(DocumentSelection selection, int x, int y) =>
+    private static byte LevelAt(DocumentSelection selection, int x, int y) =>
         selection.Levels(new PixelRect(x, y, 1, 1))[0];
 
     // MARK: Select
@@ -22,8 +22,8 @@ public class SelectionAndPixelCommandsTests
         DocumentSelection inverse = SelectionCommands.Inverse(left, 30, 20)!;
 
         Assert.Equal(400, Area(inverse, 30, 20), precision: 6);
-        Assert.Equal(0, At(inverse, 5, 5));
-        Assert.Equal(255, At(inverse, 20, 5));
+        Assert.Equal(0, LevelAt(inverse, 5, 5));
+        Assert.Equal(255, LevelAt(inverse, 20, 5));
         Assert.Null(SelectionCommands.Inverse(null, 30, 20));
     }
 
@@ -36,8 +36,8 @@ public class SelectionAndPixelCommandsTests
         DocumentSelection selection = SelectionCommands.FromLayer(Document(10, 10, layer), layer)!;
 
         Assert.Equal(16, Area(selection, 10, 10), precision: 6);
-        Assert.Equal(255, At(selection, 3, 4));
-        Assert.Equal(0, At(selection, 1, 4));
+        Assert.Equal(255, LevelAt(selection, 3, 4));
+        Assert.Equal(0, LevelAt(selection, 1, 4));
     }
 
     [Fact]
@@ -46,10 +46,10 @@ public class SelectionAndPixelCommandsTests
         DocumentSelection square = DocumentSelection.Rectangle(new Rect(10, 10, 10, 10));
         DocumentSelection grown = SelectionCommands.Expand(square, 40, 40, 2)!;
 
-        Assert.Equal(255, At(grown, 8, 15));   // Two pixels out along an edge.
-        Assert.Equal(0, At(grown, 7, 15));     // Three is too far.
-        Assert.Equal(0, At(grown, 8, 8));      // The corner diagonal is 2.8 away.
-        Assert.Equal(255, At(grown, 9, 9));
+        Assert.Equal(255, LevelAt(grown, 8, 15));   // Two pixels out along an edge.
+        Assert.Equal(0, LevelAt(grown, 7, 15));     // Three is too far.
+        Assert.Equal(0, LevelAt(grown, 8, 8));      // The corner diagonal is 2.8 away.
+        Assert.Equal(255, LevelAt(grown, 9, 9));
     }
 
     [Fact]
