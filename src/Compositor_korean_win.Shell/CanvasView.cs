@@ -384,7 +384,7 @@ internal sealed partial class CanvasView : IDisposable
         // A handle takes the drag before anything under it does. Held with control it distorts:
         // the corner moves on its own, which no placement can hold, so the pixels are resampled
         // when the drag ends (QuadWarp).
-        if (Box() is LayerTransform box && HitHandle(box, view) is int handle)
+        if (ShowTransformControls && Box() is LayerTransform box && HitHandle(box, view) is int handle)
         {
             TransformDragMode mode = handle == RotationHandle
                 ? TransformDragMode.Rotate
@@ -1373,10 +1373,12 @@ internal sealed partial class CanvasView : IDisposable
         using ID2D1SolidColorBrush guide = context.CreateSolidColorBrush(new Color4(1f, 0.25f, 0.5f, 0.9f));
         using ID2D1SolidColorBrush shadow = context.CreateSolidColorBrush(new Color4(0f, 0f, 0f, 0.65f));
 
+        DrawPixelGrid(context, projection);
         DrawSelection(context, projection, fill, shadow, thickness);
         DrawCrop(context, projection, fill, outline, thickness, half);
 
-        if (_tool != CanvasTool.Move || Box() is not LayerTransform box)
+        // Floating pixels always show their handles: they are there to be transformed.
+        if (_tool != CanvasTool.Move || Box() is not LayerTransform box || !ShowTransformControls && !IsFloating)
         {
             context.PopAxisAlignedClip();
         context.EndDraw().CheckError();

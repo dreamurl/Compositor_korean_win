@@ -157,6 +157,9 @@ internal static class CommandIds
     public const int ActualPixels = 703;
     public const int NextDocument = 704;
     public const int PreviousDocument = 705;
+    public const int PixelGrid = 706;
+    public const int TransformControls = 707;
+    public const int EditAdjustment = 545;
 
     public const int About = 900;
     public const int CheckUpdates = 901;

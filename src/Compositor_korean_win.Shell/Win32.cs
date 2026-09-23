@@ -398,6 +398,7 @@ internal static unsafe partial class Win32
     internal const int VK_DELETE = 0x2E;
     internal const int VK_C = 0x43;
     internal const int VK_T = 0x54;
+    internal const int VK_H = 0x48;
     internal const int VK_I = 0x49;
     internal const int VK_X = 0x58;
 

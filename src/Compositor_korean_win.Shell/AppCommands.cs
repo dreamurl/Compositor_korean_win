@@ -214,6 +214,22 @@ internal static class AppCommands
             new(CommandIds.FlipCanvasVertical, TextKey.CommandFlipCanvasVertical, () => canvas.FlipCanvas(horizontally: false),
                 Editable),
 
+            new(CommandIds.PixelGrid, TextKey.CommandPixelGrid, canvas.TogglePixelGrid, () => canvas.HasDocument)
+            {
+                Checked = () => canvas.ShowPixelGrid,
+            },
+            // Upstream's ⌘H, which there takes the key from Hide; on Windows Ctrl+H is free.
+            new(CommandIds.TransformControls, TextKey.CommandTransformControls, canvas.ToggleTransformControls,
+                () => canvas.HasDocument && canvas.Tool == CanvasTool.Move, [new(VK_H, Control: true)])
+            {
+                Checked = () => canvas.ShowTransformControls,
+            },
+            new(CommandIds.EditAdjustment, TextKey.CommandEditAdjustment,
+                () => { if (canvas.ActiveLayer is { Adjustment: not null } layer) canvas.EditAdjustmentLayer(layer.Id); },
+                () => canvas.CanEdit && canvas.ActiveLayer is { Adjustment: not null })
+            {
+                DynamicLabel = Ellipsis(TextKey.CommandEditAdjustment),
+            },
             new(CommandIds.ZoomIn, TextKey.CommandZoomIn, () => canvas.Zoom(closer: true), () => canvas.HasDocument,
                 [new(VK_OEM_PLUS, Control: true), new(VK_ADD, Control: true)]),
             new(CommandIds.ZoomOut, TextKey.CommandZoomOut, () => canvas.Zoom(closer: false), () => canvas.HasDocument,
@@ -325,6 +341,7 @@ internal static class AppCommands
                      Item(CommandIds.ToggleMaskLink)]),
                 new MenuEntry.Submenu(TextKey.MenuNewAdjustmentLayer,
                     [.. Adjustments.Select(adjustment => Item(CommandIds.AdjustmentLayerFirst + (int)adjustment))]),
+                Item(CommandIds.EditAdjustment),
                 MenuEntry.Line,
                 Item(CommandIds.ToggleClipping), MenuEntry.Line,
                 Item(CommandIds.GroupLayers), Item(CommandIds.MoveOutOfGroup), MenuEntry.Line,
@@ -348,6 +365,7 @@ internal static class AppCommands
             [
                 Item(CommandIds.ZoomIn), Item(CommandIds.ZoomOut), MenuEntry.Line,
                 Item(CommandIds.FitOnScreen), Item(CommandIds.ActualPixels), MenuEntry.Line,
+                Item(CommandIds.PixelGrid), Item(CommandIds.TransformControls), MenuEntry.Line,
                 Item(CommandIds.NextDocument), Item(CommandIds.PreviousDocument),
             ]),
             new(TextKey.MenuHelp, [Item(CommandIds.CheckUpdates), MenuEntry.Line, Item(CommandIds.About)]),

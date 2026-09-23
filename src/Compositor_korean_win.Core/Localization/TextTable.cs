@@ -379,6 +379,11 @@ public enum TextKey
     CommandTransformLayer,
     LayerFloatingSelection,
     NoteFloating,
+
+    // View > Pixel Grid, View > Show Transform Controls, Layer > Edit Adjustment.
+    CommandPixelGrid,
+    CommandTransformControls,
+    CommandEditAdjustment,
 }
 
 /// <summary>
@@ -749,6 +754,9 @@ public static class TextTable
         (TextKey.CommandTransformLayer, "&Transform Layer", "레이어 변형(&T)"),
         (TextKey.LayerFloatingSelection, "Floating Selection", "떠 있는 선택 영역"),
         (TextKey.NoteFloating, "Enter applies, Esc cancels", "Enter로 적용, Esc로 취소"),
+        (TextKey.CommandPixelGrid, "&Pixel Grid (800% and above)", "픽셀 격자(800% 이상)(&P)"),
+        (TextKey.CommandTransformControls, "Show &Transform Controls", "변형 컨트롤 표시(&T)"),
+        (TextKey.CommandEditAdjustment, "&Edit Adjustment", "조정 편집(&E)"),
     ];
 
     /// <summary>Phrases that are the same in both languages on purpose — names, not words.</summary>
