@@ -348,6 +348,14 @@ internal sealed unsafe class MainWindow : IDisposable
                 }
                 break;
 
+            case WM_CHAR:
+                if (window?.Chrome?.SheetChar((char)wParam) == true)
+                {
+                    window.Invalidate();
+                    return 0;
+                }
+                break;
+
             case WM_COMMAND:
                 // The high word is 0 for a menu; accelerators and controls are not in play.
                 if (window is not null && (wParam >> 16) == 0)
@@ -394,7 +402,12 @@ internal sealed unsafe class MainWindow : IDisposable
 
         Guarded(() =>
         {
-            if (canvas.IsFiltering && canvas.Key(key, control)) taken = true;
+            if (Chrome?.SheetKey(key, control, shift) == true)
+            {
+                taken = true;
+                Invalidate();
+            }
+            else if (canvas.IsFiltering && canvas.Key(key, control)) taken = true;
             else if (Menu?.TryShortcut(new Shortcut(key, control, shift, alt)) == true) taken = true;
             else if (!alt) taken = canvas.Key(key, control);
         });

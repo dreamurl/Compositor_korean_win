@@ -20,47 +20,58 @@ internal enum FilterCommand
 }
 
 /// <summary>
-/// Trying an adjustment or a filter on the canvas: open it, drag to set it, Enter or Escape.
+/// An adjustment or a filter being set: its settings, the preview they drive, and OK or Cancel.
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is the smallest front end that exercises the live preview end to end, and nothing more:
-/// the dialogs with their sliders, curves and colour pickers are M6's. Until then one horizontal
-/// drag stands for each command's main setting, which is enough to see the preview follow the
-/// pointer.
+/// The canvas holds the edit and the sheet (<see cref="FilterSheet"/>) only reads and writes its
+/// settings, the way upstream's <c>EditorSession</c> owns <c>FilterEdit</c> and its sheets bind to
+/// it. So the preview follows whatever changed the settings — a slider, a typed number, an
+/// eyedropper on the canvas — without the sheet knowing how a preview is made.
 /// </para>
 /// <para>
-/// Two paths, as upstream has. On its own, a command previews on the chosen layer's pixels and
-/// commits into them as one history step. With shift held, an adjustment command adds an adjustment
-/// layer above the chosen one instead, which the ordinary compositor already draws — so its preview
-/// is simply the document being drawn with the new settings, and Escape takes the layer away again.
-/// </para>
-/// <para>
-/// The Image, Layer and Filter menus open these (<see cref="AppCommands"/>); M5's function-key
-/// stand-ins went when the menus came.
+/// Three paths. On its own, a command previews on the chosen layer's pixels and commits into them as
+/// one history step. From Layer › New Adjustment Layer it adds an adjustment layer above the chosen
+/// one, which the ordinary compositor already draws — so its preview is simply the document drawn
+/// with the new settings, and Cancel takes the layer away again. And an existing adjustment layer is
+/// edited in place the same way, Cancel putting its old settings back.
 /// </para>
 /// </remarks>
 internal sealed partial class CanvasView
 {
-    /// <summary>View points of drag for the whole of a setting's range either side.</summary>
-    private const double DragRange = 300;
-
-    /// <summary>Where a command starts, so something shows before the pointer moves.</summary>
-    private const double StartingAmount = 0.25;
-
     private FilterCommand _command;
     private FilterPreview? _preview;
     private Guid? _adjusting;
     private CanvasDocument? _beforeAdjusting;
-    private double _amount;
-    private double? _amountAtDrag;
-    private Point _dragStart;
-    private uint _seed;
+    private bool _visibleBeforeAdjusting;
+    private FilterSettings _filterSettings = new();
+    private bool _previewOn = true;
+
+    /// <summary>
+    /// Each filter's last settings this session, so opening one again starts where it was left, as
+    /// in Photoshop. Adjustments start from nothing each time: their settings live in the layer.
+    /// </summary>
+    private readonly Dictionary<FilterCommand, FilterSettings> _lastFilterSettings = [];
 
     /// <summary>Whether a command is open, which takes the keys and the pointer until it closes.</summary>
     public bool IsFiltering => _preview is not null || _adjusting is not null;
 
-    private static bool IsAdjustment(FilterCommand command) => command <= FilterCommand.Grain;
+    /// <summary>The open command, while one is.</summary>
+    public FilterCommand? OpenFilter => IsFiltering ? _command : null;
+
+    /// <summary>Whether the open command edits an adjustment layer rather than a layer's pixels.</summary>
+    public bool FilteringLayer => _adjusting is not null;
+
+    /// <summary>Whether the open command runs over pixels inside a selection only.</summary>
+    public bool FilterLimitedToSelection => _preview is not null && _selection is not null;
+
+    /// <summary>
+    /// Where a click on the canvas goes while a command is open — an eyedropper's — with the point in
+    /// the document's pixels. Null leaves the canvas still.
+    /// </summary>
+    public Action<Point>? FilterSampler { get; set; }
+
+    internal static bool IsAdjustment(FilterCommand command) => command <= FilterCommand.Grain;
 
     /// <summary>What menus and the history call it.</summary>
     internal static TextKey FilterTitle(FilterCommand command) => command switch
@@ -77,31 +88,46 @@ internal sealed partial class CanvasView
         _ => TextKey.FilterLensCorrection,
     };
 
-    /// <summary>Handles a key for the filters. Returns true when it was theirs.</summary>
-    private bool FilterKey(int key, bool control)
+    private static FilterCommand CommandFor(AdjustmentKind kind) => kind switch
     {
-        if (IsFiltering)
+        AdjustmentKind.Levels => FilterCommand.Levels,
+        AdjustmentKind.Curves => FilterCommand.Curves,
+        AdjustmentKind.Hsv => FilterCommand.HueSaturation,
+        AdjustmentKind.Exposure => FilterCommand.Exposure,
+        AdjustmentKind.GradientMap => FilterCommand.GradientMap,
+        _ => FilterCommand.Grain,
+    };
+
+    /// <summary>
+    /// The open command's settings. For an adjustment, <see cref="FilterSettings.Adjustment"/> is
+    /// the adjustment. Setting them moves the preview.
+    /// </summary>
+    public FilterSettings FilterSettings
+    {
+        get => _filterSettings;
+        set
         {
-            switch (key)
-            {
-                case Win32.VK_RETURN:
-                    Finish(keep: true);
-                    return true;
-
-                case Win32.VK_ESCAPE:
-                    Finish(keep: false);
-                    return true;
-
-                // Zooming to look closer is fine; anything that edits the document is not.
-                case Win32.VK_0 or Win32.VK_1 when control:
-                    return false;
-
-                default:
-                    return true;
-            }
+            _filterSettings = value;
+            ShowFilter();
         }
+    }
 
-        return false;
+    /// <summary>The open adjustment, as a shorthand for the part of the settings that holds it.</summary>
+    public LayerAdjustment FilterAdjustment
+    {
+        get => _filterSettings.Adjustment ?? StartingAdjustment(_command, _filterSettings.Seed);
+        set => FilterSettings = _filterSettings with { Adjustment = value };
+    }
+
+    /// <summary>Whether the canvas shows the command's result or the pixels as they were.</summary>
+    public bool FilterPreviewOn
+    {
+        get => _previewOn;
+        set
+        {
+            _previewOn = value;
+            ShowFilter();
+        }
     }
 
     /// <summary>Opens a command from the Image, Layer or Filter menu.</summary>
@@ -120,13 +146,34 @@ internal sealed partial class CanvasView
     /// <summary>Whether an adjustment layer could be added now.</summary>
     public bool CanAddAdjustmentLayer => !IsFiltering && _document is not null;
 
+    /// <summary>Opens the settings of an adjustment layer already in the document.</summary>
+    public void EditAdjustmentLayer(Guid id)
+    {
+        if (IsFiltering || _document?.Layer(id) is not { Adjustment: LayerAdjustment adjustment } layer) return;
+
+        _command = CommandFor(adjustment.Kind);
+        _previewOn = true;
+        _filterSettings = new FilterSettings { Adjustment = adjustment, Seed = adjustment.Grain.Seed };
+        _beforeAdjusting = _document;
+        _visibleBeforeAdjusting = layer.IsVisible;
+        _history.Begin(HistoryName.Of(TextKey.HistoryEditAdjustmentLayer, FilterTitle(_command)), _document, id);
+        _adjusting = id;
+
+        _chosen.Clear();
+        _chosen.Add(id);
+        NeedsRedraw = true;
+    }
+
     private void Start(FilterCommand command, bool asLayer)
     {
         if (_document is null) return;
 
         _command = command;
-        _amount = StartingAmount;
-        _seed = (uint)Random.Shared.Next();
+        _previewOn = true;
+        uint seed = (uint)Random.Shared.Next();
+        _filterSettings = IsAdjustment(command)
+            ? new FilterSettings { Adjustment = StartingAdjustment(command, seed), Seed = seed }
+            : (_lastFilterSettings.GetValueOrDefault(command) ?? new FilterSettings()) with { Seed = seed };
 
         ImageLayer? chosen = Primary is Guid id ? _document.Layer(id) : null;
 
@@ -141,10 +188,11 @@ internal sealed partial class CanvasView
                 Name = Localizer.Text(FilterTitle(command)),
                 Transform = new LayerTransform(Point.Zero, new Size(_document.Width, _document.Height)),
                 ParentId = chosen?.ParentId,
-                Adjustment = AdjustmentFor(command, _amount),
+                Adjustment = _filterSettings.Adjustment,
             };
 
             _beforeAdjusting = _document;
+            _visibleBeforeAdjusting = true;
             _history.Begin(HistoryName.Of(TextKey.HistoryAdjustmentLayer, FilterTitle(command)), _document, layer.Id);
 
             var layers = _document.Layers.ToList();
@@ -157,18 +205,41 @@ internal sealed partial class CanvasView
         // Pixels to run over: a layer with an image, not a folder and not an adjustment.
         if (chosen is not { Image: not null, IsGroup: false, Adjustment: null }) return;
 
-        _preview = new FilterPreview(chosen, KindFor(command), SettingsFor(command, _amount), _selection);
+        _preview = new FilterPreview(chosen, KindFor(command), _filterSettings, _selection);
     }
 
-    /// <summary>Closes the open command, keeping what it did or putting everything back.</summary>
-    private void Finish(bool keep)
+    /// <summary>Puts the settings where the canvas draws from.</summary>
+    private void ShowFilter()
     {
+        if (_preview is not null)
+        {
+            _preview.Settings = _filterSettings;
+        }
+        else if (_adjusting is Guid id && _document?.Layer(id) is ImageLayer layer)
+        {
+            _document = _document.Replacing(layer with
+            {
+                Adjustment = _filterSettings.Adjustment,
+                // Preview off hides the adjustment layer, which is what "as it was" means for it.
+                IsVisible = _previewOn && _visibleBeforeAdjusting,
+            });
+        }
+
+        NeedsRedraw = true;
+    }
+
+    /// <summary>Closes the open command: OK keeps what it did, Cancel puts everything back.</summary>
+    public void FinishFilter(bool keep)
+    {
+        FilterSampler = null;
+
         if (_preview is FilterPreview preview)
         {
             _preview = null;
 
             if (keep && _document is not null)
             {
+                _lastFilterSettings[_command] = _filterSettings;
                 _history.Begin(FilterTitle(_command), _document, preview.Layer.Id);
                 _document = _document.Replacing(preview.Commit());
                 _history.End(_document, preview.Layer.Id);
@@ -181,8 +252,9 @@ internal sealed partial class CanvasView
         {
             _adjusting = null;
 
-            if (keep)
+            if (keep && _document?.Layer(added) is ImageLayer layer)
             {
+                _document = _document.Replacing(layer with { IsVisible = _visibleBeforeAdjusting });
                 _chosen.Clear();
                 _chosen.Add(added);
             }
@@ -195,46 +267,45 @@ internal sealed partial class CanvasView
             _history.End(_document, keep ? added : Primary);
         }
 
-        _amountAtDrag = null;
+        NeedsRedraw = true;
     }
 
-    private bool BeginAmountDrag(Point view)
+    /// <summary>Handles a key for an open command. Returns true when it was the command's.</summary>
+    private bool FilterKey(int key, bool control)
     {
         if (!IsFiltering) return false;
-        _amountAtDrag = _amount;
-        _dragStart = view;
-        return true;
+
+        switch (key)
+        {
+            case Win32.VK_RETURN:
+                FinishFilter(keep: true);
+                return true;
+
+            case Win32.VK_ESCAPE:
+                FinishFilter(keep: false);
+                return true;
+
+            // Zooming to look closer is fine; anything that edits the document is not.
+            case Win32.VK_0 or Win32.VK_1 when control:
+                return false;
+
+            default:
+                return true;
+        }
     }
 
-    private bool DragAmount(Point view)
+    /// <summary>A click on the canvas while a command is open: an eyedropper's, or nothing.</summary>
+    private bool FilterClick(Point view)
     {
-        if (_amountAtDrag is not double from) return false;
-
-        _amount = Math.Clamp(from + (view.X - _dragStart.X) / DragRange, -1, 1);
-
-        if (_preview is not null)
-        {
-            _preview.Settings = SettingsFor(_command, _amount);
-        }
-        else if (_adjusting is Guid id && _document?.Layer(id) is ImageLayer layer)
-        {
-            _document = _document.Replacing(layer with { Adjustment = AdjustmentFor(_command, _amount) });
-        }
-
-        NeedsRedraw = true;
-        return true;
-    }
-
-    private bool EndAmountDrag()
-    {
-        if (_amountAtDrag is null) return false;
-        _amountAtDrag = null;
+        if (!IsFiltering) return false;
+        if (FilterSampler is Action<Point> sample && _document is not null)
+            sample(_viewport.DocumentPoint(view, _document.Size));
         return true;
     }
 
     /// <summary>The frame's stand-in for a layer being filtered, when one is.</summary>
     private LiveEdit? Previewing(int width, int height) =>
-        _preview is FilterPreview preview && _document is not null
+        _preview is FilterPreview preview && _previewOn && _document is not null
             ? preview.Frame(Projection(_document), width, height)
             : null;
 
@@ -247,72 +318,20 @@ internal sealed partial class CanvasView
         _ => FilterKind.Adjustment,
     };
 
-    private FilterSettings SettingsFor(FilterCommand command, double t)
+    /// <summary>An adjustment that changes nothing yet, as upstream opens each one.</summary>
+    internal static LayerAdjustment StartingAdjustment(FilterCommand command, uint seed) => command switch
     {
-        double strength = Math.Abs(t);
-        return command switch
+        FilterCommand.Levels => new LayerAdjustment(AdjustmentKind.Levels),
+        FilterCommand.Curves => new LayerAdjustment(AdjustmentKind.Curves),
+        FilterCommand.HueSaturation => new LayerAdjustment(AdjustmentKind.Hsv)
         {
-            FilterCommand.GaussianBlur => new FilterSettings { Radius = Math.Max(0.1, 50 * strength) },
-            FilterCommand.MotionBlur => new FilterSettings { Distance = Math.Max(1, 200 * strength), Angle = 0 },
-            FilterCommand.AddNoise => new FilterSettings { Amount = Math.Max(0.1, 100 * strength), Seed = _seed },
-            FilterCommand.LensCorrection => new FilterSettings { Distortion = 100 * t },
-            _ => new FilterSettings { Adjustment = AdjustmentFor(command, t), Seed = _seed },
-        };
-    }
-
-    /// <summary>One adjustment with its main setting at <paramref name="t"/>, −1 to 1.</summary>
-    private LayerAdjustment AdjustmentFor(FilterCommand command, double t)
-    {
-        var diagonal = new EquatableList<CurvePoint>([new CurvePoint(0, 0), new CurvePoint(255, 255)]);
-
-        return command switch
+            HsvSettings = new HueSaturationSettings(),
+        },
+        FilterCommand.Exposure => new LayerAdjustment(AdjustmentKind.Exposure) { ExposureSettings = new ExposureSettings() },
+        FilterCommand.GradientMap => new LayerAdjustment(AdjustmentKind.GradientMap)
         {
-            FilterCommand.Levels => new LayerAdjustment(AdjustmentKind.Levels)
-            {
-                Levels = new LevelsSettings
-                {
-                    Ranges = new EquatableList<LevelRange>(
-                        [new LevelRange { Gamma = Math.Pow(2, 1.5 * t) }, new(), new(), new()]),
-                },
-            },
-
-            FilterCommand.Curves => new LayerAdjustment(AdjustmentKind.Curves)
-            {
-                Curves = new CurvesSettings
-                {
-                    Channels = new EquatableList<EquatableList<CurvePoint>>(
-                    [
-                        new([new CurvePoint(0, 0), new CurvePoint(128, Math.Clamp(128 + 100 * t, 0, 255)),
-                             new CurvePoint(255, 255)]),
-                        diagonal, diagonal, diagonal,
-                    ]),
-                },
-            },
-
-            FilterCommand.HueSaturation => new LayerAdjustment(AdjustmentKind.Hsv)
-            {
-                HsvSettings = HueSaturationSettings.From(180 * t, 0, 0, colorize: false),
-            },
-
-            FilterCommand.Exposure => new LayerAdjustment(AdjustmentKind.Exposure)
-            {
-                ExposureSettings = new ExposureSettings { Exposure = 3 * t },
-            },
-
-            FilterCommand.GradientMap => new LayerAdjustment(AdjustmentKind.GradientMap)
-            {
-                GradientMapSettings = new GradientMapSettings
-                {
-                    Shadows = new AdjustmentColor(0.05, 0.05, 0.3),
-                    Highlights = new AdjustmentColor(1, 0.85, 0.5),
-                    Reversed = t < 0,
-                },
-            },
-
-            _ => new LayerAdjustment(AdjustmentKind.Grain)
-            {
-                GrainSettings = new GrainSettings { Amount = 100 * Math.Abs(t), Seed = _seed },
-            },
-        };
-    }
+            GradientMapSettings = new GradientMapSettings(),
+        },
+        _ => new LayerAdjustment(AdjustmentKind.Grain) { GrainSettings = new GrainSettings { Seed = seed } },
+    };
 }

@@ -33,7 +33,11 @@ namespace Compositor_korean_win.Shell;
 internal sealed class Ui : IDisposable
 {
     /// <summary>Somewhere a click does something.</summary>
-    private sealed record Hit(Rect Area, Action? Click, Action<Point, bool>? Drag, string? Tooltip, Action? DoubleClick);
+    private sealed record Hit(Rect Area, Action? Click, Action<Point, bool>? Drag, string? Tooltip, Action? DoubleClick,
+                              string? Field = null);
+
+    /// <summary>A number box drawn this frame: what it shows, and what a typed value is handed to.</summary>
+    private sealed record FieldEntry(string Id, string Shown, Action<double> Set);
 
     private readonly IDWriteFactory _writer = CreateWriter();
 
@@ -63,6 +67,7 @@ internal sealed class Ui : IDisposable
     private IDWriteTextFormat? _bodyCentered;
     private IDWriteTextFormat? _small;
     private IDWriteTextFormat? _title;
+    private IDWriteTextFormat? _wrapped;
     private Language _formatsFor = (Language)(-1);
     private double _formatsScale;
 
@@ -95,6 +100,7 @@ internal sealed class Ui : IDisposable
         _context = context;
         Scale = scale;
         _hits.Clear();
+        _fields.Clear();
         Drawn.Clear();
         Tooltips.Clear();
         _brush ??= context.CreateSolidColorBrush(Ink);
@@ -106,6 +112,10 @@ internal sealed class Ui : IDisposable
     public void End()
     {
         _live = [.. _hits];
+        _liveFields = [.. _fields];
+
+        // A box that was focused and is no longer drawn — its sheet closed — keeps nothing typed.
+        if (_focus is not null && !_liveFields.Any(field => field.Id == _focus)) _focus = null;
 
         if (_hover?.Tooltip is string tip && _dragging is null && Environment.TickCount64 - _hoverSince >= TooltipDelay)
             Tooltip(tip, _pointer);
@@ -124,6 +134,7 @@ internal sealed class Ui : IDisposable
         _bodyCentered?.Dispose();
         _small?.Dispose();
         _title?.Dispose();
+        _wrapped?.Dispose();
 
         bool korean = Localizer.Current == Language.Korean;
         string family = korean ? "Malgun Gothic" : "Segoe UI";
@@ -141,6 +152,9 @@ internal sealed class Ui : IDisposable
         _bodyCentered = Make(12, FontWeight.Normal, TextAlignment.Center);
         _small = Make(10.5, FontWeight.Normal, TextAlignment.Leading);
         _title = Make(12, FontWeight.SemiBold, TextAlignment.Leading);
+        _wrapped = Make(11.5, FontWeight.Normal, TextAlignment.Leading);
+        _wrapped.ParagraphAlignment = ParagraphAlignment.Near;
+        _wrapped.WordWrapping = WordWrapping.Wrap;
 
         _formatsFor = Localizer.Current;
         _formatsScale = Scale;
@@ -176,10 +190,18 @@ internal sealed class Ui : IDisposable
 
     /// <summary>Text in a box, clipped to it, vertically centred.</summary>
     /// <param name="user">The user's own words — a layer or file name — which are not the interface's to translate.</param>
-    public void Text(string text, Rect area, Color4 colour, TextSize size = TextSize.Body, bool centred = false, bool user = false)
+    public void Text(string text, Rect area, Color4 colour, TextSize size = TextSize.Body, bool centred = false, bool user = false,
+                     bool right = false)
     {
         if (text.Length == 0) return;
         if (!user) Drawn.Add(text);
+
+        if (right)
+        {
+            // Right-aligned by moving the box, which keeps the formats down to the ones above.
+            float width = Measure(text, size);
+            area = new Rect(area.MaxX - width, area.Y, width + P(1), area.Height);
+        }
 
         IDWriteTextFormat format = size switch
         {
@@ -190,6 +212,22 @@ internal sealed class Ui : IDisposable
 
         _brush!.Color = colour;
         Context.DrawText(text, format, Raw(area), _brush, DrawTextOptions.Clip);
+    }
+
+    /// <summary>Text that wraps onto as many lines as it needs, from the top of <paramref name="area"/>.</summary>
+    public void Paragraph(string text, Rect area, Color4 colour)
+    {
+        if (text.Length == 0) return;
+        Drawn.Add(text);
+        _brush!.Color = colour;
+        Context.DrawText(text, _wrapped!, Raw(area), _brush, DrawTextOptions.Clip);
+    }
+
+    /// <summary>How tall <see cref="Paragraph"/> makes a piece of text in a box this wide, in device pixels.</summary>
+    public float ParagraphHeight(string text, double width)
+    {
+        using IDWriteTextLayout layout = NewLayout(text, _wrapped!, (float)width, 10_000);
+        return layout.Metrics.Height;
     }
 
     /// <summary>How wide a piece of text is in the body font, in device pixels.</summary>
@@ -256,10 +294,11 @@ internal sealed class Ui : IDisposable
 
     /// <summary>A flat button: its background lights on hover and when active; the caller draws the face.</summary>
     public void Button(Rect area, Action click, string? tooltip, bool active = false, bool enabled = true,
-                       Action<Rect>? face = null, string? label = null)
+                       Action<Rect>? face = null, string? label = null, bool primary = false)
     {
         bool hovered = enabled && Area(area, enabled ? click : null, tooltip);
-        if (active) Fill(area, Selected);
+        if (primary) Fill(area, !enabled ? Raised : hovered ? new Color4(0.28f, 0.56f, 1f, 1f) : Accent);
+        else if (active) Fill(area, Selected);
         else if (hovered) Fill(area, Hover);
 
         face?.Invoke(area);
@@ -280,15 +319,23 @@ internal sealed class Ui : IDisposable
         // The knob's centre travels the track, so the track stops a knob's width short of the value
         // written after it; otherwise a full slider's knob sits on its own number.
         var track = new Rect(area.X + labelWidth + P(6), area.Y, Math.Max(P(20), area.Width - labelWidth - valueWidth - P(12)), area.Height);
+        Track(track, fraction, set, begin, end);
+        Text(value, new Rect(track.MaxX + P(12), area.Y, valueWidth - P(6), area.Height), Ink, user: IsNumeric(value));
+    }
+
+    /// <summary>
+    /// A slider's track and knob alone. The drag reports a fraction of the track, 0 to 1;
+    /// <paramref name="begin"/> and <paramref name="end"/> bracket one drag.
+    /// </summary>
+    public void Track(Rect track, double fraction, Action<double> set, Action? begin = null, Action? end = null)
+    {
         double middle = track.Y + track.Height / 2;
-        fraction = Math.Clamp(fraction, 0, 1);
+        fraction = Math.Clamp(double.IsFinite(fraction) ? fraction : 0, 0, 1);
 
         Fill(new Rect(track.X, middle - P(1.5), track.Width, P(3)), Raised);
         Fill(new Rect(track.X, middle - P(1.5), track.Width * fraction, P(3)), Accent);
         _brush!.Color = Ink;
         Context.FillEllipse(new Ellipse(new Vector2((float)(track.X + track.Width * fraction), (float)middle), P(5), P(5)), _brush);
-
-        Text(value, new Rect(track.MaxX + P(12), area.Y, valueWidth - P(6), area.Height), Ink, user: IsNumeric(value));
 
         bool started = false;
         _hits.Add(new Hit(track, null, (point, finished) =>
@@ -305,6 +352,75 @@ internal sealed class Ui : IDisposable
                 end?.Invoke();
             }
         }, null, null));
+    }
+
+    /// <summary>
+    /// A box holding a number that can be typed over. Click it and type; Enter or Tab or a click
+    /// elsewhere hands the number to <paramref name="set"/>, Escape leaves the value as it was.
+    /// </summary>
+    /// <param name="id">What the box is, unique within the frame — it is how the box stays focused from one frame to the next.</param>
+    /// <remarks>
+    /// Only numbers are typed into the sheets, so this is a few keys of its own rather than a
+    /// native edit control; a layer's name, which can be Korean and needs the input method, is
+    /// renamed in a real one.
+    /// </remarks>
+    public void Field(Rect area, string id, double value, int decimals, Action<double> set)
+    {
+        string shown = Format(value, decimals);
+        _fields.Add(new FieldEntry(id, shown, set));
+        _hits.Add(new Hit(area, () => Focus(id, shown), null, null, null, id));
+
+        bool focused = _focus == id;
+        Fill(area, Window);
+        Frame(area, focused ? Accent : Line, focused ? P(1.5f) : 1);
+
+        string text = focused ? _typed : shown;
+        var inner = new Rect(area.X + P(6), area.Y, Math.Max(0, area.Width - P(12)), area.Height);
+        if (focused && _fresh && text.Length > 0)
+        {
+            float width = Measure(text);
+            Fill(new Rect(inner.MaxX - width - P(1), area.Y + P(4), width + P(2), area.Height - P(8)), Selected);
+        }
+        Text(text, inner, Ink, user: true, right: true);
+
+        if (focused && !_fresh)
+        {
+            float x = (float)inner.MaxX + P(1);
+            Rule(new Point(x, area.Y + P(5)), new Point(x, area.MaxY - P(5)), Ink);
+        }
+    }
+
+    /// <summary>Numbers as the sheets show them: no more decimals than asked for, and no trailing zeros.</summary>
+    public static string Format(double value, int decimals) =>
+        Math.Round(value, decimals).ToString("0." + new string('#', Math.Max(0, decimals)),
+                                             System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>A row of buttons of which one is on.</summary>
+    public void Choice(Rect area, (string Text, bool On, Action Pick)[] choices)
+    {
+        double x = area.X;
+        double width = (area.Width - P(2) * (choices.Length - 1)) / choices.Length;
+        foreach ((string text, bool on, Action pick) in choices)
+        {
+            var part = new Rect(x, area.Y, width, area.Height);
+            Fill(part, on ? Selected : Raised);
+            Button(part, pick, null, active: on, label: text);
+            x += width + P(2);
+        }
+    }
+
+    /// <summary>A floating sheet's ground: a shadow, the panel colour and an edge. Clicks on it stay on it.</summary>
+    public void Sheet(Rect area)
+    {
+        for (int i = 1; i <= 3; i++)
+        {
+            float spread = P(3 * i);
+            Fill(new Rect(area.X - spread + P(2), area.Y - spread + P(4), area.Width + spread * 2 - P(4), area.Height + spread * 2),
+                 new Color4(0, 0, 0, 0.12f));
+        }
+        Fill(area, Panel);
+        Frame(area, Raised);
+        Block(area);
     }
 
     /// <summary>A box to tick, with its label after it.</summary>
@@ -342,6 +458,10 @@ internal sealed class Ui : IDisposable
     {
         _pointer = at;
         Hit? hit = HitAt(at);
+
+        // A click anywhere but the box being typed in takes what was typed.
+        if (_focus is not null && hit?.Field != _focus) CommitFocus();
+
         if (hit is null) return false;
 
         if (hit.Drag is not null)
@@ -385,6 +505,90 @@ internal sealed class Ui : IDisposable
         return true;
     }
 
+    // MARK: Typing into a number box
+
+    private readonly List<FieldEntry> _fields = [];
+    private List<FieldEntry> _liveFields = [];
+    private string? _focus;
+    private string _typed = "";
+
+    /// <summary>The box was just focused, so the first key typed replaces what it showed.</summary>
+    private bool _fresh;
+
+    /// <summary>Whether a number box has the keyboard.</summary>
+    public bool Typing => _focus is not null;
+
+    private void Focus(string id, string shown)
+    {
+        if (_focus == id) return;
+        _focus = id;
+        _typed = shown;
+        _fresh = true;
+    }
+
+    /// <summary>Hands what was typed to its box, and lets go of the keyboard.</summary>
+    public void CommitFocus()
+    {
+        if (_focus is not string id) return;
+        _focus = null;
+
+        if (_liveFields.FirstOrDefault(field => field.Id == id) is FieldEntry field
+            && double.TryParse(_typed.Replace(',', '.'), System.Globalization.NumberStyles.Float,
+                               System.Globalization.CultureInfo.InvariantCulture, out double value)
+            && double.IsFinite(value))
+        {
+            field.Set(value);
+        }
+    }
+
+    /// <summary>Drops what was typed, leaving the value as it was.</summary>
+    public void DropFocus() => _focus = null;
+
+    /// <summary>A key went down. True when a number box took it — which, while one is focused, is every key.</summary>
+    public bool Key(int key, bool shift)
+    {
+        if (_focus is not string id) return false;
+
+        switch (key)
+        {
+            case Win32.VK_RETURN:
+                CommitFocus();
+                break;
+            case Win32.VK_ESCAPE:
+                DropFocus();
+                break;
+            case Win32.VK_TAB:
+                CommitFocus();
+                int index = _liveFields.FindIndex(field => field.Id == id);
+                if (index >= 0)
+                {
+                    FieldEntry next = _liveFields[(index + (shift ? -1 : 1) + _liveFields.Count) % _liveFields.Count];
+                    Focus(next.Id, next.Shown);
+                }
+                break;
+        }
+        return true;
+    }
+
+    /// <summary>A character was typed. True when a number box took it.</summary>
+    public bool Char(char character)
+    {
+        if (_focus is null) return false;
+
+        if (character == '\b')
+        {
+            _typed = _fresh ? "" : _typed[..Math.Max(0, _typed.Length - 1)];
+            _fresh = false;
+        }
+        else if (char.IsAsciiDigit(character) || character is '.' or ',' or '-' or '+')
+        {
+            if (_fresh) _typed = "";
+            _fresh = false;
+            if (_typed.Length < 12) _typed += character;
+        }
+        return true;
+    }
+
     /// <summary>Whether the pointer is over any control or panel.</summary>
     public bool Covers(Point at) => HitAt(at) is not null;
 
@@ -420,6 +624,7 @@ internal sealed class Ui : IDisposable
         _bodyCentered?.Dispose();
         _small?.Dispose();
         _title?.Dispose();
+        _wrapped?.Dispose();
         _brush?.Dispose();
         _writer.Dispose();
     }

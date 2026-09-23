@@ -54,6 +54,8 @@ internal sealed unsafe class Chrome : IDisposable
     private double _scroll;
     private Rect _layersList;
 
+    private readonly List<Sheet> _sheets = [];
+
     private nint _renameBox;
     private nint _renameFont;
     private Guid _renaming;
@@ -91,6 +93,7 @@ internal sealed unsafe class Chrome : IDisposable
         LayersPanel(new Rect(width - RightPanel * s, TopBar * s, RightPanel * s, height - (TopBar + StatusBar) * s));
         Status(new Rect(0, height - StatusBar * s, width, StatusBar * s));
         if (!_canvas.HasDocument) Welcome(canvas);
+        Sheets(canvas, width, height);
 
         _ui.End();
         context.EndDraw();
@@ -255,6 +258,171 @@ internal sealed unsafe class Chrome : IDisposable
         x += _ui.P(16);
     }
 
+    // MARK: Sheets
+
+    /// <summary>Whether a sheet is open, which holds the rest of the window still.</summary>
+    public bool HasSheet
+    {
+        get
+        {
+            SyncFilterSheet();
+            return _sheets.Count > 0;
+        }
+    }
+
+    /// <summary>Opens a sheet over whatever is open already.</summary>
+    public void Open(Sheet sheet)
+    {
+        sheet.IsClosed = false;
+        _sheets.Add(sheet);
+    }
+
+    public void Close(Sheet sheet)
+    {
+        _sheets.Remove(sheet);
+        sheet.IsClosed = true;
+    }
+
+    /// <summary>
+    /// The open adjustment or filter has a sheet exactly while the canvas has an edit open, however
+    /// the edit was opened — a menu, a double click, the self-test.
+    /// </summary>
+    private void SyncFilterSheet()
+    {
+        FilterSheet? shown = _sheets.OfType<FilterSheet>().FirstOrDefault();
+        if (_canvas.IsFiltering && shown is null) _sheets.Insert(0, new FilterSheet(_canvas));
+        else if (!_canvas.IsFiltering && shown is not null) Close(shown);
+    }
+
+    private void Accept(Sheet sheet)
+    {
+        _ui.CommitFocus();
+        if (!sheet.CanAccept) return;
+        sheet.Accept();
+        Close(sheet);
+    }
+
+    private void Cancel(Sheet sheet)
+    {
+        _ui.DropFocus();
+        sheet.Cancel();
+        Close(sheet);
+    }
+
+    /// <summary>
+    /// A key while a sheet is open: Enter is OK and Escape is Cancel, a focused number box takes the
+    /// rest, and nothing else in the window gets a key until the sheet closes — bar zooming, since
+    /// looking closer at a preview is half of what a preview is for.
+    /// </summary>
+    public bool SheetKey(int key, bool control, bool shift)
+    {
+        if (!HasSheet) return false;
+        Sheet top = _sheets[^1];
+
+        switch (key)
+        {
+            case VK_RETURN:
+                Accept(top);
+                return true;
+            case VK_ESCAPE when _ui.Typing:
+                _ui.DropFocus();
+                return true;
+            case VK_ESCAPE:
+                Cancel(top);
+                return true;
+        }
+
+        if (_ui.Key(key, shift)) return true;
+        return !(control && key is VK_0 or VK_1 or VK_OEM_PLUS or VK_OEM_MINUS or VK_ADD or VK_SUBTRACT);
+    }
+
+    /// <summary>A character typed while a sheet is open, for its number boxes.</summary>
+    public bool SheetChar(char character) => HasSheet && _ui.Char(character);
+
+    private void Sheets(Rect canvas, int width, int height)
+    {
+        SyncFilterSheet();
+        if (_sheets.Count == 0) return;
+
+        // Nothing round the canvas takes a click while a sheet is open, and the canvas itself only
+        // for a sheet that samples from it.
+        _ui.Block(new Rect(0, 0, width, canvas.Y));
+        _ui.Block(new Rect(0, canvas.Y, canvas.X, height - canvas.Y));
+        _ui.Block(new Rect(canvas.MaxX, canvas.Y, width - canvas.MaxX, height - canvas.Y));
+        _ui.Block(new Rect(canvas.X, canvas.MaxY, canvas.Width, height - canvas.MaxY));
+        if (!_sheets[^1].UsesCanvas) _ui.Block(canvas);
+
+        for (int i = 0; i < _sheets.Count; i++)
+        {
+            Rect area = DrawSheet(_sheets[i], canvas, i);
+            // Only the top sheet answers; the ones under it wait for it to close.
+            if (i < _sheets.Count - 1) _ui.Block(area);
+        }
+    }
+
+    private Rect DrawSheet(Sheet sheet, Rect canvas, int depth)
+    {
+        double s = _ui.Scale;
+        double width = sheet.Width * s, pad = 18 * s, title = 22 * s, foot = 30 * s;
+        double inner = width - pad * 2;
+
+        var measure = new SheetLayout(_ui, new Rect(0, 0, inner, 0), measuring: true, labelWidth: 0);
+        sheet.Content(measure);
+        double body = measure.Height;
+        double height = pad + title + 12 * s + body + (body > 0 ? 22 * s : 0) + foot + pad;
+
+        // Beside the Layers panel, over the canvas's corner, where it covers least of the picture;
+        // centred when there is no picture.
+        double x, y;
+        if (_canvas.HasDocument)
+        {
+            x = canvas.MaxX - width - (16 + depth * 24) * s;
+            y = canvas.Y + (16 + depth * 24) * s;
+        }
+        else
+        {
+            x = canvas.X + (canvas.Width - width) / 2 + depth * 24 * s;
+            y = canvas.Y + Math.Max(16 * s, (canvas.Height - height) / 2) + depth * 24 * s;
+        }
+        var area = new Rect(Math.Max(0, x), y, width, height);
+
+        _ui.Sheet(area);
+        _ui.Text(sheet.Title, new Rect(area.X + pad, area.Y + pad, inner, title), Ui.Ink, Ui.TextSize.Title);
+
+        var layout = new SheetLayout(_ui, new Rect(area.X + pad, area.Y + pad + title + 12 * s, inner, body),
+                                     measuring: false, labelWidth: measure.LabelWidth);
+        sheet.Content(layout);
+
+        double footY = area.MaxY - pad - foot;
+        _ui.Rule(new Point(area.X, footY - 11 * s), new Point(area.MaxX, footY - 11 * s), Ui.Line);
+
+        double left = area.X + pad;
+        if (sheet.Preview is bool preview)
+        {
+            string label = Localizer.Text(TextKey.LabelPreview);
+            var check = new Rect(left, footY, _ui.Measure(label) + 26 * s, foot);
+            _ui.Check(check, label, preview, () => sheet.Preview = !preview);
+            left = check.MaxX + 14 * s;
+        }
+        if (sheet.Reset is Action reset)
+        {
+            string label = Localizer.Text(TextKey.DialogReset);
+            var button = new Rect(left, footY, _ui.Measure(label) + 24 * s, foot);
+            _ui.Fill(button, Ui.Raised);
+            _ui.Button(button, reset, null, label: label);
+        }
+
+        string ok = Localizer.Text(sheet.AcceptLabel), cancel = Localizer.Text(TextKey.DialogCancel);
+        double okWidth = Math.Max(_ui.Measure(ok) + 28 * s, 76 * s), cancelWidth = Math.Max(_ui.Measure(cancel) + 28 * s, 76 * s);
+        var accept = new Rect(area.MaxX - pad - okWidth, footY, okWidth, foot);
+        var dismiss = new Rect(accept.X - 8 * s - cancelWidth, footY, cancelWidth, foot);
+        _ui.Fill(dismiss, Ui.Raised);
+        _ui.Button(dismiss, () => Cancel(sheet), null, label: cancel);
+        _ui.Button(accept, () => Accept(sheet), null, enabled: sheet.CanAccept, label: ok, primary: true);
+
+        return area;
+    }
+
     // MARK: The tool rail
 
     private void ToolRail(Rect rail)
@@ -394,11 +562,12 @@ internal sealed unsafe class Chrome : IDisposable
 
         Rect visible = Clip(row, _layersList);
         Guid id = layer.Id;
-        _ui.Area(visible, () =>
+        void Choose()
         {
             bool control = IsKeyDown(VK_CONTROL), shift = IsKeyDown(VK_SHIFT);
             _canvas.ClickLayer(id, control, shift, order);
-        }, doubleClick: () => StartRename(id, row));
+        }
+        _ui.Area(visible, Choose, doubleClick: () => StartRename(id, row));
 
         double x = row.X;
         var eye = new Rect(x, row.Y, _ui.P(28), row.Height);
@@ -425,6 +594,11 @@ internal sealed unsafe class Chrome : IDisposable
         var thumb = new Rect(x + _ui.P(2), row.Y + _ui.P(4), _ui.P(26), row.Height - _ui.P(8));
         Thumbnail(thumb, layer);
         x = thumb.MaxX + _ui.P(4);
+
+        // As in Photoshop: a double click on an adjustment layer's picture opens its settings, one on
+        // its name renames it.
+        if (layer.Adjustment is not null)
+            _ui.Area(Clip(thumb, _layersList), Choose, doubleClick: () => _canvas.EditAdjustmentLayer(id));
 
         if (layer.Mask is LayerMask mask)
         {

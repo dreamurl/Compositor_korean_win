@@ -383,6 +383,8 @@ internal static unsafe partial class Win32
     internal static partial nint GlobalFree(nint memory);
 
     internal const int VK_BACK = 0x08;
+    internal const int VK_TAB = 0x09;
+    internal const uint WM_CHAR = 0x0102;
     internal const int VK_DELETE = 0x2E;
     internal const int VK_C = 0x43;
     internal const int VK_I = 0x49;

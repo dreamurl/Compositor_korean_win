@@ -308,8 +308,8 @@ internal sealed partial class CanvasView : IDisposable
             return;
         }
 
-        // While a filter or an adjustment is being set, a drag sets it and does nothing else.
-        if (BeginAmountDrag(view)) return;
+        // While a filter or an adjustment is being set, a click is an eyedropper's or nothing.
+        if (FilterClick(view)) return;
 
         Point pixel = _viewport.DocumentPoint(view, _document.Size);
 
@@ -454,8 +454,6 @@ internal sealed partial class CanvasView : IDisposable
 
         _pointer = view;
 
-        if (DragAmount(view)) return;
-
         if (_stroke is BrushStroke stroke && _document.Layer(_painting) is ImageLayer painted)
         {
             Point at = _viewport.DocumentPoint(view, _document.Size);
@@ -554,7 +552,7 @@ internal sealed partial class CanvasView : IDisposable
     public void PointerUp()
     {
         _panning = false;
-        if (EndAmountDrag()) return;
+        if (IsFiltering) return;
 
         if (_stroke is not null)
         {
