@@ -445,6 +445,33 @@ internal static unsafe partial class Win32
     internal const uint MB_YESNO = 0x0004;
     internal const int SW_SHOWNORMAL = 1;
 
+    // WinINet, for Help > Check for Updates (Updates.Fetch).
+    internal const uint INTERNET_OPEN_TYPE_PRECONFIG = 0;
+    internal const uint INTERNET_OPTION_CONNECT_TIMEOUT = 2;
+    internal const uint INTERNET_OPTION_RECEIVE_TIMEOUT = 6;
+    internal const uint INTERNET_FLAG_RELOAD = 0x80000000;
+    internal const uint INTERNET_FLAG_NO_CACHE_WRITE = 0x04000000;
+    internal const uint INTERNET_FLAG_SECURE = 0x00800000;
+
+    [LibraryImport("wininet.dll", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial nint InternetOpenW(string agent, uint accessType, string? proxy, string? bypass, uint flags);
+
+    [LibraryImport("wininet.dll", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial nint InternetOpenUrlW(nint session, string url, string? headers, uint headersLength,
+                                                  uint flags, nint context);
+
+    [LibraryImport("wininet.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool InternetReadFile(nint file, byte* buffer, uint toRead, out uint read);
+
+    [LibraryImport("wininet.dll", SetLastError = true, EntryPoint = "InternetSetOptionW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool InternetSetOptionW(nint handle, uint option, void* buffer, uint length);
+
+    [LibraryImport("wininet.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool InternetCloseHandle(nint handle);
+
     [LibraryImport("user32.dll", SetLastError = true)]
     internal static partial nint LoadIconW(nint instance, nint iconName);
 

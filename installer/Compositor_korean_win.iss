@@ -8,7 +8,8 @@
 ; Both builds share one AppId, so they are one program to Windows: installing either over the
 ; other replaces it, and the plain build clears the AI build's runtime and model out of the way.
 ;
-; CI passes AppVersion, Source (the package folder), WithAi and OutputName.
+; CI passes AppVersion, Source (the package folder), WithAi ("1" or "0", a string as /D gives
+; every value) and OutputName.
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
@@ -17,7 +18,7 @@
   #define Source "..\build\package-plain"
 #endif
 #ifndef WithAi
-  #define WithAi 0
+  #define WithAi "0"
 #endif
 #ifndef OutputName
   #define OutputName "Compositor_korean_win-setup"
@@ -68,7 +69,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 Source: "{#Source}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-#if !WithAi
+#if WithAi == "0"
 [InstallDelete]
 ; Over the AI build: its runtime, model and their licences go.
 Type: files; Name: "{app}\onnxruntime.dll"

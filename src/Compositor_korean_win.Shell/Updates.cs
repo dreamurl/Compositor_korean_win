@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.InteropServices;
 using Compositor_korean_win.Core;
 using static Compositor_korean_win.Shell.Win32;
 
@@ -33,12 +34,9 @@ internal static class Updates
 
         try
         {
-            // A short wait on a manual check: the user is looking at the menu, not at a spinner.
-            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("Compositor_korean_win/" + Version);
-            json = client.GetStringAsync(UpdateFeed.Address).GetAwaiter().GetResult();
+            json = Fetch(UpdateFeed.Address);
         }
-        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+        catch (IOException exception)
         {
             json = null;
             failure = exception.Message;
@@ -62,6 +60,53 @@ internal static class Updates
                         MB_YESNO | MB_ICONINFORMATION) == IDYES)
         {
             ShellExecuteW(owner, "open", latest.Page, null, null, SW_SHOWNORMAL);
+        }
+    }
+
+    /// <summary>
+    /// A small text file over HTTPS, redirects followed, through WinINet.
+    /// </summary>
+    /// <remarks>
+    /// Not HttpClient: with its handlers and TLS stack compiled in, it added three megabytes to the
+    /// exe to fetch a file of a hundred bytes. WinINet is in every Windows, follows GitHub's
+    /// redirect to the release asset on its own, and honours the user's proxy settings.
+    /// </remarks>
+    private static unsafe string Fetch(string url)
+    {
+        nint session = InternetOpenW("Compositor_korean_win/" + Version, INTERNET_OPEN_TYPE_PRECONFIG, null, null, 0);
+        if (session == 0) throw new IOException($"InternetOpen failed ({Marshal.GetLastPInvokeError()})");
+        try
+        {
+            uint timeout = 10_000;
+            InternetSetOptionW(session, INTERNET_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(uint));
+            InternetSetOptionW(session, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(uint));
+
+            nint request = InternetOpenUrlW(session, url, null, 0,
+                                            INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_SECURE, 0);
+            if (request == 0) throw new IOException($"InternetOpenUrl failed ({Marshal.GetLastPInvokeError()})");
+            try
+            {
+                using var body = new MemoryStream();
+                byte* buffer = stackalloc byte[4096];
+                while (true)
+                {
+                    if (!InternetReadFile(request, buffer, 4096, out uint read))
+                        throw new IOException($"InternetReadFile failed ({Marshal.GetLastPInvokeError()})");
+                    if (read == 0) break;
+                    body.Write(new ReadOnlySpan<byte>(buffer, (int)read));
+                    // A feed is a hundred bytes; anything this large is not one.
+                    if (body.Length > 64 * 1024) throw new IOException("the update feed is too large");
+                }
+                return System.Text.Encoding.UTF8.GetString(body.ToArray());
+            }
+            finally
+            {
+                InternetCloseHandle(request);
+            }
+        }
+        finally
+        {
+            InternetCloseHandle(session);
         }
     }
 }
