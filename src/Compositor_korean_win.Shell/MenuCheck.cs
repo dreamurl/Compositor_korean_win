@@ -75,9 +75,17 @@ internal static class MenuCheck
                 {
                     if (command.Interactive) continue;
 
-                    // Adding an adjustment layer chooses it, as it should, and an adjustment layer
-                    // has no pixels to filter; a user would click back on the picture, and so does this.
-                    if (!command.CanRun) canvas.ChooseTopImageLayer();
+                    // A command needs the right layer chosen — a filter needs pixels, Merge Down a
+                    // layer below, Move Out of Group a layer in a group — so, as a user would, this
+                    // clicks through the layers until one will do.
+                    if (!command.CanRun && canvas.Document is CanvasDocument document)
+                    {
+                        foreach (ImageLayer layer in document.Layers.Reverse())
+                        {
+                            canvas.Choose(layer.Id);
+                            if (command.CanRun) break;
+                        }
+                    }
                     if (!command.CanRun) continue;
 
                     try

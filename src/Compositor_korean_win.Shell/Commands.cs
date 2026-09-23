@@ -22,6 +22,8 @@ internal readonly record struct Shortcut(int Key, bool Control = false, bool Shi
             {
                 Win32.VK_OEM_PLUS => "+",
                 Win32.VK_OEM_MINUS => "-",
+                Win32.VK_OEM_4 => "[",
+                Win32.VK_OEM_6 => "]",
                 >= 0x30 and <= 0x39 or >= 0x41 and <= 0x5A => ((char)Key).ToString(),
                 _ => "?",
             });
@@ -93,11 +95,24 @@ internal static class CommandIds
 
     /// <summary>The Image menu's adjustments, one after another in <see cref="FilterCommand"/> order.</summary>
     public const int AdjustFirst = 300;
+    public const int FlipCanvasHorizontal = 310;
+    public const int FlipCanvasVertical = 311;
 
     public const int SelectAll = 400;
     public const int Deselect = 401;
 
     public const int DuplicateLayer = 500;
+    public const int NewLayer = 520;
+    public const int DeleteLayer = 521;
+    public const int MoveLayerUp = 522;
+    public const int MoveLayerDown = 523;
+    public const int GroupLayers = 524;
+    public const int MoveOutOfGroup = 525;
+    public const int ToggleVisibility = 526;
+    public const int ToggleClipping = 527;
+    public const int Merge = 528;
+    public const int FlipLayerHorizontal = 529;
+    public const int FlipLayerVertical = 530;
 
     /// <summary>New adjustment layers, in <see cref="FilterCommand"/> order.</summary>
     public const int AdjustmentLayerFirst = 510;

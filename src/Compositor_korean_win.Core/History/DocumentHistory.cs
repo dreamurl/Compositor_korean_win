@@ -22,10 +22,12 @@ public readonly record struct HistoryName(TextKey? Key, string? Literal = null, 
     public override string ToString()
     {
         if (Key is not TextKey key) return Literal ?? string.Empty;
-        if (Arguments is not { Length: > 0 } arguments) return Localizer.Text(key);
 
-        object?[] words = [.. arguments.Select(argument => argument is TextKey inner ? Localizer.Text(inner) : argument)];
-        return Localizer.Format(key, words);
+        // A step named after a menu command reads as plain words, without the menu's markings.
+        if (Arguments is not { Length: > 0 } arguments) return Localizer.Plain(Localizer.Text(key));
+
+        object?[] words = [.. arguments.Select(argument => argument is TextKey inner ? Localizer.Plain(Localizer.Text(inner)) : argument)];
+        return Localizer.Plain(Localizer.Format(key, words));
     }
 }
 

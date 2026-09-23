@@ -54,8 +54,13 @@ public sealed record LayerMask
     /// <summary>A mask that hides nothing, or one that hides everything, in a single pixel.</summary>
     public static LayerMask Solid(bool revealing)
     {
+        // Grey in the colour channels with full alpha, as every mask is: the renderer reads the
+        // coverage from the colour and treats no alpha as nothing there at all.
         PixelBuffer coverage = PixelBuffer.Allocate(1, 1);
-        coverage.Row(0)[0] = revealing ? (byte)255 : (byte)0;
+        byte level = revealing ? (byte)255 : (byte)0;
+        Span<byte> pixel = coverage.Row(0);
+        pixel[0] = pixel[1] = pixel[2] = level;
+        pixel[3] = 255;
         return new LayerMask { Coverage = coverage };
     }
 }

@@ -1,4 +1,5 @@
 using Compositor_korean_win.Core;
+using Point = Compositor_korean_win.Core.Point;
 using Rect = Compositor_korean_win.Core.Rect;
 
 namespace Compositor_korean_win.Shell;
@@ -109,5 +110,131 @@ internal sealed partial class CanvasView
             _chosen.Add(top.Id);
         }
         NeedsRedraw = true;
+    }
+
+    /// <summary>Makes one layer the only chosen one — the self-test's click on a layer.</summary>
+    internal void Choose(Guid id)
+    {
+        _chosen.Clear();
+        _chosen.Add(id);
+        NeedsRedraw = true;
+    }
+
+    // MARK: The Layer menu
+
+    public ImageLayer? ActiveLayer => Primary is Guid id ? _document?.Layer(id) : null;
+
+    /// <summary>
+    /// Runs one edit as one history step, making <c>Chosen</c> the active layer when it names one.
+    /// </summary>
+    private void Edit(HistoryName name, Func<CanvasDocument, (CanvasDocument Document, Guid? Chosen)?> change)
+    {
+        if (_document is null || !CanEdit) return;
+        if (change(_document) is not (CanvasDocument next, var chosen)) return;
+
+        _history.Begin(name, _document, Primary);
+        _document = next;
+        if (chosen is Guid id)
+        {
+            _chosen.Clear();
+            _chosen.Add(id);
+        }
+        _chosen.RemoveWhere(each => next.Layer(each) is null);
+        _history.End(_document, Primary);
+        NeedsRedraw = true;
+    }
+
+    public void AddLayer() =>
+        Edit(TextKey.CommandNewLayer, document => LayerCommands.AddBlankLayer(document, Primary) is var (next, id)
+            ? (next, id) : null);
+
+    public bool CanDeleteLayers => CanEdit && _chosen.Count > 0;
+
+    public void DeleteLayers()
+    {
+        if (Primary is not Guid active) return;
+        Edit(TextKey.CommandDeleteLayer, document =>
+            LayerCommands.Delete(document, _chosen) is CanvasDocument next
+                ? (next, LayerCommands.Survivor(document, next, active))
+                : null);
+    }
+
+    public bool CanMoveLayer(int offset) =>
+        CanEdit && Primary is Guid id && LayerCommands.CanMove(_document!, id, offset);
+
+    public void MoveLayer(int offset)
+    {
+        if (Primary is not Guid id) return;
+        Edit(offset > 0 ? TextKey.CommandMoveLayerUp : TextKey.CommandMoveLayerDown,
+             document => LayerCommands.Move(document, id, offset) is CanvasDocument next ? (next, null) : null);
+    }
+
+    public bool CanGroupLayers => CanEdit && _chosen.Count > 0;
+
+    public void GroupLayers() =>
+        Edit(TextKey.CommandGroupLayers, document =>
+            LayerCommands.Group(document, [.. _chosen]) is var (next, folder) ? (next, folder) : null);
+
+    public bool CanMoveOutOfGroup => CanEdit && ActiveLayer is { ParentId: not null };
+
+    public void MoveOutOfGroup()
+    {
+        if (Primary is not Guid id) return;
+        Edit(TextKey.CommandMoveOutOfGroup,
+             document => LayerCommands.MoveOutOfFolder(document, id) is CanvasDocument next ? (next, id) : null);
+    }
+
+    public bool CanToggleVisibility => CanEdit && ActiveLayer is not null;
+
+    public bool ActiveLayerVisible => ActiveLayer?.IsVisible ?? true;
+
+    public void ToggleVisibility()
+    {
+        if (Primary is not Guid id) return;
+        Edit(ActiveLayerVisible ? TextKey.CommandHideLayer : TextKey.CommandShowLayer,
+             document => (LayerCommands.ToggleVisibility(document, id), null));
+    }
+
+    public bool ActiveLayerClipped => ActiveLayer?.MaskSourceId is not null;
+
+    public bool CanToggleClipping =>
+        CanEdit && Primary is Guid id && LayerCommands.ToggleClipping(_document!, id) is not null;
+
+    public void ToggleClipping()
+    {
+        if (Primary is not Guid id) return;
+        Edit(ActiveLayerClipped ? TextKey.CommandReleaseClippingMask : TextKey.CommandCreateClippingMask,
+             document => LayerCommands.ToggleClipping(document, id) is CanvasDocument next ? (next, null) : null);
+    }
+
+    /// <summary>What Merge would do now; the menu names the item after it.</summary>
+    public LayerCommands.MergePlan? MergePlan =>
+        CanEdit && _document is CanvasDocument document ? LayerCommands.PlanMerge(document, _chosen, Primary) : null;
+
+    public void Merge()
+    {
+        if (MergePlan is not LayerCommands.MergePlan plan) return;
+        Edit(plan.Action, document => LayerCommands.Merge(document, plan) is var (next, merged) ? (next, merged) : null);
+    }
+
+    public bool CanFlipLayers => CanEdit && _chosen.Count > 0 && _document!.Layers.Any(layer => _chosen.Contains(layer.Id) && !layer.IsGroup);
+
+    public void FlipLayers(bool horizontally) =>
+        Edit(horizontally ? TextKey.CommandFlipLayerHorizontal : TextKey.CommandFlipLayerVertical,
+             document => LayerCommands.Flip(document, [.. _chosen], horizontally) is CanvasDocument next ? (next, null) : null);
+
+    /// <summary>The canvas mirrored, with the selection mirrored along with it.</summary>
+    public void FlipCanvas(bool horizontally)
+    {
+        if (_document is not CanvasDocument before) return;
+        Edit(horizontally ? TextKey.CommandFlipCanvasHorizontal : TextKey.CommandFlipCanvasVertical,
+             document => (LayerCommands.FlipCanvas(document, horizontally), null));
+
+        if (_selection is DocumentSelection selection)
+        {
+            _selection = selection.Transformed(point => horizontally
+                ? new Point(before.Width - point.X, point.Y)
+                : new Point(point.X, before.Height - point.Y));
+        }
     }
 }

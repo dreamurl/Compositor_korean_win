@@ -81,6 +81,41 @@ internal static class AppCommands
 
             new(CommandIds.DuplicateLayer, TextKey.CommandDuplicateLayer, canvas.DuplicateLayer,
                 () => canvas.CanDuplicateLayer, [new(VK_J, Control: true)]),
+            new(CommandIds.NewLayer, TextKey.CommandNewLayer, canvas.AddLayer, Editable,
+                [new(VK_N, Control: true, Shift: true)]),
+            new(CommandIds.DeleteLayer, TextKey.CommandDeleteLayer, canvas.DeleteLayers, () => canvas.CanDeleteLayers),
+            new(CommandIds.MoveLayerUp, TextKey.CommandMoveLayerUp, () => canvas.MoveLayer(1), () => canvas.CanMoveLayer(1),
+                [new(VK_OEM_6, Control: true)]),
+            new(CommandIds.MoveLayerDown, TextKey.CommandMoveLayerDown, () => canvas.MoveLayer(-1),
+                () => canvas.CanMoveLayer(-1), [new(VK_OEM_4, Control: true)]),
+            new(CommandIds.GroupLayers, TextKey.CommandGroupLayers, canvas.GroupLayers, () => canvas.CanGroupLayers,
+                [new(VK_G, Control: true)]),
+            new(CommandIds.MoveOutOfGroup, TextKey.CommandMoveOutOfGroup, canvas.MoveOutOfGroup,
+                () => canvas.CanMoveOutOfGroup),
+            new(CommandIds.ToggleVisibility, TextKey.CommandHideLayer, canvas.ToggleVisibility,
+                () => canvas.CanToggleVisibility)
+            {
+                DynamicLabel = () => Localizer.Text(canvas.ActiveLayerVisible ? TextKey.CommandHideLayer : TextKey.CommandShowLayer),
+            },
+            new(CommandIds.ToggleClipping, TextKey.CommandCreateClippingMask, canvas.ToggleClipping,
+                () => canvas.CanToggleClipping, [new(VK_G, Control: true, Alt: true)])
+            {
+                DynamicLabel = () => Localizer.Text(canvas.ActiveLayerClipped
+                    ? TextKey.CommandReleaseClippingMask : TextKey.CommandCreateClippingMask),
+            },
+            new(CommandIds.Merge, TextKey.CommandMergeDown, canvas.Merge, () => canvas.MergePlan is not null,
+                [new(VK_E, Control: true)])
+            {
+                DynamicLabel = () => Localizer.Text(canvas.MergePlan?.Action ?? TextKey.CommandMergeDown),
+            },
+            new(CommandIds.FlipLayerHorizontal, TextKey.CommandFlipLayerHorizontal, () => canvas.FlipLayers(horizontally: true),
+                () => canvas.CanFlipLayers),
+            new(CommandIds.FlipLayerVertical, TextKey.CommandFlipLayerVertical, () => canvas.FlipLayers(horizontally: false),
+                () => canvas.CanFlipLayers),
+            new(CommandIds.FlipCanvasHorizontal, TextKey.CommandFlipCanvasHorizontal, () => canvas.FlipCanvas(horizontally: true),
+                Editable),
+            new(CommandIds.FlipCanvasVertical, TextKey.CommandFlipCanvasVertical, () => canvas.FlipCanvas(horizontally: false),
+                Editable),
 
             new(CommandIds.ZoomIn, TextKey.CommandZoomIn, () => canvas.Zoom(closer: true), () => canvas.HasDocument,
                 [new(VK_OEM_PLUS, Control: true), new(VK_ADD, Control: true)]),
@@ -153,13 +188,21 @@ internal static class AppCommands
             [
                 new MenuEntry.Submenu(TextKey.MenuAdjustments,
                     [.. Adjustments.Select(adjustment => Item(CommandIds.AdjustFirst + (int)adjustment))]),
+                MenuEntry.Line,
+                Item(CommandIds.FlipCanvasHorizontal), Item(CommandIds.FlipCanvasVertical),
             ]),
             new(TextKey.MenuLayer,
             [
+                Item(CommandIds.NewLayer), Item(CommandIds.DuplicateLayer), Item(CommandIds.DeleteLayer), MenuEntry.Line,
                 new MenuEntry.Submenu(TextKey.MenuNewAdjustmentLayer,
                     [.. Adjustments.Select(adjustment => Item(CommandIds.AdjustmentLayerFirst + (int)adjustment))]),
                 MenuEntry.Line,
-                Item(CommandIds.DuplicateLayer),
+                Item(CommandIds.ToggleClipping), MenuEntry.Line,
+                Item(CommandIds.GroupLayers), Item(CommandIds.MoveOutOfGroup), MenuEntry.Line,
+                Item(CommandIds.ToggleVisibility), MenuEntry.Line,
+                Item(CommandIds.MoveLayerUp), Item(CommandIds.MoveLayerDown), MenuEntry.Line,
+                Item(CommandIds.Merge), MenuEntry.Line,
+                Item(CommandIds.FlipLayerHorizontal), Item(CommandIds.FlipLayerVertical),
             ]),
             new(TextKey.MenuSelect, [Item(CommandIds.SelectAll), Item(CommandIds.Deselect)]),
             new(TextKey.MenuFilter, [.. Filters.Select(filter => Item(CommandIds.FilterFirst + (int)filter))]),

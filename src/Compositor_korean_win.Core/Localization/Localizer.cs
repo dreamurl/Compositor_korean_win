@@ -30,7 +30,7 @@ public enum Language
 /// stores the key and asks for the words when they are shown.
 /// </para>
 /// </remarks>
-public static class Localizer
+public static partial class Localizer
 {
     private static Language s_current = Language.English;
 
@@ -58,6 +58,20 @@ public static class Localizer
     /// <summary>The words for <paramref name="key"/> with its placeholders filled in.</summary>
     public static string Format(TextKey key, params object?[] arguments) =>
         string.Format(CultureInfo.CurrentCulture, Text(key), arguments);
+
+    /// <summary>
+    /// A menu label as ordinary words: without the letter Alt reaches it by ("&amp;File",
+    /// "파일(&amp;F)") or the ellipsis that says a window opens.
+    /// </summary>
+    /// <remarks>What the history and the undo item show when they reuse a command's name.</remarks>
+    public static string Plain(string label)
+    {
+        string text = MnemonicInBrackets().Replace(label, string.Empty);
+        return text.Replace("&", string.Empty).TrimEnd('…').Trim();
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\(&.\)")]
+    private static partial System.Text.RegularExpressions.Regex MnemonicInBrackets();
 
     /// <summary>A language's name in that language, as a language picker shows it.</summary>
     /// <remarks>The same in every language, so the way back is readable whatever is chosen.</remarks>
