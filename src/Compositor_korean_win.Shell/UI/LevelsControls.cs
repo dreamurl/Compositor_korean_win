@@ -102,17 +102,13 @@ internal sealed partial class FilterSheet
     }
 
     /// <summary>Turns an eyedropper on, or all of them off; while one is on, a click on the image sets it.</summary>
-    private void Sample(LevelsSample? mode)
+    private void Sample(LevelsSample? mode) => _levelsSampling = mode;
+
+    /// <summary>A click on the image with a Levels eyedropper on.</summary>
+    private void SampleLevels(Point document)
     {
-        _levelsSampling = mode;
-        Canvas.FilterSampler = mode is LevelsSample on
-            ? point =>
-            {
-                if (Canvas.FilterSourceColour(point) is not var (red, green, blue)) return;
-                LevelsSettings levels = Adjustment.Levels;
-                Adjustment = Adjustment with { Levels = levels.Sampling(red, green, blue, on) };
-            }
-            : null;
+        if (_levelsSampling is not LevelsSample mode || Canvas.FilterSourceColour(document) is not var (red, green, blue)) return;
+        Adjustment = Adjustment with { Levels = Adjustment.Levels.Sampling(red, green, blue, mode) };
     }
 
     private void DrawHistogram(Ui ui, Rect area, int channel)

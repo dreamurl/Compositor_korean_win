@@ -65,12 +65,6 @@ internal sealed partial class CanvasView
     /// <summary>Whether the open command runs over pixels inside a selection only.</summary>
     public bool FilterLimitedToSelection => _preview is not null && _selection is not null;
 
-    /// <summary>
-    /// Where a click on the canvas goes while a command is open — an eyedropper's — with the point in
-    /// the document's pixels. Null leaves the canvas still.
-    /// </summary>
-    public Action<Point>? FilterSampler { get; set; }
-
     internal static bool IsAdjustment(FilterCommand command) => command <= FilterCommand.Grain;
 
     /// <summary>What menus and the history call it.</summary>
@@ -231,7 +225,6 @@ internal sealed partial class CanvasView
     /// <summary>Closes the open command: OK keeps what it did, Cancel puts everything back.</summary>
     public void FinishFilter(bool keep)
     {
-        FilterSampler = null;
         ReleaseSource();
 
         if (_preview is FilterPreview preview)
@@ -295,13 +288,47 @@ internal sealed partial class CanvasView
         }
     }
 
-    /// <summary>A click on the canvas while a command is open: an eyedropper's, or nothing.</summary>
-    private bool FilterClick(Point view)
+    /// <summary>
+    /// A click on the canvas while a command is open does nothing to the document. The sheet's
+    /// eyedroppers take their clicks before they get here (<see cref="Sheet.UsesCanvas"/>).
+    /// </summary>
+    private bool FilterClick(Point view) => IsFiltering;
+
+    /// <summary>The document point under a point in the window, or null with no document.</summary>
+    public Point? DocumentAt(Point window) =>
+        _document is null ? null : _viewport.DocumentPoint(ToView((int)window.X, (int)window.Y), _document.Size);
+
+    private CanvasDocument? _compositeOf;
+    private PixelBuffer? _composite;
+
+    /// <summary>
+    /// The colour the document shows at a point, unpremultiplied over nothing, for the colour
+    /// picker's eyedropper. The composite is drawn once and kept until the document changes.
+    /// </summary>
+    public (double Red, double Green, double Blue)? CompositeColour(Point document)
     {
-        if (!IsFiltering) return false;
-        if (FilterSampler is Action<Point> sample && _document is not null)
-            sample(_viewport.DocumentPoint(view, _document.Size));
-        return true;
+        if (_document is null) return null;
+        if (_composite is null || !ReferenceEquals(_compositeOf, _document))
+        {
+            _composite?.Release();
+            using var backend = new SoftwareRenderBackend();
+            _composite = LayerCompositor.Render(_document, backend);
+            _compositeOf = _document;
+        }
+
+        int column = (int)Math.Floor(document.X), row = (int)Math.Floor(document.Y);
+        if (column < 0 || row < 0 || column >= _composite.Width || row >= _composite.Height) return null;
+        ReadOnlySpan<byte> pixel = _composite.Row(row).Slice(column * 4, 4);
+        if (pixel[3] == 0) return null;
+        double alpha = pixel[3];
+        return (Math.Min(1, pixel[0] / alpha), Math.Min(1, pixel[1] / alpha), Math.Min(1, pixel[2] / alpha));
+    }
+
+    private void ReleaseComposite()
+    {
+        _composite?.Release();
+        _composite = null;
+        _compositeOf = null;
     }
 
     // MARK: What Levels measures and samples

@@ -86,12 +86,22 @@ internal static class UiCheck
                 {
                     canvas.ChooseTopImageLayer();
                     canvas.StartFilter(command, asLayer: false);
+
+                    // A colour range rather than Master, so the spectrum bars and eyedroppers show too.
+                    if (command == FilterCommand.HueSaturation)
+                        canvas.FilterAdjustment = canvas.FilterAdjustment with { HsvSettings = new HueSaturationSettings { Range = ColorRange.Reds } };
                     strings += Sheet(window, chrome, language, command.ToString(), untranslated);
                     if (folder is not null && (language == Language.Korean || command == FilterCommand.Levels))
                         screenshots.Add(Screenshot(device, folder, $"ui-{Localizer.Code(language)}-{command.ToString().ToLowerInvariant()}.png"));
                     canvas.Key(Win32.VK_ESCAPE, control: false);
                     device.Present();
                 }
+
+                chrome.PickColour(TextKey.TooltipForeground, new Rgba(200, 80, 40), _ => { });
+                strings += Sheet(window, chrome, language, "colour picker", untranslated);
+                if (folder is not null) screenshots.Add(Screenshot(device, folder, $"ui-{Localizer.Code(language)}-colour.png"));
+                chrome.SheetKey(Win32.VK_ESCAPE, control: false, shift: false);
+                device.Present();
 
                 if (canvas.Document?.Layers.FirstOrDefault(layer => layer.Adjustment is not null) is ImageLayer adjustment)
                 {

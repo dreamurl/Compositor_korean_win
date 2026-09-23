@@ -41,8 +41,6 @@ internal sealed unsafe class Chrome : IDisposable
         FilterCommand.Exposure, FilterCommand.GradientMap, FilterCommand.Grain,
     ];
 
-    private static readonly uint[] s_customColours = new uint[16];
-
     private readonly nint _window;
     private readonly CanvasView _canvas;
     private readonly Action _open;
@@ -55,6 +53,8 @@ internal sealed unsafe class Chrome : IDisposable
     private Rect _layersList;
 
     private readonly List<Sheet> _sheets = [];
+    private readonly List<Rect> _sheetAreas = [];
+    private Rect _canvasArea;
 
     private nint _renameBox;
     private nint _renameFont;
@@ -87,6 +87,7 @@ internal sealed unsafe class Chrome : IDisposable
 
         double s = scale;
         Rect canvas = CanvasArea(width, height, s);
+        _canvasArea = canvas;
 
         OptionsBar(new Rect(0, 0, width, TopBar * s));
         ToolRail(new Rect(0, TopBar * s, Rail * s, height - (TopBar + StatusBar) * s));
@@ -270,6 +271,16 @@ internal sealed unsafe class Chrome : IDisposable
         }
     }
 
+    /// <summary>
+    /// Whether a point is over the panels or a sheet rather than the picture — where the wheel
+    /// scrolls a list instead of zooming.
+    /// </summary>
+    public bool OverPanels(Point at) =>
+        !Contains(_canvasArea, at) || (_sheets.Count > 0 && _sheetAreas.Any(area => Contains(area, at)));
+
+    private static bool Contains(Rect area, Point at) =>
+        at.X >= area.X && at.Y >= area.Y && at.X < area.MaxX && at.Y < area.MaxY;
+
     /// <summary>Opens a sheet over whatever is open already.</summary>
     public void Open(Sheet sheet)
     {
@@ -290,7 +301,7 @@ internal sealed unsafe class Chrome : IDisposable
     private void SyncFilterSheet()
     {
         FilterSheet? shown = _sheets.OfType<FilterSheet>().FirstOrDefault();
-        if (_canvas.IsFiltering && shown is null) _sheets.Insert(0, new FilterSheet(_canvas));
+        if (_canvas.IsFiltering && shown is null) _sheets.Insert(0, new FilterSheet(_canvas, this));
         else if (!_canvas.IsFiltering && shown is not null) Close(shown);
     }
 
@@ -350,11 +361,45 @@ internal sealed unsafe class Chrome : IDisposable
         _ui.Block(new Rect(0, canvas.Y, canvas.X, height - canvas.Y));
         _ui.Block(new Rect(canvas.MaxX, canvas.Y, width - canvas.MaxX, height - canvas.Y));
         _ui.Block(new Rect(canvas.X, canvas.MaxY, canvas.Width, height - canvas.MaxY));
-        if (!_sheets[^1].UsesCanvas) _ui.Block(canvas);
 
+        Sheet top = _sheets[^1];
+        if (top.UsesCanvas)
+        {
+            // The press, the drag and the release, in document points, for an eyedropper or a
+            // targeted adjustment.
+            Point? pressed = null;
+            _ui.Drag(canvas, (point, finished) =>
+            {
+                bool control = IsKeyDown(VK_CONTROL);
+                if (_canvas.DocumentAt(point) is Point document)
+                {
+                    if (pressed is not Point from)
+                    {
+                        pressed = point;
+                        top.CanvasPress(document, control);
+                    }
+                    else
+                    {
+                        top.CanvasDrag(document, (point.X - from.X) / _ui.Scale, control);
+                    }
+                }
+                if (finished)
+                {
+                    pressed = null;
+                    top.CanvasRelease();
+                }
+            });
+        }
+        else
+        {
+            _ui.Block(canvas);
+        }
+
+        _sheetAreas.Clear();
         for (int i = 0; i < _sheets.Count; i++)
         {
             Rect area = DrawSheet(_sheets[i], canvas, i);
+            _sheetAreas.Add(area);
             // Only the top sheet answers; the ones under it wait for it to close.
             if (i < _sheets.Count - 1) _ui.Block(area);
         }
@@ -469,33 +514,20 @@ internal sealed unsafe class Chrome : IDisposable
     {
         _ui.Fill(area, new Color4(colour.R / 255f, colour.G / 255f, colour.B / 255f, 1f));
         _ui.Frame(area, Ui.Ink);
-        _ui.Area(area, () =>
-        {
-            if (PickColour(colour) is Rgba picked) set(picked);
-        }, Localizer.Text(tooltip));
+        _ui.Area(area, () => PickColour(tooltip, colour, set), Localizer.Text(tooltip));
     }
 
     /// <summary>
-    /// The system colour dialog. It speaks the language Windows is in, as the file dialogs do; the
-    /// program's own colour picker is M6.5's.
+    /// The program's own colour picker on a tool colour. The colour changes as it is picked, and
+    /// Cancel puts the old one back.
     /// </summary>
-    private Rgba? PickColour(Rgba current)
+    public void PickColour(TextKey title, Rgba current, Action<Rgba> set)
     {
-        fixed (uint* custom = s_customColours)
-        {
-            var dialog = new CHOOSECOLORW
-            {
-                lStructSize = (uint)sizeof(CHOOSECOLORW),
-                hwndOwner = _window,
-                rgbResult = (uint)(current.R | current.G << 8 | current.B << 16),
-                lpCustColors = custom,
-                Flags = CC_RGBINIT | CC_FULLOPEN,
-            };
+        static Rgba Bytes((double Red, double Green, double Blue) c) =>
+            new((byte)Math.Round(c.Red * 255), (byte)Math.Round(c.Green * 255), (byte)Math.Round(c.Blue * 255));
 
-            if (!ChooseColorW(ref dialog)) return null;
-            uint value = dialog.rgbResult;
-            return new Rgba((byte)(value & 0xFF), (byte)((value >> 8) & 0xFF), (byte)((value >> 16) & 0xFF));
-        }
+        Open(new ColourSheet(title, (current.R / 255.0, current.G / 255.0, current.B / 255.0),
+                             colour => set(Bytes(colour)), _canvas.CompositeColour));
     }
 
     // MARK: The Layers panel
@@ -734,7 +766,7 @@ internal sealed unsafe class Chrome : IDisposable
     }
 
     /// <summary>A pop-up menu at the pointer. Returns the index chosen, or −1.</summary>
-    private int Popup((string Text, bool Checked)[] items, int[]? separatorsAfter = null)
+    internal int Popup((string Text, bool Checked)[] items, int[]? separatorsAfter = null)
     {
         nint menu = CreatePopupMenu();
         try

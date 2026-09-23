@@ -245,6 +245,38 @@ public enum TextKey
     AutoNeutral,
     NoteHistogramOwn,
     NoteHistogramBelow,
+
+    // Hue/Saturation's ranges, Curves, Gradient Map and the colour picker.
+    RangeMaster,
+    RangeReds,
+    RangeYellows,
+    RangeGreens,
+    RangeCyans,
+    RangeBlues,
+    RangeMagentas,
+    HueSample,
+    HueAddToSample,
+    HueSubtractFromSample,
+    HueTargeted,
+    NoteHueSample,
+    NoteHueAddToSample,
+    NoteHueSubtractFromSample,
+    NoteHueTargeted,
+    LabelInvertRange,
+    NoteCurvesHelp,
+    LabelCurveInput,
+    LabelCurveOutput,
+    CurvesRemovePoint,
+    CurvesResetCurve,
+    LabelShadows,
+    LabelHighlights,
+    LabelReverse,
+    NoteColourPickerSample,
+    LabelNewColour,
+    LabelCurrentColour,
+    LabelR,
+    LabelG,
+    LabelB,
 }
 
 /// <summary>
@@ -499,11 +531,41 @@ public static class TextTable
         (TextKey.AutoNeutral, "Color + Neutral Midtones", "색상 + 중간톤 중립"),
         (TextKey.NoteHistogramOwn, "Histogram of the layer's own pixels, weighted by their opacity.", "레이어 자체 픽셀의 히스토그램입니다(불투명도로 가중)."),
         (TextKey.NoteHistogramBelow, "Histogram of the layers below, which is what this adjustment layer changes.", "이 조정 레이어가 바꾸는 아래 레이어들의 히스토그램입니다."),
+        (TextKey.RangeMaster, "Master", "마스터"),
+        (TextKey.RangeReds, "Reds", "빨강 계열"),
+        (TextKey.RangeYellows, "Yellows", "노랑 계열"),
+        (TextKey.RangeGreens, "Greens", "녹색 계열"),
+        (TextKey.RangeCyans, "Cyans", "녹청 계열"),
+        (TextKey.RangeBlues, "Blues", "파랑 계열"),
+        (TextKey.RangeMagentas, "Magentas", "마젠타 계열"),
+        (TextKey.HueSample, "Sample", "샘플"),
+        (TextKey.HueAddToSample, "Add to Sample", "샘플에 추가"),
+        (TextKey.HueSubtractFromSample, "Subtract from Sample", "샘플에서 빼기"),
+        (TextKey.HueTargeted, "Targeted Adjustment", "대상 조정"),
+        (TextKey.NoteHueSample, "Click the image to center this range on that color.", "이미지를 클릭하면 이 범위를 그 색의 가운데로 옮깁니다."),
+        (TextKey.NoteHueAddToSample, "Click the image to widen this range to include that color.", "이미지를 클릭하면 그 색이 들어오도록 이 범위를 넓힙니다."),
+        (TextKey.NoteHueSubtractFromSample, "Click the image to narrow this range to exclude that color.", "이미지를 클릭하면 그 색이 빠지도록 이 범위를 좁힙니다."),
+        (TextKey.NoteHueTargeted, "Drag on the image to change that color's saturation; hold Ctrl to change its hue.", "이미지 위를 끌면 그 색의 채도가 바뀝니다. Ctrl을 누르고 끌면 색조가 바뀝니다."),
+        (TextKey.LabelInvertRange, "Apply outside this range instead", "이 범위 밖에 대신 적용"),
+        (TextKey.NoteCurvesHelp, "Click to add a point. Drag to adjust.", "클릭해 점을 추가하고, 끌어서 조정하세요."),
+        (TextKey.LabelCurveInput, "Input", "입력"),
+        (TextKey.LabelCurveOutput, "Output", "출력"),
+        (TextKey.CurvesRemovePoint, "Remove Point", "점 삭제"),
+        (TextKey.CurvesResetCurve, "Reset Curve", "곡선 재설정"),
+        (TextKey.LabelShadows, "Shadows", "어두운 영역"),
+        (TextKey.LabelHighlights, "Highlights", "밝은 영역"),
+        (TextKey.LabelReverse, "Reverse", "반전"),
+        (TextKey.NoteColourPickerSample, "Click the canvas to sample a color.", "캔버스를 클릭하면 색을 추출합니다."),
+        (TextKey.LabelNewColour, "New", "새 색상"),
+        (TextKey.LabelCurrentColour, "Current", "현재 색상"),
+        (TextKey.LabelR, "R", "R"),
+        (TextKey.LabelG, "G", "G"),
+        (TextKey.LabelB, "B", "B"),
     ];
 
     /// <summary>Phrases that are the same in both languages on purpose — names, not words.</summary>
     public static readonly FrozenSet<TextKey> Untranslated =
-        new[] { TextKey.LanguageEnglish, TextKey.LanguageKorean, TextKey.UnitPercent, TextKey.ChannelRgb }.ToFrozenSet();
+        new[] { TextKey.LanguageEnglish, TextKey.LanguageKorean, TextKey.UnitPercent, TextKey.ChannelRgb, TextKey.LabelR, TextKey.LabelG, TextKey.LabelB }.ToFrozenSet();
 
     private static readonly FrozenDictionary<TextKey, (string English, string Korean)> s_byKey =
         Entries.ToFrozenDictionary(entry => entry.Key, entry => (entry.English, entry.Korean));

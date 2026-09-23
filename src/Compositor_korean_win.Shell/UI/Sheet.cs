@@ -40,8 +40,19 @@ internal abstract class Sheet
 
     public virtual bool CanAccept => true;
 
-    /// <summary>Whether clicks on the canvas reach it while the sheet is open.</summary>
+    /// <summary>Whether the sheet takes clicks on the canvas while it is open — an eyedropper's.</summary>
     public virtual bool UsesCanvas => false;
+
+    /// <summary>A button went down on the canvas, at this document point.</summary>
+    public virtual void CanvasPress(Point document, bool control) { }
+
+    /// <summary>
+    /// The pointer moved with the button down: the document point, and how far it has moved across
+    /// since the press, in points — a targeted adjustment turns that into a value.
+    /// </summary>
+    public virtual void CanvasDrag(Point document, double across, bool control) { }
+
+    public virtual void CanvasRelease() { }
 
     /// <summary>The Preview box's state, or null for a sheet without one.</summary>
     public virtual bool? Preview
@@ -202,6 +213,26 @@ internal sealed class SheetLayout
             Ui.Button(button, press, null, active: active, label: text);
             x = button.MaxX + Ui.P(4);
         }
+    }
+
+    /// <summary>A button showing the current choice, which opens the list to choose from.</summary>
+    public void Dropdown(string? label, string value, Action open, double points = 180)
+    {
+        if (label is not null) Label(label);
+        Rect row = Take(26);
+        if (Measuring) return;
+
+        double x = row.X;
+        if (label is not null)
+        {
+            Ui.Text(label, new Rect(row.X, row.Y, LabelWidth, row.Height), Ui.Dim);
+            x += LabelWidth + Ui.P(6);
+        }
+        var button = new Rect(x, row.Y, Math.Min(Ui.P(points), row.MaxX - x), row.Height);
+        Ui.Fill(button, Ui.Raised);
+        Ui.Button(button, open, null);
+        Ui.Text(value, new Rect(button.X + Ui.P(10), button.Y, button.Width - Ui.P(28), button.Height), Ui.Ink);
+        Ui.Text("▾", new Rect(button.MaxX - Ui.P(18), button.Y, Ui.P(12), button.Height), Ui.Dim);
     }
 
     public void Check(string label, bool value, Action toggle)

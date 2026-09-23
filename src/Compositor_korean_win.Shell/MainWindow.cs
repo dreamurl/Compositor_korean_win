@@ -334,7 +334,7 @@ internal sealed unsafe class MainWindow : IDisposable
                     double notches = WheelDelta(wParam) / (double)WHEEL_DELTA;
 
                     if (window.Chrome?.Scroll(new Point(where.X, where.Y), notches) == true) window.Invalidate();
-                    else if (window.Chrome?.Ui.Covers(new Point(where.X, where.Y)) != true)
+                    else if (window.Chrome?.OverPanels(new Point(where.X, where.Y)) != true)
                         canvas.Wheel(canvas.ToView(where.X, where.Y), notches);
                     window.AfterInput();
                 }

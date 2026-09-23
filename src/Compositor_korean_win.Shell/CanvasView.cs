@@ -1415,6 +1415,8 @@ internal sealed partial class CanvasView : IDisposable
         _stroke?.Dispose();
         _strokeBase?.Release();
         _preview?.Dispose();
+        ReleaseSource();
+        ReleaseComposite();
         _history.Clear(_document);
         _document = null;
         _distortPreview?.Dispose();

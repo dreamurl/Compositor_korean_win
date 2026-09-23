@@ -1,4 +1,7 @@
 using Compositor_korean_win.Core;
+using Vortice.Mathematics;
+using Point = Compositor_korean_win.Core.Point;
+using Rect = Compositor_korean_win.Core.Rect;
 
 namespace Compositor_korean_win.Shell;
 
@@ -10,7 +13,7 @@ namespace Compositor_korean_win.Shell;
 /// Holds nothing of its own: every control reads the canvas's open edit and writes a changed copy
 /// back (<see cref="CanvasView.FilterSettings"/>), which moves the preview.
 /// </remarks>
-internal sealed partial class FilterSheet(CanvasView canvas) : Sheet
+internal sealed partial class FilterSheet(CanvasView canvas, Chrome host) : Sheet
 {
     private CanvasView Canvas => canvas;
 
@@ -30,9 +33,31 @@ internal sealed partial class FilterSheet(CanvasView canvas) : Sheet
 
     public override string Title => Localizer.Text(CanvasView.FilterTitle(Command));
 
-    public override double Width => Command is FilterCommand.HueSaturation or FilterCommand.Levels ? 440 : 380;
+    public override double Width => Command switch
+    {
+        FilterCommand.HueSaturation => 460,
+        FilterCommand.Levels => 440,
+        FilterCommand.Curves => 400,
+        _ => 380,
+    };
 
-    public override bool UsesCanvas => canvas.FilterSampler is not null;
+    /// <summary>An eyedropper or the targeted adjustment is on, so a click on the image is the sheet's.</summary>
+    public override bool UsesCanvas => _levelsSampling is not null || _hueSampling is not null || _hueTargeting;
+
+    public override void CanvasPress(Point document, bool control)
+    {
+        if (_levelsSampling is not null) SampleLevels(document);
+        else if (_hueSampling is not null) SampleHue(document);
+        else if (_hueTargeting) BeginTargeting(document);
+    }
+
+    public override void CanvasDrag(Point document, double across, bool control)
+    {
+        if (_levelsSampling is not null) SampleLevels(document);
+        else if (_hueTargeting) DragTargeting(across, control);
+    }
+
+    public override void CanvasRelease() => _hueTarget = null;
 
     public override bool? Preview
     {
@@ -43,6 +68,7 @@ internal sealed partial class FilterSheet(CanvasView canvas) : Sheet
     public override Action Reset => () =>
     {
         FilterCommand command = Command;
+        _curveSelected = null;
         Settings = CanvasView.IsAdjustment(command)
             ? Settings with { Adjustment = CanvasView.StartingAdjustment(command, Settings.Seed) }
             : new FilterSettings { Seed = Settings.Seed };
@@ -119,33 +145,58 @@ internal sealed partial class FilterSheet(CanvasView canvas) : Sheet
             case FilterCommand.Levels:
                 Levels(layout);
                 break;
+
+            case FilterCommand.Curves:
+                Curves(layout);
+                break;
+
+            case FilterCommand.GradientMap:
+                GradientMap(layout);
+                break;
         }
 
         if (canvas.FilterLimitedToSelection) layout.Note(Localizer.Text(TextKey.NoteLimitedToSelection));
     }
 
-    private void HueSaturation(SheetLayout layout)
+    private void GradientMap(SheetLayout layout)
     {
-        HueSaturationSettings hsv = Adjustment.ResolvedHsv;
-        RangeAdjustment current = hsv.Current;
+        GradientMapSettings map = Adjustment.GradientMap;
+        void Set(GradientMapSettings changed) => Adjustment = Adjustment with { GradientMapSettings = changed };
+        Ui ui = layout.Ui;
 
-        void Set(RangeAdjustment changed) =>
-            Adjustment = Adjustment with { HsvSettings = hsv with { Adjustments = hsv.Adjustments.With(hsv.Range, changed) } };
+        (AdjustmentColor dark, AdjustmentColor light) = map.Ends;
+        layout.Custom(22, area =>
+        {
+            ui.Gradient(area, vertical: false, Paint(dark), Paint(light));
+            ui.Frame(area, Ui.Line);
+        });
 
-        layout.Slider(Localizer.Text(TextKey.LabelHue), current.Hue, hsv.Colorize ? 0 : -180, hsv.Colorize ? 360 : 180, 0,
-                      value => Set(current with { Hue = value }), "°");
-        layout.Slider(Localizer.Text(TextKey.LabelSaturation), current.Saturation, hsv.Colorize ? 0 : -100, 100, 0,
-                      value => Set(current with { Saturation = value }));
-        layout.Slider(Localizer.Text(TextKey.LabelLightness), current.Lightness, -100, 100, 0,
-                      value => Set(current with { Lightness = value }));
+        layout.Custom(30, area =>
+        {
+            Swatch(ui, new Rect(area.X, area.Y, area.Width / 2, area.Height), TextKey.LabelShadows, map.Shadows,
+                   colour => Set(Adjustment.GradientMap with { Shadows = colour }));
+            Swatch(ui, new Rect(area.X + area.Width / 2, area.Y, area.Width / 2, area.Height), TextKey.LabelHighlights,
+                   map.Highlights, colour => Set(Adjustment.GradientMap with { Highlights = colour }));
+        });
 
-        // Photoshop starts colorizing at hue 0, saturation 25.
-        layout.Check(Localizer.Text(TextKey.LabelColorize), hsv.Colorize, () =>
-            Adjustment = Adjustment with
-            {
-                HsvSettings = hsv.Colorize ? new HueSaturationSettings() : HueSaturationSettings.ColorizeStart,
-            });
+        layout.Check(Localizer.Text(TextKey.LabelReverse), map.Reversed, () => Set(map with { Reversed = !map.Reversed }));
     }
+
+    /// <summary>One end's colour, which opens the colour picker; the map follows the picker as it moves.</summary>
+    private void Swatch(Ui ui, Rect area, TextKey label, AdjustmentColor colour, Action<AdjustmentColor> set)
+    {
+        var box = new Rect(area.X, area.Y + (area.Height - ui.P(24)) / 2, ui.P(24), ui.P(24));
+        ui.Fill(box, Paint(colour));
+        ui.Frame(box, Ui.Ink);
+        ui.Text(Localizer.Text(label), new Rect(box.MaxX + ui.P(8), area.Y, area.Width - box.Width - ui.P(8), area.Height), Ui.Ink);
+        ui.Area(new Rect(area.X, area.Y, area.Width - ui.P(8), area.Height), () =>
+            host.Open(new ColourSheet(label, (colour.Red, colour.Green, colour.Blue),
+                                      picked => set(new AdjustmentColor(picked.Red, picked.Green, picked.Blue)),
+                                      canvas.CompositeColour)));
+    }
+
+    private static Color4 Paint(AdjustmentColor colour) =>
+        new((float)colour.Red, (float)colour.Green, (float)colour.Blue, 1);
 
     private static string Px => Localizer.Text(TextKey.UnitPx);
 }

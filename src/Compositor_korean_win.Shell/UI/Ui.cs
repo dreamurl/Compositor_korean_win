@@ -37,7 +37,7 @@ internal sealed class Ui : IDisposable
                               string? Field = null);
 
     /// <summary>A number box drawn this frame: what it shows, and what a typed value is handed to.</summary>
-    private sealed record FieldEntry(string Id, string Shown, Action<double> Set);
+    private sealed record FieldEntry(string Id, string Shown, Action<string> Commit, Func<char, bool> Takes);
 
     private readonly IDWriteFactory _writer = CreateWriter();
 
@@ -364,10 +364,25 @@ internal sealed class Ui : IDisposable
     /// native edit control; a layer's name, which can be Korean and needs the input method, is
     /// renamed in a real one.
     /// </remarks>
-    public void Field(Rect area, string id, double value, int decimals, Action<double> set)
+    public void Field(Rect area, string id, double value, int decimals, Action<double> set) =>
+        TextField(area, id, Format(value, decimals), typed =>
+        {
+            if (double.TryParse(typed.Replace(',', '.'), System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out double number)
+                && double.IsFinite(number))
+            {
+                set(number);
+            }
+        }, character => char.IsAsciiDigit(character) || character is '.' or ',' or '-' or '+');
+
+    /// <summary>
+    /// A box of short text in a small alphabet — a colour's hex code — typed the way <see cref="Field"/>
+    /// is: <paramref name="takes"/> says which characters it accepts, and <paramref name="commit"/>
+    /// hears the text when it is done, to use or ignore.
+    /// </summary>
+    public void TextField(Rect area, string id, string shown, Action<string> commit, Func<char, bool> takes)
     {
-        string shown = Format(value, decimals);
-        _fields.Add(new FieldEntry(id, shown, set));
+        _fields.Add(new FieldEntry(id, shown, commit, takes));
         _hits.Add(new Hit(area, () => Focus(id, shown), null, null, null, id));
 
         bool focused = _focus == id;
@@ -428,6 +443,33 @@ internal sealed class Ui : IDisposable
     /// The drag hears every position, and <c>true</c> with the last one.
     /// </summary>
     public void Drag(Rect area, Action<Point, bool> drag) => _hits.Add(new Hit(area, null, drag, null, null));
+
+    /// <summary>A filled circle with an edge — a curve's handle, a colour field's marker.</summary>
+    public void Dot(Point centre, double radius, Color4 colour, Color4 edge)
+    {
+        var ellipse = new Ellipse(Vector(centre), (float)radius, (float)radius);
+        _brush!.Color = colour;
+        Context.FillEllipse(ellipse, _brush);
+        _brush.Color = edge;
+        Context.DrawEllipse(ellipse, _brush, P(1));
+    }
+
+    /// <summary>
+    /// A rectangle filled with a gradient through evenly spaced colours, left to right or top to
+    /// bottom — the colour picker's field and hue strip.
+    /// </summary>
+    public void Gradient(Rect area, bool vertical, params Color4[] colours)
+    {
+        var stops = new GradientStop[colours.Length];
+        for (int i = 0; i < colours.Length; i++)
+            stops[i] = new GradientStop((float)i / Math.Max(1, colours.Length - 1), colours[i]);
+
+        using ID2D1GradientStopCollection collection = Context.CreateGradientStopCollection(stops);
+        var start = new Vector2((float)area.X, (float)area.Y);
+        var end = vertical ? new Vector2((float)area.X, (float)area.MaxY) : new Vector2((float)area.MaxX, (float)area.Y);
+        using ID2D1LinearGradientBrush brush = Context.CreateLinearGradientBrush(new LinearGradientBrushProperties(start, end), collection);
+        Context.FillRectangle(Raw(area), brush);
+    }
 
     /// <summary>A filled triangle pointing up, its tip at <paramref name="tip"/> — a slider's handle.</summary>
     public void Triangle(Point tip, double width, double height, Color4 colour, Color4 edge)
@@ -553,13 +595,7 @@ internal sealed class Ui : IDisposable
         if (_focus is not string id) return;
         _focus = null;
 
-        if (_liveFields.FirstOrDefault(field => field.Id == id) is FieldEntry field
-            && double.TryParse(_typed.Replace(',', '.'), System.Globalization.NumberStyles.Float,
-                               System.Globalization.CultureInfo.InvariantCulture, out double value)
-            && double.IsFinite(value))
-        {
-            field.Set(value);
-        }
+        _liveFields.FirstOrDefault(field => field.Id == id)?.Commit(_typed);
     }
 
     /// <summary>Drops what was typed, leaving the value as it was.</summary>
@@ -601,7 +637,7 @@ internal sealed class Ui : IDisposable
             _typed = _fresh ? "" : _typed[..Math.Max(0, _typed.Length - 1)];
             _fresh = false;
         }
-        else if (char.IsAsciiDigit(character) || character is '.' or ',' or '-' or '+')
+        else if (_liveFields.FirstOrDefault(field => field.Id == _focus)?.Takes(character) == true)
         {
             if (_fresh) _typed = "";
             _fresh = false;
