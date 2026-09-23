@@ -113,12 +113,11 @@ internal sealed class Ui : IDisposable
 
         bool korean = Localizer.Current == Language.Korean;
         string family = korean ? "Malgun Gothic" : "Segoe UI";
-        string locale = korean ? "ko-kr" : "en-us";
 
         IDWriteTextFormat Make(double points, FontWeight weight, TextAlignment alignment)
         {
             IDWriteTextFormat format = _writer.CreateTextFormat(family, weight, Vortice.DirectWrite.FontStyle.Normal,
-                                                                FontStretch.Normal, P(points), locale);
+                                                                FontStretch.Normal, P(points));
             format.TextAlignment = alignment;
             format.ParagraphAlignment = ParagraphAlignment.Center;
             format.WordWrapping = WordWrapping.NoWrap;
