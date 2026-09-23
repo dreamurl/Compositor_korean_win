@@ -130,6 +130,7 @@ internal static class SelfTest
         }
         catch (Exception exception)
         {
+            Console.Error.WriteLine(exception);
             failures.Add("menu check failed: " + exception.Message);
         }
 

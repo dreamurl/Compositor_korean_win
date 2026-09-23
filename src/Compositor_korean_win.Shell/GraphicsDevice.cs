@@ -125,12 +125,25 @@ internal sealed class GraphicsDevice : IDisposable
     /// <summary>
     /// Points the device context at <paramref name="hwnd"/>, creating or resizing the swap chain.
     /// </summary>
+    private nint _boundWindow;
+
     public void BindWindow(nint hwnd, int width, int height, Format format)
     {
         width = Math.Max(1, width);
         height = Math.Max(1, height);
 
         ReleaseBackBuffer();
+
+        // A swap chain belongs to the window it was made for. The self-test opens a second window
+        // after the first has gone, and resizing the first one's chain there fails with "access
+        // denied" when Direct2D wraps its buffer.
+        if (_swapChain is not null && _boundWindow != hwnd)
+        {
+            _swapChain.Dispose();
+            _swapChain = null;
+        }
+
+        _boundWindow = hwnd;
 
         if (_swapChain is null)
         {
