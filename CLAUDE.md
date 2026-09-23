@@ -78,5 +78,5 @@ gh api repos/dreamurl/Compositor_korean_win/actions/jobs/$jobid/logs | grep -E "
 
 ## 6. 현재 위치
 
-M0~M5, M6.1~M6.5 완료, 다음은 **M6.6(탭과 파일 — 여러 문서, 끌어다 놓기, 저장·열기 왕복)**.
+M0~M6 완료, 다음은 **M7(AI — 선택 영역 가장자리 다듬기, 배경 제거)**.
 C 커널은 전부 연결됐다. M3–M5가 미뤄 둔 UI 목록과 상세는 `docs/progress.md` 6.6절·7절.
