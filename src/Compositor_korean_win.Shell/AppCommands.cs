@@ -157,6 +157,7 @@ internal static class AppCommands
             },
 
             new(CommandIds.AddLayerMask, TextKey.CommandAddLayerMask, canvas.AddMask, () => canvas.CanAddMask),
+            new(CommandIds.AddHideMask, TextKey.CommandAddHideMask, canvas.AddHideMask, () => canvas.CanAddMask),
             new(CommandIds.DeleteLayerMask, TextKey.CommandDeleteLayerMask, canvas.DeleteMask, () => canvas.CanChangeMask),
             new(CommandIds.ToggleMaskLink, TextKey.CommandUnlinkMask, () => canvas.ToggleMaskLink(), () => canvas.CanToggleMaskLink)
             {
@@ -337,7 +338,8 @@ internal static class AppCommands
                 Item(CommandIds.DeleteLayer), MenuEntry.Line,
                 Item(CommandIds.Transform), MenuEntry.Line,
                 new MenuEntry.Submenu(TextKey.MenuLayerMask,
-                    [Item(CommandIds.AddLayerMask), Item(CommandIds.DeleteLayerMask), Item(CommandIds.ToggleLayerMask),
+                    [Item(CommandIds.AddLayerMask), Item(CommandIds.AddHideMask), Item(CommandIds.DeleteLayerMask),
+                     Item(CommandIds.ToggleLayerMask),
                      Item(CommandIds.ToggleMaskLink)]),
                 new MenuEntry.Submenu(TextKey.MenuNewAdjustmentLayer,
                     [.. Adjustments.Select(adjustment => Item(CommandIds.AdjustmentLayerFirst + (int)adjustment))]),

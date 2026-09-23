@@ -214,6 +214,28 @@ internal static class ToolsCheck
             menu.Run(CommandIds.Transform);
             canvas.Key(Win32.VK_ESCAPE, control: false);
             Expect(!canvas.IsFloating && canvas.Document == unlifted && canvas.Selection is not null, "Escape did not put the pixels back");
+
+            // The Layers panel: a row dropped below another, Alt copying it, a thumbnail's pixels as
+            // the selection, a hide-all mask, and Shift-click switching a mask off.
+            menu.Run(CommandIds.Deselect);
+            canvas.ClickLayer(id, control: false, shift: false, [id]);
+            menu.Run(CommandIds.NewLayer);
+            Guid fresh = canvas.ActiveLayer!.Id;
+            canvas.PlaceLayers(fresh, id, LayerDrop.Below, copy: false);
+            List<Guid> order = [.. canvas.Document!.Layers.Select(layer => layer.Id)];
+            Expect(order.IndexOf(fresh) < order.IndexOf(id), "a row dropped below another did not go below it");
+            int counted = canvas.Document.Layers.Count;
+            canvas.PlaceLayers(fresh, id, LayerDrop.Above, copy: true);
+            Expect(canvas.Document!.Layers.Count == counted + 1, "Alt-dropping a row did not copy it");
+            canvas.LoadLayerSelection(id, add: false, subtract: false);
+            Expect(canvas.Selection is not null, "Ctrl-click on a thumbnail did not load the layer's pixels");
+            canvas.ClickLayer(id, control: false, shift: false, [id]);
+            menu.Run(CommandIds.Deselect);
+            menu.Run(CommandIds.AddHideMask);
+            Expect(canvas.Document!.Layer(id)!.Mask is { Coverage.Width: 1 } hidden && hidden.Coverage.Row(0)[0] == 0,
+                   "Add Hide-All Mask did not add a black mask");
+            canvas.ToggleMaskOf(id);
+            Expect(canvas.Document!.Layer(id)!.Mask?.IsEnabled == false, "Shift-click did not switch the mask off");
         }
         catch (Exception exception)
         {

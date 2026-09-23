@@ -779,7 +779,22 @@ internal sealed unsafe class Chrome : IDisposable
             bool control = IsKeyDown(VK_CONTROL), shift = IsKeyDown(VK_SHIFT);
             _canvas.ClickLayer(id, control, shift, order);
         }
-        _ui.Area(visible, Choose, doubleClick: () => StartRename(id, row));
+
+        // The row picks the layer on release, or is carried to another place in the list.
+        _ui.Drag(visible, (point, finished) => RowDrag(layer, point, finished, order), null,
+                 doubleClick: () => StartRename(id, row));
+
+        // Where a dragged row would land: a line between rows, or a frame round a folder.
+        if (_rowDragFrom is not null && _rowDragMoved && visible.Contains(_rowDragAt))
+        {
+            LayerDrop drop = DropAt(row, layer, _rowDragAt);
+            if (drop == LayerDrop.Into) _ui.Frame(visible, Ui.Accent, _ui.P(2));
+            else
+            {
+                double edge = drop == LayerDrop.Above ? row.Y + 1 : row.MaxY - 1;
+                _ui.Rule(new Point(row.X, edge), new Point(row.MaxX, edge), Ui.Accent, _ui.P(2));
+            }
+        }
 
         double x = row.X;
         var eye = new Rect(x, row.Y, _ui.P(28), row.Height);
@@ -805,6 +820,7 @@ internal sealed unsafe class Chrome : IDisposable
 
         var thumb = new Rect(x + _ui.P(2), row.Y + _ui.P(4), _ui.P(26), row.Height - _ui.P(8));
         Thumbnail(thumb, layer);
+        _thumbAreas[id] = thumb;
         x = thumb.MaxX + _ui.P(4);
 
         // As in Photoshop: a double click on an adjustment layer's picture opens its settings, one on
@@ -874,7 +890,12 @@ internal sealed unsafe class Chrome : IDisposable
         _maskDragFrom = null;
         if (!_maskDragMoved)
         {
-            _canvas.ClickMask(id);
+            // Photoshop's: Ctrl loads the black areas (Shift adds, Alt takes away), Shift switches
+            // the mask off and on, a plain click makes it the target.
+            bool control = IsKeyDown(VK_CONTROL), shift = IsKeyDown(VK_SHIFT), alt = IsKeyDown(VK_MENU);
+            if (control) _canvas.LoadMaskSelection(id, add: shift, subtract: alt);
+            else if (shift) _canvas.ToggleMaskOf(id);
+            else _canvas.ClickMask(id);
             return;
         }
 
@@ -884,6 +905,113 @@ internal sealed unsafe class Chrome : IDisposable
             _canvas.CopyMask(id, target);
             return;
         }
+    }
+
+    private readonly Dictionary<Guid, Rect> _thumbAreas = [];
+    private Guid? _rowDragFrom;
+    private Point _rowDragStart;
+    private Point _rowDragAt;
+    private bool _rowDragMoved;
+
+    /// <summary>
+    /// A press on a layer's row, followed until release. Left where it was, it is a click — with
+    /// Ctrl on the thumbnail, the layer's pixels as the selection. Carried, it drops the layers above
+    /// or below the row under the pointer, or into a folder; with Alt, copies of them.
+    /// </summary>
+    private void RowDrag(ImageLayer layer, Point point, bool finished, IReadOnlyList<Guid> order)
+    {
+        if (_rowDragFrom is null)
+        {
+            _rowDragFrom = layer.Id;
+            _rowDragStart = point;
+            _rowDragMoved = false;
+        }
+
+        _rowDragAt = point;
+        if (Math.Abs(point.Y - _rowDragStart.Y) > _ui.P(5)) _rowDragMoved = true;
+        if (!finished) return;
+        _rowDragFrom = null;
+
+        bool control = IsKeyDown(VK_CONTROL), shift = IsKeyDown(VK_SHIFT), alt = IsKeyDown(VK_MENU);
+        if (!_rowDragMoved)
+        {
+            if (control && _thumbAreas.TryGetValue(layer.Id, out Rect thumb) && thumb.Contains(_rowDragStart) && layer.Image is not null)
+                _canvas.LoadLayerSelection(layer.Id, add: shift, subtract: alt);
+            else
+                _canvas.ClickLayer(layer.Id, control, shift, order);
+            return;
+        }
+
+        foreach ((Rect row, Guid target) in _rowAreas)
+        {
+            if (!row.Contains(point) || _canvas.Document?.Layer(target) is not ImageLayer under) continue;
+            _canvas.PlaceLayers(layer.Id, target, DropAt(row, under, point), copy: alt);
+            return;
+        }
+    }
+
+    /// <summary>Above or below a row by which half the pointer is in; a folder's middle half is into it.</summary>
+    private static LayerDrop DropAt(Rect row, ImageLayer under, Point point)
+    {
+        double along = (point.Y - row.Y) / Math.Max(1, row.Height);
+        if (under.IsGroup && along is > 0.25 and < 0.75) return LayerDrop.Into;
+        return along < 0.5 ? LayerDrop.Above : LayerDrop.Below;
+    }
+
+    /// <summary>
+    /// A right click on a layer's row: that layer chosen and upstream's row menu — rename, duplicate,
+    /// delete, the mask's commands, clipping, folders, merging. True when a row took it.
+    /// </summary>
+    public bool ContextMenu(Point at)
+    {
+        if (_canvas.Document is not CanvasDocument document || !_canvas.CanEdit) return false;
+
+        foreach ((Rect row, Guid id) in _rowAreas)
+        {
+            if (!row.Contains(at) || document.Layer(id) is not ImageLayer layer) continue;
+            if (!_canvas.Chosen.Contains(id)) _canvas.ClickLayer(id, control: false, shift: false, [id]);
+
+            var entries = new List<(string Text, Action Run)>
+            {
+                (Localizer.Text(TextKey.CommandRenameLayer), () => StartRename(id, row)),
+                (Localizer.Text(TextKey.CommandDuplicateLayer), () => _runCommand(CommandIds.DuplicateLayer)),
+                (Localizer.Text(TextKey.CommandDeleteLayer), () => _runCommand(CommandIds.DeleteLayer)),
+            };
+            var separators = new List<int> { entries.Count - 1 };
+
+            if (layer.Mask is LayerMask mask)
+            {
+                entries.Add((Localizer.Text(TextKey.CommandDeleteLayerMask), () => _runCommand(CommandIds.DeleteLayerMask)));
+                entries.Add((Localizer.Text(mask.IsEnabled ? TextKey.CommandDisableLayerMask : TextKey.CommandEnableLayerMask),
+                             () => _canvas.ToggleMaskOf(id)));
+                entries.Add((Localizer.Text(mask.IsLinked ? TextKey.CommandUnlinkMask : TextKey.CommandLinkMask),
+                             () => _canvas.ToggleMaskLink(id)));
+            }
+            else if (layer.Adjustment is null)
+            {
+                entries.Add((Localizer.Text(TextKey.CommandAddLayerMask), () => _runCommand(CommandIds.AddLayerMask)));
+                entries.Add((Localizer.Text(TextKey.CommandAddHideMask), () => _runCommand(CommandIds.AddHideMask)));
+            }
+            separators.Add(entries.Count - 1);
+
+            if (!layer.IsGroup)
+                entries.Add((Localizer.Text(layer.MaskSourceId is null ? TextKey.CommandCreateClippingMask : TextKey.CommandReleaseClippingMask),
+                             () => _runCommand(CommandIds.ToggleClipping)));
+            entries.Add((Localizer.Text(TextKey.CommandGroupLayers), () => _runCommand(CommandIds.GroupLayers)));
+            if (layer.ParentId is not null)
+                entries.Add((Localizer.Text(TextKey.CommandMoveOutOfGroup), () => _runCommand(CommandIds.MoveOutOfGroup)));
+            if (_canvas.MergePlan is LayerCommands.MergePlan plan)
+            {
+                separators.Add(entries.Count - 1);
+                entries.Add((Localizer.Text(plan.Action), () => _runCommand(CommandIds.Merge)));
+            }
+
+            int picked = Popup([.. entries.Select(entry => (entry.Text, false))], [.. separators]);
+            if (picked >= 0) entries[picked].Run();
+            return true;
+        }
+
+        return false;
     }
 
     private void Thumbnail(Rect area, ImageLayer layer)

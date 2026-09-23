@@ -1,5 +1,13 @@
 namespace Compositor_korean_win.Core;
 
+/// <summary>Where a layer dragged in the Layers panel lands, against the row it is dropped on.</summary>
+public enum LayerDrop
+{
+    Above,
+    Below,
+    Into,
+}
+
 /// <summary>
 /// The Layer menu's edits to the layer tree: adding, deleting, reordering, grouping, clipping,
 /// flipping and merging.
@@ -206,6 +214,84 @@ public static class LayerCommands
 
         ReleaseDetachedClipping(layers);
         return (document with { Layers = layers.ToEquatableList() }, folder.Id);
+    }
+
+    /// <summary>
+    /// Layers dropped in the Layers panel — upstream's row drag: just above <paramref name="target"/>,
+    /// just below it, or into it when it is a folder, at the top of what it holds. Null when the
+    /// drop would change nothing or would put a folder inside itself.
+    /// </summary>
+    /// <remarks>
+    /// A folder carries what it holds: its children keep pointing at it, and the order among
+    /// siblings is only ever the order in the list, so moving the folder's own entry is enough.
+    /// Clipping that no longer sits directly on its base is released, as every other move does.
+    /// </remarks>
+    public static CanvasDocument? Place(CanvasDocument document, IReadOnlyCollection<Guid> ids, Guid target, LayerDrop drop)
+    {
+        if (document.Layer(target) is not ImageLayer anchor || ids.Count == 0) return null;
+        if (drop == LayerDrop.Into && !anchor.IsGroup) return null;
+
+        // Of what was picked up, only the tops of branches move; a child goes with its folder.
+        var picked = ids.Where(id => document.Layer(id) is not null).ToHashSet();
+        var moving = picked.Where(id => !AncestorsOf(document, id).Any(picked.Contains)).ToHashSet();
+        if (moving.Count == 0 || moving.Contains(target)) return null;
+
+        // Nothing may land inside itself.
+        Guid? parent = drop == LayerDrop.Into ? target : anchor.ParentId;
+        if (parent is Guid container && (moving.Contains(container) || AncestorsOf(document, container).Any(moving.Contains)))
+            return null;
+
+        List<ImageLayer> rest = [.. document.Layers.Where(layer => !moving.Contains(layer.Id))];
+        List<ImageLayer> carried = [.. document.Layers.Where(layer => moving.Contains(layer.Id))
+                                                     .Select(layer => layer with { ParentId = parent })];
+
+        int at = rest.FindIndex(layer => layer.Id == target);
+        int insertion = drop switch
+        {
+            LayerDrop.Above => at + 1,
+            LayerDrop.Below => at,
+            // The top of the folder: after the highest thing already in it, or right after the folder.
+            _ => Math.Max(at, rest.FindLastIndex(layer => layer.ParentId == target)) + 1,
+        };
+
+        rest.InsertRange(insertion, carried);
+        ReleaseDetachedClipping(rest);
+        CanvasDocument next = document with { Layers = rest.ToEquatableList() };
+        return next == document ? null : next;
+    }
+
+    private static IEnumerable<Guid> AncestorsOf(CanvasDocument document, Guid id)
+    {
+        Guid? up = document.Layer(id)?.ParentId;
+        for (int depth = 0; up is Guid container && depth < 256; depth++)
+        {
+            yield return container;
+            up = document.Layer(container)?.ParentId;
+        }
+    }
+
+    /// <summary>
+    /// Copies of <paramref name="ids"/>, placed where <paramref name="target"/> and
+    /// <paramref name="drop"/> say — the Layers panel's Alt-drag. Folders are not copied, as
+    /// upstream refuses them. The copies share their originals' pixels, as every duplicate does.
+    /// </summary>
+    public static (CanvasDocument Document, IReadOnlyList<Guid> Copies)? CopyTo(CanvasDocument document, IReadOnlyCollection<Guid> ids,
+                                                                            Guid target, LayerDrop drop)
+    {
+        List<ImageLayer> originals = [.. document.Layers.Where(layer => ids.Contains(layer.Id) && !layer.IsGroup)];
+        if (originals.Count == 0) return null;
+
+        List<ImageLayer> copies = [.. originals.Select(layer => layer with
+        {
+            Id = Guid.NewGuid(),
+            Name = Localizer.Format(TextKey.LayerCopyName, layer.Name),
+            MaskSourceId = null,
+        })];
+
+        CanvasDocument withCopies = document with { Layers = document.Layers.Concat(copies).ToEquatableList() };
+        return Place(withCopies, [.. copies.Select(copy => copy.Id)], target, drop) is CanvasDocument placed
+            ? (placed, [.. copies.Select(copy => copy.Id)])
+            : null;
     }
 
     /// <summary>A layer taken out of its folder and put just above it.</summary>

@@ -160,6 +160,7 @@ internal static class CommandIds
     public const int PixelGrid = 706;
     public const int TransformControls = 707;
     public const int EditAdjustment = 545;
+    public const int AddHideMask = 546;
 
     public const int About = 900;
     public const int CheckUpdates = 901;

@@ -345,6 +345,19 @@ internal sealed unsafe class MainWindow : IDisposable
                 }
                 break;
 
+            // A right click on a layer's row opens its menu.
+            case WM_RBUTTONUP:
+                if (window?.Chrome is Chrome menuChrome)
+                {
+                    var at = new Point(PositionX(lParam), PositionY(lParam));
+                    window.Guarded(() =>
+                    {
+                        if (menuChrome.ContextMenu(at)) window.Invalidate();
+                    });
+                    window.AfterInput();
+                }
+                break;
+
             case WM_TIMER when (nuint)wParam == TooltipTimer:
                 KillTimer(hwnd, TooltipTimer);
                 window?.Invalidate();

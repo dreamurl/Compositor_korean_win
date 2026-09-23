@@ -384,6 +384,11 @@ public enum TextKey
     CommandPixelGrid,
     CommandTransformControls,
     CommandEditAdjustment,
+
+    // The Layers panel: dragging rows, the row menu, the hide-all mask.
+    HistoryArrangeLayers,
+    CommandAddHideMask,
+    CommandRenameLayer,
 }
 
 /// <summary>
@@ -757,6 +762,9 @@ public static class TextTable
         (TextKey.CommandPixelGrid, "&Pixel Grid (800% and above)", "픽셀 격자(800% 이상)(&P)"),
         (TextKey.CommandTransformControls, "Show &Transform Controls", "변형 컨트롤 표시(&T)"),
         (TextKey.CommandEditAdjustment, "&Edit Adjustment", "조정 편집(&E)"),
+        (TextKey.HistoryArrangeLayers, "Arrange Layers", "레이어 순서 변경"),
+        (TextKey.CommandAddHideMask, "Add &Hide-All Mask", "모두 가리는 마스크 추가(&H)"),
+        (TextKey.CommandRenameLayer, "Rename…", "이름 바꾸기…"),
     ];
 
     /// <summary>Phrases that are the same in both languages on purpose — names, not words.</summary>

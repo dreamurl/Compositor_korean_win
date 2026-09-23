@@ -150,10 +150,15 @@ public static class PixelCommands
     /// A layer mask revealing the selection — or everything, with no selection — as Photoshop's
     /// "Reveal Selection" and "Reveal All".
     /// </summary>
-    public static ImageLayer? AddMask(CanvasDocument document, ImageLayer layer, DocumentSelection? selection)
+    /// <remarks>
+    /// With <paramref name="revealing"/> false it is "Hide Selection" and "Hide All" instead: black,
+    /// or white with the selection black — upstream's Add Black Mask.
+    /// </remarks>
+    public static ImageLayer? AddMask(CanvasDocument document, ImageLayer layer, DocumentSelection? selection,
+                                      bool revealing = true)
     {
         if (layer.Mask is not null || layer.IsGroup && selection is not null) return null;
-        if (selection is null) return layer with { Mask = LayerMask.Solid(revealing: true) };
+        if (selection is null) return layer with { Mask = LayerMask.Solid(revealing) };
 
         // The mask shares the layer's grid; a blank layer's grid is the canvas.
         int width = layer.Image?.Width ?? document.Width, height = layer.Image?.Height ?? document.Height;
@@ -166,7 +171,7 @@ public static class PixelCommands
             Span<byte> row = coverage.Row(y);
             for (int x = 0; x < width; x++)
             {
-                byte level = levels[y * width + x];
+                byte level = revealing ? levels[y * width + x] : (byte)(255 - levels[y * width + x]);
                 row[x * 4] = row[x * 4 + 1] = row[x * 4 + 2] = level;
                 row[x * 4 + 3] = 255;
             }
