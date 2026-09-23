@@ -52,7 +52,8 @@ internal sealed partial class CanvasView
         _history.MarkSaved();
     }
 
-    public bool CanEdit => _document is not null && !IsFiltering && _drag is null && _stroke is null && _warp is null;
+    public bool CanEdit => _document is not null && !IsFiltering && _drag is null && _stroke is null && _warp is null
+                           && _floating is null;
 
     public bool CanUndo => CanEdit && _history.CanUndo;
     public bool CanRedo => CanEdit && _history.CanRedo;
@@ -300,6 +301,15 @@ internal sealed partial class CanvasView
     /// </summary>
     public void ChangeTransform(Func<LayerTransform, LayerTransform> change)
     {
+        // Floating pixels are placed inside the one step Transform Selection already opened.
+        if (IsFloating && _document is not null && ActiveLayer is ImageLayer floating)
+        {
+            LayerTransform placed = change(floating.Transform);
+            if (placed != floating.Transform && placed.IsValid) _document = _document.Replacing(floating with { Transform = placed });
+            NeedsRedraw = true;
+            return;
+        }
+
         if (TransformsMask)
         {
             Edit(TextKey.HistoryTransformMask, document =>

@@ -351,6 +351,27 @@ internal sealed partial class CanvasView : IDisposable
         bool control = Win32.IsKeyDown(Win32.VK_CONTROL);
         bool alt = Win32.IsKeyDown(Win32.VK_MENU);
 
+        // Floating pixels take the drag: their handles, or their box to move. Nothing else is
+        // picked up until they are laid down.
+        if (IsFloating)
+        {
+            if (Box() is LayerTransform floatingBox)
+            {
+                if (HitHandle(floatingBox, view) is int floatingHandle)
+                {
+                    TransformDragMode floatingMode = floatingHandle == RotationHandle ? TransformDragMode.Rotate
+                        : control ? TransformDragMode.Distort(floatingHandle)
+                        : TransformDragMode.Resize(floatingHandle);
+                    Begin(floatingBox, floatingMode, pixel);
+                }
+                else if (floatingBox.Contains(pixel))
+                {
+                    Begin(floatingBox, TransformDragMode.Move, pixel);
+                }
+            }
+            return;
+        }
+
         // With a selection up, dragging inside it moves what is in it rather than the layer.
         if (_selection is DocumentSelection inside && inside.Contains(pixel))
         {
@@ -636,7 +657,11 @@ internal sealed partial class CanvasView : IDisposable
         if (corners is null || _document is null) return;
         if (_chosen.Count != 1 || _document.Layer(_chosen.First()) is not ImageLayer layer) return;
         // The mask goes with the pixels as its link says (QuadWarp.Distort).
-        if (QuadWarp.Distort(layer, corners) is ImageLayer distorted) _document = _document.Replacing(distorted);
+        if (QuadWarp.Distort(layer, corners) is ImageLayer distorted)
+        {
+            _document = _document.Replacing(distorted);
+            FloatingMade(distorted.Image);
+        }
     }
 
     // MARK: Painting
@@ -1075,6 +1100,23 @@ internal sealed partial class CanvasView : IDisposable
         {
             NeedsRedraw = true;
             return true;
+        }
+
+        // Floating pixels: Enter lays them down, Escape puts them back, the arrows nudge them; any
+        // other key lays them down first and then does what it does.
+        if (IsFloating)
+        {
+            if (key == Win32.VK_RETURN)
+            {
+                CommitFloating();
+                return true;
+            }
+            if (key == Win32.VK_ESCAPE)
+            {
+                CancelFloating();
+                return true;
+            }
+            if (key is not (Win32.VK_LEFT or Win32.VK_RIGHT or Win32.VK_UP or Win32.VK_DOWN)) CommitFloating();
         }
 
         switch (key)

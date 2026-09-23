@@ -129,6 +129,15 @@ internal sealed unsafe class Chrome : IDisposable
         double x = bar.X + _ui.P(14) + titleWidth;
         double y = bar.Y + _ui.P(8), h = bar.Height - _ui.P(16);
 
+        // Floating pixels wait for Enter or Escape; the bar says so.
+        if (_canvas.IsFloating)
+        {
+            string floating = Localizer.Text(TextKey.NoteFloating);
+            float floatingWidth = _ui.Measure(floating) + _ui.P(18);
+            _ui.Text(floating, new Rect(x, bar.Y, floatingWidth, bar.Height), Ui.Accent);
+            x += floatingWidth;
+        }
+
         // What the tools are working on, when it is the mask rather than the layer: upstream's
         // "Mask" beside the brush settings.
         if (_canvas.EditingMask && (tool.Paints() || tool == CanvasTool.Gradient || tool == CanvasTool.Move && _canvas.TransformsMask))

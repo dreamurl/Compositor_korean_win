@@ -168,6 +168,14 @@ internal static class AppCommands
             },
             new(CommandIds.NewLayer, TextKey.CommandNewLayer, canvas.AddLayer, Editable,
                 [new(VK_N, Control: true, Shift: true)]),
+            // Ctrl+T, upstream's: the selected pixels onto handles of their own, or the layer's.
+            new(CommandIds.Transform, TextKey.CommandTransformLayer, canvas.Transform,
+                () => canvas.CanTransformSelection || canvas.CanEdit && canvas.ActiveLayer is { IsGroup: false },
+                [new(VK_T, Control: true)])
+            {
+                DynamicLabel = () => Localizer.Text(canvas.CanTransformSelection ? TextKey.CommandTransformSelection
+                                                                                  : TextKey.CommandTransformLayer),
+            },
             new(CommandIds.DeleteLayer, TextKey.CommandDeleteLayer, canvas.DeleteLayers, () => canvas.CanDeleteLayers,
                 [new(VK_DELETE)])
             {
@@ -311,6 +319,7 @@ internal static class AppCommands
             [
                 Item(CommandIds.NewLayer), Item(CommandIds.DuplicateLayer), Item(CommandIds.LayerViaCut),
                 Item(CommandIds.DeleteLayer), MenuEntry.Line,
+                Item(CommandIds.Transform), MenuEntry.Line,
                 new MenuEntry.Submenu(TextKey.MenuLayerMask,
                     [Item(CommandIds.AddLayerMask), Item(CommandIds.DeleteLayerMask), Item(CommandIds.ToggleLayerMask),
                      Item(CommandIds.ToggleMaskLink)]),

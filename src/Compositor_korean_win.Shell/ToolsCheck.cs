@@ -188,6 +188,32 @@ internal static class ToolsCheck
                    && ReferenceEquals(croppedLayer.Image, uncropped.Layer(id)!.Image), "cropping did not just move the layer");
             canvas.Undo();
             Expect(canvas.Document!.Width == w && canvas.Document.Height == h, "undo did not put the canvas back");
+
+            // Transform Selection: the selected pixels lifted, scaled up twice, laid back with Enter —
+            // one step, the layer grown to hold them, the selection gone with them.
+            canvas.SetTool(CanvasTool.RectangleMarquee);
+            Point At(double x, double y) => canvas.Viewport.ViewPoint(new Point(x, y), canvas.Document!.Size);
+            canvas.PointerDown(At(w * 0.1, h * 0.1), pan: false);
+            canvas.PointerMoved(At(w * 0.4, h * 0.4), shift: false, alt: false, control: false);
+            canvas.PointerUp();
+            double selectedWidth = canvas.Selection?.Bounds.Width ?? 0;
+            int layerCount = canvas.Document!.Layers.Count;
+            CanvasDocument unlifted = canvas.Document;
+            menu.Run(CommandIds.Transform);
+            Expect(canvas.IsFloating && canvas.Document!.Layers.Count == layerCount + 1, "Ctrl+T did not lift the selection");
+            Expect(!canvas.CanEdit, "the menus stayed open while pixels floated");
+            canvas.ChangeTransform(t => t with { Size = new Core.Size(t.Size.Width * 2, t.Size.Height * 2) });
+            canvas.Key(Win32.VK_RETURN, control: false);
+            Expect(!canvas.IsFloating && canvas.Document!.Layers.Count == layerCount, "Enter did not lay the pixels down");
+            Expect(canvas.Selection is { } grownSelection && Math.Abs(grownSelection.Bounds.Width - selectedWidth * 2) < 2,
+                   $"the selection did not follow the pixels ({selectedWidth} → {canvas.Selection?.Bounds.Width})");
+            canvas.Undo();
+            Expect(ReferenceEquals(canvas.Document, unlifted) || canvas.Document == unlifted, "Transform Selection was not one step");
+
+            // Escape puts everything back.
+            menu.Run(CommandIds.Transform);
+            canvas.Key(Win32.VK_ESCAPE, control: false);
+            Expect(!canvas.IsFloating && canvas.Document == unlifted && canvas.Selection is not null, "Escape did not put the pixels back");
         }
         catch (Exception exception)
         {

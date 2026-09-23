@@ -9,6 +9,7 @@ internal sealed partial class CanvasView
     public void SetTool(CanvasTool tool)
     {
         if (IsFiltering || _stroke is not null) return;
+        SettleFloating();
         if (tool != CanvasTool.Crop) _cropFrame = null;
         _tool = tool;
         NeedsRedraw = true;

@@ -108,7 +108,9 @@ internal static class MenuCheck
                         ran.Add(command.Id);
                         window.Render();
 
-                        if (canvas.IsFiltering)
+                        // A command that leaves something open — a filter's sheet, pixels floating
+                        // after Transform — is closed with Enter, as a user would.
+                        if (canvas.IsFiltering || canvas.IsFloating)
                         {
                             canvas.Key(VK_RETURN, control: false);
                             window.Render();

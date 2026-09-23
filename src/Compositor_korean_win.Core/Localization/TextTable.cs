@@ -373,6 +373,12 @@ public enum TextKey
     CropRatioOriginal,
     NoteFrameSize,
     ButtonApplyCrop,
+
+    // Layer > Transform (Ctrl+T): floating selected pixels.
+    CommandTransformSelection,
+    CommandTransformLayer,
+    LayerFloatingSelection,
+    NoteFloating,
 }
 
 /// <summary>
@@ -739,6 +745,10 @@ public static class TextTable
         (TextKey.CropRatioOriginal, "Original", "원본 비율"),
         (TextKey.NoteFrameSize, "{0} × {1} px", "{0} × {1}픽셀"),
         (TextKey.ButtonApplyCrop, "Apply Crop", "자르기 적용"),
+        (TextKey.CommandTransformSelection, "&Transform Selection", "선택 영역 변형(&T)"),
+        (TextKey.CommandTransformLayer, "&Transform Layer", "레이어 변형(&T)"),
+        (TextKey.LayerFloatingSelection, "Floating Selection", "떠 있는 선택 영역"),
+        (TextKey.NoteFloating, "Enter applies, Esc cancels", "Enter로 적용, Esc로 취소"),
     ];
 
     /// <summary>Phrases that are the same in both languages on purpose — names, not words.</summary>

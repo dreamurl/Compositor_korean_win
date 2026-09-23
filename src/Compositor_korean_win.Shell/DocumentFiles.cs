@@ -32,6 +32,8 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
     /// </summary>
     public bool ConfirmDiscard()
     {
+        // Pixels still floating are part of the document the user sees; lay them down first.
+        canvas.SettleFloating();
         if (!canvas.HasDocument || !canvas.IsModified) return true;
 
         int answer = MessageBoxW(owner, Localizer.Format(TextKey.PromptSaveChanges, canvas.Title),
@@ -62,6 +64,7 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
     /// </summary>
     public bool ConfirmDiscardAll()
     {
+        canvas.SettleFloating();
         for (int index = 0; index < canvas.Tabs.Count; index++)
         {
             if (!canvas.Tabs[index].History.IsModified) continue;
