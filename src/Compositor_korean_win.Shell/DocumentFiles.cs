@@ -49,6 +49,28 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
         if (ConfirmDiscard()) canvas.Close();
     }
 
+    /// <summary>A tab's close button: that tab is brought forward, so the question is asked about what can be seen.</summary>
+    public void CloseTab(int index)
+    {
+        canvas.SwitchTo(index);
+        if (canvas.ActiveTab == index) Close();
+    }
+
+    /// <summary>
+    /// Before the program ends: every changed document in turn, each shown as it is asked about.
+    /// False as soon as one is cancelled.
+    /// </summary>
+    public bool ConfirmDiscardAll()
+    {
+        for (int index = 0; index < canvas.Tabs.Count; index++)
+        {
+            if (!canvas.Tabs[index].History.IsModified) continue;
+            canvas.SwitchTo(index);
+            if (canvas.ActiveTab != index || !ConfirmDiscard()) return false;
+        }
+        return true;
+    }
+
     /// <summary>Asks for images and adds each as a layer in the middle of the canvas.</summary>
     public void ImportImages()
     {
@@ -57,7 +79,12 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
         string filter = Filter((TextKey.FileTypeImages, ImagePatterns));
         List<string> paths = PickMany(filter);
         if (paths.Count == 0) return;
+        AddImages(paths);
+    }
 
+    /// <summary>Images from disk added to the open document as layers; the ones that will not read are reported.</summary>
+    private void AddImages(IEnumerable<string> paths)
+    {
         var images = new List<(PixelBuffer, string)>();
         using var loader = new ImageLoader();
         foreach (string path in paths)
@@ -79,17 +106,22 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
     /// <summary>Asks for a project or an image and opens it.</summary>
     public void Open()
     {
-        if (!ConfirmDiscard()) return;
-
         string filter = Filter(
             (TextKey.FileTypeProject, "*.comp"),
             (TextKey.FileTypeImages, ImagePatterns));
 
-        if (Pick(save: false, filter, defaultExtension: null, suggested: null) is not string path) return;
+        if (Pick(save: false, filter, defaultExtension: null, suggested: null) is string path) OpenPath(path);
+    }
 
+    private static bool IsProject(string path) =>
+        string.Equals(Path.GetExtension(path), ".comp", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A project or an image opened in a tab of its own. False, and reported, when it will not read.</summary>
+    public bool OpenPath(string path)
+    {
         try
         {
-            if (string.Equals(Path.GetExtension(path), ".comp", StringComparison.OrdinalIgnoreCase))
+            if (IsProject(path))
             {
                 ProjectSnapshot snapshot = ProjectStore.Load(path);
                 canvas.Open(ProjectMapping.ToDocument(snapshot), path);
@@ -98,15 +130,40 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
             {
                 using var loader = new ImageLoader();
                 PixelBuffer pixels = loader.Load(path, FormatProbe.WicFormatFor(format));
-                canvas.Open(FromImage(pixels, Path.GetFileNameWithoutExtension(path)), path: null);
+                string name = Path.GetFileNameWithoutExtension(path);
+                canvas.Open(FromImage(pixels, name), path: null, name);
             }
+            return true;
         }
         catch (Exception exception)
         {
             Console.Error.WriteLine(exception);
             Report(TextKey.ErrorCannotOpen, path, exception);
+            return false;
         }
     }
+
+    /// <summary>
+    /// Files dropped on the window, as upstream's <c>ImageFileDrop</c> takes them: projects open in
+    /// tabs of their own; images join the open document as layers, or — with nothing open — the
+    /// first opens as a document and the rest join it.
+    /// </summary>
+    public void Drop(IReadOnlyList<string> paths)
+    {
+        foreach (string project in paths.Where(IsProject)) OpenPath(project);
+
+        List<string> images = [.. paths.Where(path => !IsProject(path))];
+        if (images.Count == 0) return;
+        if (!canvas.HasDocument)
+        {
+            if (!OpenPath(images[0])) return;
+            images.RemoveAt(0);
+        }
+        AddImages(images);
+    }
+
+    /// <summary>Saves to a path without asking — for the self-test's round trip.</summary>
+    internal void SaveTo(string path) => Write(path);
 
     /// <summary>Saves to the project the document came from, or asks where when there is none.</summary>
     public void Save()
@@ -210,16 +267,16 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
         }
     }
 
+    /// <summary>Failures go to the log only, not to a message box — for the self-test, which cannot answer one.</summary>
+    internal bool Quiet { get; set; }
+
     /// <summary>The panels, for the sheets File's commands open. Set once the panels exist.</summary>
     public Chrome? Chrome { get; set; }
 
     /// <summary>File › New: the size sheet, then — once any changes to the open document are dealt with — a blank canvas.</summary>
     public void NewCanvas() =>
         Chrome?.Open(new NewCanvasSheet((width, height) =>
-        {
-            if (!ConfirmDiscard()) return;
-            canvas.Open(DocumentCommands.New(width, height, 72, background: null));
-        }));
+            canvas.Open(DocumentCommands.New(width, height, 72, background: null))));
 
     /// <summary>A document holding one image as its only layer, the canvas its size.</summary>
     public static CanvasDocument FromImage(PixelBuffer pixels, string name)
@@ -259,7 +316,8 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
         string message = Localizer.Format(what, Path.GetFileName(path));
         if (reason.Length > 0) message += "\n\n" + reason;
 
-        MessageBoxW(owner, message, Localizer.Text(TextKey.AppTitle), MB_OK | MB_ICONERROR);
+        // The self-test has no one to click OK; the log has the message already.
+        if (!Quiet) MessageBoxW(owner, message, Localizer.Text(TextKey.AppTitle), MB_OK | MB_ICONERROR);
     }
 
     /// <summary>The common dialogs' filter format: name, pattern, name, pattern, ending in two nulls.</summary>

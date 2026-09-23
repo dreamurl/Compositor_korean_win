@@ -55,7 +55,7 @@ internal static class AppCommands
                 [new(VK_E, Control: true, Shift: true)], Interactive: true),
             new(CommandIds.Exit, TextKey.CommandExit, () =>
                 {
-                    if (files.ConfirmDiscard()) PostQuitMessage(0);
+                    if (files.ConfirmDiscardAll()) PostQuitMessage(0);
                 }, null, [new(VK_Q, Control: true)], Interactive: true),
             new(CommandIds.ImportImages, TextKey.CommandImportImages, files.ImportImages, Editable, Interactive: true),
             new(CommandIds.ExportJpeg, TextKey.CommandExportJpeg, files.ExportJpeg, Editable,
@@ -204,6 +204,11 @@ internal static class AppCommands
             new(CommandIds.ActualPixels, TextKey.CommandActualPixels, canvas.ActualPixels, () => canvas.HasDocument,
                 [new(VK_1, Control: true)]),
 
+            new(CommandIds.NextDocument, TextKey.CommandNextDocument, () => canvas.CycleTabs(1),
+                () => canvas.Tabs.Count > 1 && canvas.CanSwitchTab, [new(VK_TAB, Control: true)]),
+            new(CommandIds.PreviousDocument, TextKey.CommandPreviousDocument, () => canvas.CycleTabs(-1),
+                () => canvas.Tabs.Count > 1 && canvas.CanSwitchTab, [new(VK_TAB, Control: true, Shift: true)]),
+
             new(CommandIds.About, TextKey.CommandAbout,
                 () => MessageBoxW(owner, Localizer.Text(TextKey.AboutText), Localizer.Text(TextKey.AppTitle),
                                   MB_OK | MB_ICONINFORMATION),
@@ -305,7 +310,8 @@ internal static class AppCommands
             new(TextKey.MenuView,
             [
                 Item(CommandIds.ZoomIn), Item(CommandIds.ZoomOut), MenuEntry.Line,
-                Item(CommandIds.FitOnScreen), Item(CommandIds.ActualPixels),
+                Item(CommandIds.FitOnScreen), Item(CommandIds.ActualPixels), MenuEntry.Line,
+                Item(CommandIds.NextDocument), Item(CommandIds.PreviousDocument),
             ]),
             new(TextKey.MenuHelp, [Item(CommandIds.About)]),
         };

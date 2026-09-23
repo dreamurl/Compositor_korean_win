@@ -96,7 +96,7 @@ internal sealed partial class CanvasView : IDisposable
     private readonly Direct2DBackend _backend;
     // The canvas owns the pixels of its documents: a step the history drops frees what only it
     // held, and closing a document frees the rest.
-    private readonly DocumentHistory _history = new(ownsPixels: true);
+    private DocumentHistory _history = new(ownsPixels: true);
 
     private IRenderSurface? _surface;
     private Rect _area;
@@ -178,19 +178,6 @@ internal sealed partial class CanvasView : IDisposable
 
     /// <summary>Set whenever something changed that the window has not drawn yet.</summary>
     public bool NeedsRedraw { get; private set; } = true;
-
-    public void Open(CanvasDocument document, string? path = null)
-    {
-        _preview?.Dispose();
-        _preview = null;
-        _adjusting = null;
-        _history.Clear(_document);
-        _document = document;
-        FilePath = path;
-        ChooseTopImageLayer();
-        _viewport = _viewport.Fit(document.Size);
-        NeedsRedraw = true;
-    }
 
     /// <summary>
     /// The window changed size, or the panels round the canvas did. <paramref name="area"/> is the
@@ -1417,8 +1404,7 @@ internal sealed partial class CanvasView : IDisposable
         _preview?.Dispose();
         ReleaseSource();
         ReleaseComposite();
-        _history.Clear(_document);
-        _document = null;
+        CloseAllTabs();
         _distortPreview?.Dispose();
         _checker?.Dispose();
         _checkerBitmap?.Dispose();

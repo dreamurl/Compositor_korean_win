@@ -41,11 +41,13 @@ internal static class Program
         (List<Command> commands, List<MenuEntry.Submenu> layout) = AppCommands.Create(canvas, files, window.Handle);
         using var menu = new MenuBar(window.Handle, commands, layout);
         window.Menu = menu;
-        window.CanClose = files.ConfirmDiscard;
+        window.CanClose = files.ConfirmDiscardAll;
+        window.FilesDropped = files.Drop;
 
         using var chrome = new Chrome(window.Handle, canvas, files.Open, menu.Run);
         window.AttachChrome(chrome);
         files.Chrome = chrome;
+        chrome.CloseTab = files.CloseTab;
         menu.Blocked = () => chrome.HasSheet;
 
         window.Render();

@@ -15,26 +15,12 @@ internal sealed partial class CanvasView
     /// <summary>The project the document was opened from or last saved to, if any.</summary>
     public string? FilePath { get; private set; }
 
-    /// <summary>What to call the document: its file's name, or "Untitled".</summary>
+    /// <summary>What to call the document: its file's name, the image it came from, or "Untitled".</summary>
     public string Title => FilePath is string path
         ? System.IO.Path.GetFileNameWithoutExtension(path)
-        : Localizer.Text(TextKey.DocumentUntitled);
+        : _name ?? Localizer.Text(TextKey.DocumentUntitled);
 
     public bool HasDocument => _document is not null;
-
-    /// <summary>Closes the document, freeing its pixels and its history.</summary>
-    public void Close()
-    {
-        _preview?.Dispose();
-        _preview = null;
-        _adjusting = null;
-        _history.Clear(_document);
-        _document = null;
-        _selection = null;
-        _chosen.Clear();
-        FilePath = null;
-        NeedsRedraw = true;
-    }
 
     /// <summary>Images brought in as layers, one step for them all. The document takes the pixels.</summary>
     public void AddImages(IReadOnlyList<(PixelBuffer Pixels, string Name)> images)

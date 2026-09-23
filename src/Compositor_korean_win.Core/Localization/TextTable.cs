@@ -318,6 +318,11 @@ public enum TextKey
     TooltipLockRatio,
     ButtonFlipHorizontal,
     ButtonFlipVertical,
+
+    // Tabs.
+    CommandNextDocument,
+    CommandPreviousDocument,
+    TooltipCloseTab,
 }
 
 /// <summary>
@@ -641,6 +646,9 @@ public static class TextTable
         (TextKey.TooltipLockRatio, "Keep proportions", "비율 유지"),
         (TextKey.ButtonFlipHorizontal, "Flip H", "가로 뒤집기"),
         (TextKey.ButtonFlipVertical, "Flip V", "세로 뒤집기"),
+        (TextKey.CommandNextDocument, "&Next Document", "다음 문서(&N)"),
+        (TextKey.CommandPreviousDocument, "&Previous Document", "이전 문서(&P)"),
+        (TextKey.TooltipCloseTab, "Close", "닫기"),
     ];
 
     /// <summary>Phrases that are the same in both languages on purpose — names, not words.</summary>

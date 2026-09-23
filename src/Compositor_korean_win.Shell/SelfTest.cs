@@ -149,6 +149,19 @@ internal static class SelfTest
             failures.Add("panel check failed: " + exception.Message);
         }
 
+        // M6.6 closes on files: saved and opened again the same, documents apart in their tabs, drops landing.
+        FilesCheck.Result? filesCheck = null;
+        try
+        {
+            filesCheck = FilesCheck.Run(device, chosen, image);
+            foreach (string error in filesCheck.Errors) failures.Add("files: " + error);
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine(exception);
+            failures.Add("files check failed: " + exception.Message);
+        }
+
         // M2 closes on a pixel comparison: the same document through Direct2D and through the
         // reference rasteriser. Exact means 1:1 with Nearest, where nothing is resampled and the
         // two should agree on arithmetic alone.
@@ -311,6 +324,14 @@ internal static class SelfTest
             Line(report, "panelUntranslated", panels.Untranslated.Count);
             Line(report, "panelScreenshots", string.Join(" ", panels.Screenshots));
             Line(report, "panelPassed", panels.Passed);
+        }
+
+        if (filesCheck is not null)
+        {
+            Line(report, "filesLayers", filesCheck.Layers);
+            Line(report, "filesMaximumDifference", filesCheck.MaximumDifference);
+            Line(report, "filesTabs", filesCheck.Tabs);
+            Line(report, "filesPassed", filesCheck.Passed);
         }
 
         if (adjust is not null)

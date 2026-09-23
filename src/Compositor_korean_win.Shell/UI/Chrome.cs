@@ -25,7 +25,7 @@ namespace Compositor_korean_win.Shell;
 /// </remarks>
 internal sealed unsafe class Chrome : IDisposable
 {
-    private const double TopBar = 42, Rail = 48, RightPanel = 264, StatusBar = 26, RowHeight = 34;
+    private const double TopBar = 42, TabStrip = 30, Rail = 48, RightPanel = 264, StatusBar = 26, RowHeight = 34;
 
     private static readonly (CanvasTool Tool, char Key)[] Tools =
     [
@@ -75,8 +75,11 @@ internal sealed unsafe class Chrome : IDisposable
 
     /// <summary>The canvas's part of a window of this size, in device pixels.</summary>
     public Rect CanvasArea(int width, int height, double scale) =>
-        new(Rail * scale, TopBar * scale,
-            Math.Max(1, width - (Rail + RightPanel) * scale), Math.Max(1, height - (TopBar + StatusBar) * scale));
+        new(Rail * scale, (TopBar + TabStrip) * scale,
+            Math.Max(1, width - (Rail + RightPanel) * scale), Math.Max(1, height - (TopBar + TabStrip + StatusBar) * scale));
+
+    /// <summary>What a tab's close button does; the program points it at the File menu's Close, which asks first.</summary>
+    public Action<int>? CloseTab { get; set; }
 
     public void Draw(ID2D1DeviceContext context, int width, int height, double scale)
     {
@@ -96,6 +99,7 @@ internal sealed unsafe class Chrome : IDisposable
         ToolRail(new Rect(0, TopBar * s, Rail * s, height - (TopBar + StatusBar) * s));
         LayersPanel(new Rect(width - RightPanel * s, TopBar * s, RightPanel * s, height - (TopBar + StatusBar) * s));
         Status(new Rect(0, height - StatusBar * s, width, StatusBar * s));
+        Tabs(new Rect(canvas.X, TopBar * s, canvas.Width, TabStrip * s));
         if (!_canvas.HasDocument) Welcome(canvas);
         Sheets(canvas, width, height);
 
@@ -505,6 +509,54 @@ internal sealed unsafe class Chrome : IDisposable
         _ui.Button(accept, () => Accept(sheet), null, enabled: sheet.CanAccept, label: ok, primary: true);
 
         return area;
+    }
+
+    // MARK: Tabs
+
+    /// <summary>
+    /// A tab for each open document above the canvas — upstream's <c>ProjectTabs</c>: its name, a star
+    /// while it has unsaved changes, and a button to close it.
+    /// </summary>
+    private void Tabs(Rect strip)
+    {
+        _ui.Fill(strip, Ui.Panel);
+        _ui.Block(strip);
+        _ui.Rule(new Point(strip.X, strip.MaxY - 0.5), new Point(strip.MaxX, strip.MaxY - 0.5), Ui.Line);
+
+        IReadOnlyList<DocumentTab> tabs = _canvas.Tabs;
+        double x = strip.X;
+        for (int i = 0; i < tabs.Count; i++)
+        {
+            DocumentTab tab = tabs[i];
+            // The name is the user's; the star is not a word.
+            string shown = CanvasView.TabTitle(tab) + (tab.History.IsModified ? " *" : "");
+            double width = Math.Clamp(_ui.Measure(shown) + _ui.P(52), _ui.P(96), _ui.P(220));
+            if (x + width > strip.MaxX) break;
+
+            var area = new Rect(x, strip.Y, width, strip.Height - 1);
+            bool active = i == _canvas.ActiveTab;
+            int index = i;
+
+            _ui.Fill(area, active ? Ui.Window : Ui.Panel);
+            if (active) _ui.Fill(new Rect(area.X, area.Y, area.Width, _ui.P(2)), Ui.Accent);
+            _ui.Area(area, () => _canvas.SwitchTo(index));
+            _ui.Text(shown, new Rect(area.X + _ui.P(12), area.Y, area.Width - _ui.P(40), area.Height),
+                     active ? Ui.Ink : Ui.Dim, user: true);
+
+            var close = new Rect(area.MaxX - _ui.P(26), area.Y + _ui.P(5), _ui.P(20), area.Height - _ui.P(10));
+            _ui.Button(close, () =>
+            {
+                if (CloseTab is Action<int> closeTab) closeTab(index);
+                else
+                {
+                    _canvas.SwitchTo(index);
+                    _canvas.Close();
+                }
+            }, Localizer.Text(TextKey.TooltipCloseTab), face: face => _ui.Text("×", face, Ui.Dim, centred: true));
+
+            _ui.Rule(new Point(area.MaxX - 0.5, area.Y + _ui.P(6)), new Point(area.MaxX - 0.5, area.MaxY - _ui.P(6)), Ui.Line);
+            x += width;
+        }
     }
 
     // MARK: The tool rail

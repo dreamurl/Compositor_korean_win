@@ -54,6 +54,11 @@ internal static class MenuCheck
         canvas.Open(DocumentFiles.FromImage(
             PixelRegion.Copy(image, new PixelRect(0, 0, image.Width, image.Height)), "check"));
 
+        // A second document, so Next and Previous Document have somewhere to go.
+        canvas.Open(DocumentFiles.FromImage(
+            PixelRegion.Copy(image, new PixelRect(0, 0, image.Width, image.Height)), "second"), path: null, "second");
+        canvas.SwitchTo(0);
+
         var files = new DocumentFiles(window.Handle, canvas, format);
         (List<Command> commands, List<MenuEntry.Submenu> layout) = AppCommands.Create(canvas, files, window.Handle);
         using var menu = new MenuBar(window.Handle, commands, layout);

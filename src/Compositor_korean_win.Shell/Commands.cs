@@ -152,6 +152,8 @@ internal static class CommandIds
     public const int ZoomOut = 701;
     public const int FitOnScreen = 702;
     public const int ActualPixels = 703;
+    public const int NextDocument = 704;
+    public const int PreviousDocument = 705;
 
     public const int About = 900;
 }

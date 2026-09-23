@@ -41,6 +41,23 @@ internal sealed unsafe class MainWindow : IDisposable
     /// <summary>Asked before the window closes; false keeps it open (unsaved changes, cancelled).</summary>
     public Func<bool>? CanClose { get; set; }
 
+    /// <summary>Files dropped on the window from Explorer, in the order they came.</summary>
+    public Action<IReadOnlyList<string>>? FilesDropped { get; set; }
+
+    /// <summary>The paths a WM_DROPFILES carries.</summary>
+    private static unsafe List<string> DroppedFiles(nint drop)
+    {
+        var paths = new List<string>();
+        uint count = DragQueryFileW(drop, uint.MaxValue, null, 0);
+        char* buffer = stackalloc char[4096];
+        for (uint index = 0; index < count; index++)
+        {
+            uint length = DragQueryFileW(drop, index, buffer, 4096);
+            if (length > 0) paths.Add(new string(buffer, 0, (int)length));
+        }
+        return paths;
+    }
+
     /// <summary>Set once the first frame has been presented.</summary>
     public TimeSpan? TimeToFirstFrame { get; private set; }
 
@@ -80,6 +97,7 @@ internal sealed unsafe class MainWindow : IDisposable
             throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateWindowExW failed");
 
         ShowWindow(Handle, visible ? SW_SHOW : SW_HIDE);
+        DragAcceptFiles(Handle, true);
 
         Localizer.Changed += Retitle;
         if (visible) UpdateWindow(Handle);
@@ -347,6 +365,21 @@ internal sealed unsafe class MainWindow : IDisposable
                     return 0;
                 }
                 break;
+
+            case WM_DROPFILES:
+                if (window is not null)
+                {
+                    List<string> dropped = DroppedFiles((nint)wParam);
+                    DragFinish((nint)wParam);
+                    // Nothing lands while a sheet holds the window still.
+                    if (window.Chrome?.HasSheet != true && window.FilesDropped is { } take)
+                    {
+                        window.Guarded(() => take(dropped));
+                        window.AfterInput();
+                        window.Invalidate();
+                    }
+                }
+                return 0;
 
             case WM_CHAR:
                 if (window?.Chrome?.SheetChar((char)wParam) == true)

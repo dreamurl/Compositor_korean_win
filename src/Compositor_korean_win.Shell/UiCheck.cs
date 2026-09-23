@@ -37,7 +37,12 @@ internal static class UiCheck
         using var window = new MainWindow(device, format, 1280, 800, visible: false);
         using var canvas = new CanvasView(device);
         window.AttachCanvas(canvas);
-        canvas.Open(DocumentFiles.FromImage(PixelRegion.Copy(image, new PixelRect(0, 0, image.Width, image.Height)), "photo"));
+        // Two documents, so the tabs show one on the canvas and one waiting.
+        canvas.Open(DocumentFiles.FromImage(PixelRegion.Copy(image, new PixelRect(0, 0, image.Width, image.Height)), "photo"),
+                    path: null, "photo");
+        canvas.Open(DocumentFiles.FromImage(PixelRegion.Copy(image, new PixelRect(0, 0, image.Width, image.Height)), "second"),
+                    path: null, "second");
+        canvas.SwitchTo(0);
 
         var files = new DocumentFiles(window.Handle, canvas, format);
         (List<Command> commands, List<MenuEntry.Submenu> layout) = AppCommands.Create(canvas, files, window.Handle);
@@ -130,7 +135,7 @@ internal static class UiCheck
             }
 
             // The empty window, with its welcome.
-            canvas.Close();
+            while (canvas.HasDocument) canvas.Close();
             foreach (Language language in Enum.GetValues<Language>())
             {
                 Localizer.Current = language;

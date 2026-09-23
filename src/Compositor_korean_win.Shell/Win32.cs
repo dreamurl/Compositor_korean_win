@@ -384,6 +384,16 @@ internal static unsafe partial class Win32
 
     internal const int VK_BACK = 0x08;
     internal const int VK_TAB = 0x09;
+    internal const uint WM_DROPFILES = 0x0233;
+
+    [LibraryImport("shell32.dll")]
+    internal static partial void DragAcceptFiles(nint window, [MarshalAs(UnmanagedType.Bool)] bool accept);
+
+    [LibraryImport("shell32.dll")]
+    internal static unsafe partial uint DragQueryFileW(nint drop, uint index, char* file, uint length);
+
+    [LibraryImport("shell32.dll")]
+    internal static partial void DragFinish(nint drop);
     internal const uint WM_CHAR = 0x0102;
     internal const int VK_DELETE = 0x2E;
     internal const int VK_C = 0x43;
