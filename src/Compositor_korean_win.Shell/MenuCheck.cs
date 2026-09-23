@@ -78,13 +78,11 @@ internal static class MenuCheck
                     // A command needs the right layer chosen — a filter needs pixels, Merge Down a
                     // layer below, Move Out of Group a layer in a group — so, as a user would, this
                     // clicks through the layers until one will do.
-                    if (!command.CanRun && canvas.Document is CanvasDocument document)
+                    // Some want a selection too; failing everything else, select all and look again.
+                    if (!Ready(command, canvas))
                     {
-                        foreach (ImageLayer layer in document.Layers.Reverse())
-                        {
-                            canvas.Choose(layer.Id);
-                            if (command.CanRun) break;
-                        }
+                        canvas.SelectAll();
+                        Ready(command, canvas);
                     }
                     if (!command.CanRun) continue;
 
@@ -125,6 +123,20 @@ internal static class MenuCheck
         ];
 
         return new Result(items, untranslated, ran.Count, neverRan, errors, koreanUndo);
+    }
+
+    /// <summary>Clicks through the layers until one makes the command runnable.</summary>
+    private static bool Ready(Command command, CanvasView canvas)
+    {
+        if (command.CanRun) return true;
+        if (canvas.Document is not CanvasDocument document) return false;
+
+        foreach (ImageLayer layer in document.Layers.Reverse())
+        {
+            canvas.Choose(layer.Id);
+            if (command.CanRun) return true;
+        }
+        return false;
     }
 
     /// <summary>
