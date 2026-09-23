@@ -35,7 +35,21 @@ internal sealed class Ui : IDisposable
     /// <summary>Somewhere a click does something.</summary>
     private sealed record Hit(Rect Area, Action? Click, Action<Point, bool>? Drag, string? Tooltip, Action? DoubleClick);
 
-    private readonly IDWriteFactory _writer = DWrite.DWriteCreateFactory<IDWriteFactory>(Vortice.DirectWrite.FactoryType.Shared);
+    private readonly IDWriteFactory _writer = CreateWriter();
+
+    /// <summary>
+    /// DirectWrite's factory, made by calling dwrite.dll directly. The wrapper's generic
+    /// <c>DWriteCreateFactory&lt;T&gt;</c> finds the interface's ID and constructor by reflection,
+    /// which the trimmed NativeAOT build does not keep: it handed back an object with no native
+    /// pointer, and the first call on it threw.
+    /// </summary>
+    private static IDWriteFactory CreateWriter()
+    {
+        var iid = new Guid("b859ee5a-d838-4b5b-a2e8-1adc7d93db48");
+        int result = Win32.DWriteCreateFactory(0, iid, out nint factory);
+        if (result < 0 || factory == 0) throw new InvalidOperationException($"DWriteCreateFactory failed: 0x{result:X8}");
+        return new IDWriteFactory(factory);
+    }
     private readonly List<Hit> _hits = [];
     private List<Hit> _live = [];
     private Hit? _dragging;

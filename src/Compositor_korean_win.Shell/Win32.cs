@@ -332,6 +332,10 @@ internal static unsafe partial class Win32
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool ChooseColorW(ref CHOOSECOLORW dialog);
 
+    /// <summary>DirectWrite's factory; type 0 is shared.</summary>
+    [LibraryImport("dwrite.dll")]
+    internal static partial int DWriteCreateFactory(int factoryType, in Guid iid, out nint factory);
+
     // The clipboard.
 
     [LibraryImport("user32.dll", SetLastError = true)]
