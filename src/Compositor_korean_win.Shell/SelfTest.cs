@@ -162,6 +162,19 @@ internal static class SelfTest
             failures.Add("files check failed: " + exception.Message);
         }
 
+        // What M6 picked up from M4: strokes on a mask, Smudge and Liquify, through the canvas.
+        ToolsCheck.Result? toolsCheck = null;
+        try
+        {
+            toolsCheck = ToolsCheck.Run(device, chosen, image);
+            foreach (string error in toolsCheck.Errors) failures.Add("tools: " + error);
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine(exception);
+            failures.Add("tools check failed: " + exception.Message);
+        }
+
         // M2 closes on a pixel comparison: the same document through Direct2D and through the
         // reference rasteriser. Exact means 1:1 with Nearest, where nothing is resampled and the
         // two should agree on arithmetic alone.
@@ -332,6 +345,12 @@ internal static class SelfTest
             Line(report, "filesMaximumDifference", filesCheck.MaximumDifference);
             Line(report, "filesTabs", filesCheck.Tabs);
             Line(report, "filesPassed", filesCheck.Passed);
+        }
+
+        if (toolsCheck is not null)
+        {
+            Line(report, "toolsChecks", toolsCheck.Checks);
+            Line(report, "toolsPassed", toolsCheck.Passed);
         }
 
         if (adjust is not null)

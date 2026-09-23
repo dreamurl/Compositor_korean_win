@@ -127,6 +127,7 @@ internal sealed partial class CanvasView : IDisposable
     private Guid _painting;
     private PixelRect _paintGrid;
     private Point? _cloneAnchor;
+    private PixelBuffer? _cloneSample;
     private Point? _cloneOffset;
     private Point? _shapeFrom;
     private Point _shapeTo;
@@ -441,13 +442,16 @@ internal sealed partial class CanvasView : IDisposable
 
         _pointer = view;
 
-        if (_stroke is BrushStroke stroke && _document.Layer(_painting) is ImageLayer painted)
+        if (_stroke is not null || _warp is not null)
         {
             Point at = _viewport.DocumentPoint(view, _document.Size);
             if (shift) at = Straightened(at);
 
-            stroke.Append(LayerGeometry.ToPixels(painted.Transform, at,
-                                                 _paintGrid.Width, _paintGrid.Height));
+            // The grid the stroke began in: the layer's, or its mask's.
+            Point pixel = LayerGeometry.ToPixels(_strokePlacement, at, _paintGrid.Width, _paintGrid.Height);
+            _stroke?.Append(pixel);
+            _warp?.Append(pixel);
+            if (_strokeOnMask) ShowMaskStroke();
             NeedsRedraw = true;
             return;
         }
@@ -541,6 +545,12 @@ internal sealed partial class CanvasView : IDisposable
         _panning = false;
         if (IsFiltering) return;
 
+        if (_warp is not null)
+        {
+            EndWarp();
+            return;
+        }
+
         if (_stroke is not null)
         {
             EndStroke();
@@ -633,6 +643,9 @@ internal sealed partial class CanvasView : IDisposable
     {
         if (Previewing(width, height) is LiveEdit previewed) return previewed;
         if (Distorted(width, height) is LiveEdit distorted) return distorted;
+        if (Warped() is LiveEdit warped) return warped;
+        // A stroke on a mask is shown through the mask the document holds while it lasts.
+        if (_strokeOnMask) return null;
         if (_stroke is not BrushStroke stroke || _document is null) return null;
         if (_document.Layer(_painting) is not ImageLayer layer) return null;
 
@@ -653,7 +666,22 @@ internal sealed partial class CanvasView : IDisposable
     private void BeginStroke(Point document, bool alt)
     {
         if (_document is null || Primary is not Guid id
-            || _document.Layer(id) is not ImageLayer layer || layer.IsGroup) return;
+            || _document.Layer(id) is not ImageLayer layer) return;
+
+        // A folder has no pixels of its own, but it can have a mask to paint.
+        if (EditingMask)
+        {
+            BeginMaskStroke(layer, document);
+            return;
+        }
+
+        if (layer.IsGroup) return;
+
+        if (_tool == CanvasTool.Blur && BlurMode != BlurToolMode.Blur)
+        {
+            BeginWarp(layer, document);
+            return;
+        }
 
         _paintGrid = layer.Image is PixelBuffer pixels
             ? new PixelRect(0, 0, pixels.Width, pixels.Height)
@@ -664,6 +692,7 @@ internal sealed partial class CanvasView : IDisposable
             : layer.Transform;
 
         Point start = LayerGeometry.ToPixels(placement, document, _paintGrid.Width, _paintGrid.Height);
+        _strokePlacement = placement;
 
         // Alt sets where the clone stamp reads from rather than starting a stroke.
         if (_tool == CanvasTool.CloneStamp && alt)
@@ -676,7 +705,16 @@ internal sealed partial class CanvasView : IDisposable
         BrushSettings settings = Brush with { Mode = _tool.ModeFor() };
         if (_tool == CanvasTool.CloneStamp)
         {
-            if (_cloneAnchor is not Point anchor || layer.Image is not PixelBuffer sample) return;
+            if (_cloneAnchor is not Point anchor) return;
+
+            // Taken once, when the stroke starts, as upstream does: what the stroke paints is not
+            // something it goes on to copy from.
+            PixelBuffer? sample = CloneSampleAll
+                ? CloneSampling.AllLayers(_document, placement, _paintGrid.Width, _paintGrid.Height)
+                : layer.Image?.Retain();
+            if (sample is null) return;
+            _cloneSample?.Release();
+            _cloneSample = sample;
 
             // Aligned keeps the offset the first stroke established, so a second stroke carries on
             // copying the same thing; unaligned starts again from the anchor each time.
@@ -812,6 +850,12 @@ internal sealed partial class CanvasView : IDisposable
 
         try
         {
+            if (_strokeOnMask)
+            {
+                EndMaskStroke(stroke);
+                return;
+            }
+
             if (_document is null || _document.Layer(_painting) is not ImageLayer layer) return;
             if (stroke.IsEmpty) return;
 
@@ -834,6 +878,8 @@ internal sealed partial class CanvasView : IDisposable
             stroke.Dispose();
             _strokeBase?.Release();
             _strokeBase = null;
+            _cloneSample?.Release();
+            _cloneSample = null;
         }
     }
 
@@ -845,10 +891,21 @@ internal sealed partial class CanvasView : IDisposable
         NeedsRedraw = true;
 
         if (_document is null || Primary is not Guid id
-            || _document.Layer(id) is not ImageLayer layer || layer.IsGroup) return;
+            || _document.Layer(id) is not ImageLayer layer) return;
+
+        // On a mask only the gradient means anything: a shape is a layer's own pixels.
+        if (EditingMask)
+        {
+            if (_tool == CanvasTool.Gradient) MaskGradient(layer, corner, end);
+            return;
+        }
+
+        if (layer.IsGroup) return;
 
         int width = layer.Image?.Width ?? _document.Width;
         int height = layer.Image?.Height ?? _document.Height;
+        // The selection is carried into this grid, not whichever one the last stroke used.
+        _paintGrid = new PixelRect(0, 0, width, height);
 
         LayerTransform placement = layer.Image is null
             ? new LayerTransform(Point.Zero, new Size(_document.Width, _document.Height))
@@ -1401,6 +1458,10 @@ internal sealed partial class CanvasView : IDisposable
     {
         _stroke?.Dispose();
         _strokeBase?.Release();
+        _warp?.Dispose();
+        _maskShown?.Release();
+        _maskWorking?.Release();
+        _cloneSample?.Release();
         _preview?.Dispose();
         ReleaseSource();
         ReleaseComposite();

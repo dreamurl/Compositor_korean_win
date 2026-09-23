@@ -51,7 +51,7 @@ internal sealed partial class CanvasView
         _history.MarkSaved();
     }
 
-    public bool CanEdit => _document is not null && !IsFiltering && _drag is null && _stroke is null;
+    public bool CanEdit => _document is not null && !IsFiltering && _drag is null && _stroke is null && _warp is null;
 
     public bool CanUndo => CanEdit && _history.CanUndo;
     public bool CanRedo => CanEdit && _history.CanRedo;
@@ -169,6 +169,13 @@ internal sealed partial class CanvasView
 
     public void DeleteLayers()
     {
+        // With the mask as the target, Delete takes the mask and leaves the layer, as upstream does.
+        if (EditingMask)
+        {
+            DeleteMask();
+            return;
+        }
+
         if (Primary is not Guid active) return;
         Edit(TextKey.CommandDeleteLayer, document =>
             LayerCommands.Delete(document, _chosen) is CanvasDocument next

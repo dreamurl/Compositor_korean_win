@@ -112,6 +112,7 @@ internal static class CommandIds
     public const int SelectLayerPixels = 403;
     public const int ExpandSelection = 404;
     public const int ContractSelection = 405;
+    public const int SelectMask = 406;
 
     public const int Cut = 220;
     public const int Copy = 221;

@@ -134,7 +134,8 @@ internal sealed partial class CanvasView
 
     /// <summary>Whether a command could run over the chosen layer's pixels now.</summary>
     public bool CanFilter =>
-        !IsFiltering && _document is not null && Primary is Guid id
+        // A filter reworks a layer's pixels; a mask has none to rework, as upstream has it.
+        !IsFiltering && !EditingMask && _document is not null && Primary is Guid id
         && _document.Layer(id) is { Image: not null, IsGroup: false, Adjustment: null };
 
     /// <summary>Whether an adjustment layer could be added now.</summary>

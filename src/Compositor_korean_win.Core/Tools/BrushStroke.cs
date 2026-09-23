@@ -150,6 +150,19 @@ public sealed class BrushStroke : IDisposable
     /// <summary>The region of the layer the stroke has changed.</summary>
     public PixelRect Dirty { get; private set; }
 
+    private PixelRect _touched;
+
+    /// <summary>
+    /// What the stroke has changed since the last call, and forgets it — for a caller that keeps a
+    /// copy of the result up to date without redoing the whole of <see cref="Dirty"/> every move.
+    /// </summary>
+    public PixelRect TakeTouched()
+    {
+        PixelRect touched = _touched;
+        _touched = default;
+        return touched;
+    }
+
     /// <summary>Carries the stroke on to <paramref name="point"/>, in layer pixels.</summary>
     /// <remarks>
     /// Dabs are laid at even distances along the way, and the leftover distance is carried into the
@@ -302,6 +315,9 @@ public sealed class BrushStroke : IDisposable
         Dirty = Dirty.IsEmpty ? touched : PixelRect.FromBounds(
             Math.Min(Dirty.X, touched.X), Math.Min(Dirty.Y, touched.Y),
             Math.Max(Dirty.Right, touched.Right), Math.Max(Dirty.Bottom, touched.Bottom));
+        _touched = _touched.IsEmpty ? touched : PixelRect.FromBounds(
+            Math.Min(_touched.X, touched.X), Math.Min(_touched.Y, touched.Y),
+            Math.Max(_touched.Right, touched.Right), Math.Max(_touched.Bottom, touched.Bottom));
     }
 
     /// <summary>Adds the tip's coverage to a tile, where the dab overlaps it.</summary>

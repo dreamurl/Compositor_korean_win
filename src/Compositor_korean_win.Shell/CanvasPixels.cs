@@ -45,7 +45,7 @@ internal sealed partial class CanvasView
     // MARK: Pixels
 
     /// <summary>Whether the active layer takes pixel edits: not a folder, not an adjustment.</summary>
-    public bool CanEditPixels => CanEdit && ActiveLayer is { IsGroup: false, Adjustment: null };
+    public bool CanEditPixels => CanEdit && !EditingMask && ActiveLayer is { IsGroup: false, Adjustment: null };
 
     public bool CanEditExistingPixels => CanEditPixels && ActiveLayer!.Image is not null;
 
@@ -60,16 +60,31 @@ internal sealed partial class CanvasView
                 : null);
     }
 
-    public void Invert() => PixelEdit(TextKey.CommandInvert, (_, layer) => PixelCommands.Invert(layer, _selection));
+    public bool CanInvert => CanEditExistingPixels || CanEditMask;
 
-    public void Fill(bool foreground) =>
-        PixelEdit(foreground ? TextKey.CommandFillForeground : TextKey.CommandFillBackground,
-                  (document, layer) => PixelCommands.Fill(document, layer, foreground ? Brush.Color : BackgroundColor, _selection));
+    public void Invert()
+    {
+        if (EditingMask) PixelEdit(TextKey.CommandInvertMask, (_, layer) => MaskEditing.Invert(layer, _selection));
+        else PixelEdit(TextKey.CommandInvert, (_, layer) => PixelCommands.Invert(layer, _selection));
+    }
 
+    public bool CanFill => CanEditPixels || CanEditMask;
+
+    public void Fill(bool foreground)
+    {
+        TextKey name = foreground ? TextKey.CommandFillForeground : TextKey.CommandFillBackground;
+        if (EditingMask) PixelEdit(name, (_, layer) => MaskEditing.Fill(layer, MaskPaintsWhite == foreground, _selection));
+        else PixelEdit(name, (document, layer) => PixelCommands.Fill(document, layer, foreground ? Brush.Color : BackgroundColor, _selection));
+    }
+
+    public bool CanClear => CanEditSelectedPixels || CanEditMask && HasSelection;
+
+    /// <summary>The selection emptied: made transparent, or on a mask painted in its background grey.</summary>
     public void Clear()
     {
         if (_selection is not DocumentSelection selection) return;
-        PixelEdit(TextKey.CommandClear, (_, layer) => PixelCommands.Clear(layer, selection));
+        if (EditingMask) PixelEdit(TextKey.CommandClear, (_, layer) => MaskEditing.Fill(layer, !MaskPaintsWhite, selection));
+        else PixelEdit(TextKey.CommandClear, (_, layer) => PixelCommands.Clear(layer, selection));
     }
 
     public void ContentAwareFill()
@@ -182,8 +197,12 @@ internal sealed partial class CanvasView
 
     public bool MaskEnabled => ActiveLayer?.Mask?.IsEnabled ?? true;
 
-    public void AddMask() =>
+    /// <summary>Adds a mask and makes it the target, so the next stroke paints it — as upstream does.</summary>
+    public void AddMask()
+    {
         PixelEdit(TextKey.CommandAddLayerMask, (document, layer) => PixelCommands.AddMask(document, layer, _selection));
+        if (Primary is Guid id && ActiveLayer?.Mask is not null) _maskOf = id;
+    }
 
     public void DeleteMask() => PixelEdit(TextKey.CommandDeleteLayerMask, (_, layer) => PixelCommands.DeleteMask(layer));
 

@@ -127,10 +127,10 @@ internal static class AppCommands
                 }, Editable, [new(VK_V, Control: true)]),
 
             new(CommandIds.FillForeground, TextKey.CommandFillForeground, () => canvas.Fill(foreground: true),
-                () => canvas.CanEditPixels, [new(VK_BACK, Alt: true)]),
+                () => canvas.CanFill, [new(VK_BACK, Alt: true)]),
             new(CommandIds.FillBackground, TextKey.CommandFillBackground, () => canvas.Fill(foreground: false),
-                () => canvas.CanEditPixels, [new(VK_BACK, Control: true)]),
-            new(CommandIds.Clear, TextKey.CommandClear, canvas.Clear, () => canvas.CanEditSelectedPixels, [new(VK_DELETE)]),
+                () => canvas.CanFill, [new(VK_BACK, Control: true)]),
+            new(CommandIds.Clear, TextKey.CommandClear, canvas.Clear, () => canvas.CanClear, [new(VK_DELETE)]),
             new(CommandIds.ContentAwareFill, TextKey.CommandContentAwareFill, canvas.ContentAwareFill,
                 () => canvas.CanEditSelectedPixels, [new(VK_BACK, Shift: true)]),
 
@@ -138,6 +138,7 @@ internal static class AppCommands
                 [new(VK_I, Control: true, Shift: true)]),
             new(CommandIds.SelectLayerPixels, TextKey.CommandSelectLayerPixels, canvas.SelectLayerPixels,
                 () => canvas.CanSelectLayerPixels),
+            new(CommandIds.SelectMask, TextKey.CommandSelectMask, canvas.SelectMask, () => canvas.CanSelectMask),
             new(CommandIds.ExpandSelection, TextKey.CommandExpandSelection, () => canvas.GrowSelection(outwards: true),
                 () => canvas.CanInverse)
             {
@@ -149,8 +150,11 @@ internal static class AppCommands
                 DynamicLabel = () => Localizer.Format(TextKey.CommandContractSelection, canvas.SelectionStep),
             },
 
-            new(CommandIds.Invert, TextKey.CommandInvert, canvas.Invert, () => canvas.CanEditExistingPixels,
-                [new(VK_I, Control: true)]),
+            new(CommandIds.Invert, TextKey.CommandInvert, canvas.Invert, () => canvas.CanInvert,
+                [new(VK_I, Control: true)])
+            {
+                DynamicLabel = () => Localizer.Text(canvas.EditingMask ? TextKey.CommandInvertMask : TextKey.CommandInvert),
+            },
 
             new(CommandIds.AddLayerMask, TextKey.CommandAddLayerMask, canvas.AddMask, () => canvas.CanAddMask),
             new(CommandIds.DeleteLayerMask, TextKey.CommandDeleteLayerMask, canvas.DeleteMask, () => canvas.CanChangeMask),
@@ -161,7 +165,10 @@ internal static class AppCommands
             new(CommandIds.NewLayer, TextKey.CommandNewLayer, canvas.AddLayer, Editable,
                 [new(VK_N, Control: true, Shift: true)]),
             new(CommandIds.DeleteLayer, TextKey.CommandDeleteLayer, canvas.DeleteLayers, () => canvas.CanDeleteLayers,
-                [new(VK_DELETE)]),
+                [new(VK_DELETE)])
+            {
+                DynamicLabel = () => Localizer.Text(canvas.EditingMask ? TextKey.CommandDeleteLayerMask : TextKey.CommandDeleteLayer),
+            },
             new(CommandIds.MoveLayerUp, TextKey.CommandMoveLayerUp, () => canvas.MoveLayer(1), () => canvas.CanMoveLayer(1),
                 [new(VK_OEM_6, Control: true)]),
             new(CommandIds.MoveLayerDown, TextKey.CommandMoveLayerDown, () => canvas.MoveLayer(-1),
@@ -303,7 +310,7 @@ internal static class AppCommands
             new(TextKey.MenuSelect,
             [
                 Item(CommandIds.SelectAll), Item(CommandIds.Deselect), Item(CommandIds.Inverse), MenuEntry.Line,
-                Item(CommandIds.SelectLayerPixels), MenuEntry.Line,
+                Item(CommandIds.SelectLayerPixels), Item(CommandIds.SelectMask), MenuEntry.Line,
                 Item(CommandIds.ExpandSelection), Item(CommandIds.ContractSelection),
             ]),
             new(TextKey.MenuFilter, [.. Filters.Select(filter => Item(CommandIds.FilterFirst + (int)filter))]),

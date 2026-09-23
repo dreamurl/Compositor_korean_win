@@ -129,6 +129,16 @@ internal sealed unsafe class Chrome : IDisposable
         double x = bar.X + _ui.P(14) + titleWidth;
         double y = bar.Y + _ui.P(8), h = bar.Height - _ui.P(16);
 
+        // What the tools are working on, when it is the mask rather than the layer: upstream's
+        // "Mask" beside the brush settings.
+        if (_canvas.EditingMask && (tool.Paints() || tool == CanvasTool.Gradient))
+        {
+            string mask = Localizer.Text(TextKey.LabelEditingMask);
+            float maskWidth = _ui.Measure(mask) + _ui.P(18);
+            _ui.Text(mask, new Rect(x, bar.Y, maskWidth, bar.Height), Ui.Accent);
+            x += maskWidth;
+        }
+
         Rect Next(double points)
         {
             var area = new Rect(x, y, _ui.P(points), h);
@@ -141,11 +151,36 @@ internal sealed unsafe class Chrome : IDisposable
             case CanvasTool.Brush or CanvasTool.Eraser or CanvasTool.CloneStamp or CanvasTool.Heal or CanvasTool.Blur:
             {
                 BrushSettings brush = _canvas.Brush;
+
+                if (tool == CanvasTool.Blur)
+                {
+                    BlurToolMode blurMode = _canvas.BlurMode;
+                    Segment(ref x, y, h, Localizer.Text(TextKey.LabelType),
+                    [
+                        (Localizer.Text(TextKey.BlurModeBlur), blurMode == BlurToolMode.Blur,
+                         () => _canvas.BlurMode = BlurToolMode.Blur),
+                        (Localizer.Text(TextKey.ToolSmudge), blurMode == BlurToolMode.Smudge,
+                         () => _canvas.BlurMode = BlurToolMode.Smudge),
+                        (Localizer.Text(TextKey.ToolLiquify), blurMode == BlurToolMode.Liquify,
+                         () => _canvas.BlurMode = BlurToolMode.Liquify),
+                    ]);
+                }
+
                 double sizeFraction = Math.Log(Math.Max(1, brush.Diameter)) / Math.Log(2000);
                 _ui.Slider(Next(210), Localizer.Text(TextKey.LabelSize), sizeFraction, Pixels(brush.Diameter),
                            f => _canvas.Brush = _canvas.Brush with { Diameter = Math.Round(Math.Clamp(Math.Exp(f * Math.Log(2000)), 1, 2000)) });
 
-                if (tool == CanvasTool.Blur)
+                if (tool == CanvasTool.Blur && _canvas.BlurMode != BlurToolMode.Blur)
+                {
+                    // Upstream's: how soft the edge of the push is, and how far it carries.
+                    _ui.Slider(Next(170), Localizer.Text(TextKey.LabelHardness), brush.Hardness, Percent(brush.Hardness),
+                               f => _canvas.Brush = _canvas.Brush with { Hardness = Math.Round(f, 2) });
+                    _ui.Slider(Next(180), Localizer.Text(TextKey.LabelStrength), brush.Opacity, Percent(brush.Opacity),
+                               f => _canvas.Brush = _canvas.Brush with { Opacity = Math.Max(0.01, Math.Round(f, 2)) });
+                    if (_canvas.EditingMask)
+                        _ui.Text(Localizer.Text(TextKey.NoteMaskTool), new Rect(x, bar.Y, _ui.P(320), bar.Height), Ui.Dim);
+                }
+                else if (tool == CanvasTool.Blur)
                 {
                     _ui.Slider(Next(190), Localizer.Text(TextKey.LabelStrength), (brush.BlurRadius - 1) / 49, Pixels(brush.BlurRadius),
                                f => _canvas.Brush = _canvas.Brush with { BlurRadius = Math.Round(1 + f * 49) });
@@ -159,8 +194,15 @@ internal sealed unsafe class Chrome : IDisposable
                 }
 
                 if (tool == CanvasTool.CloneStamp)
+                {
                     _ui.Check(Next(90), Localizer.Text(TextKey.LabelAligned), _canvas.CloneAligned,
                               () => _canvas.CloneAligned = !_canvas.CloneAligned);
+                    _ui.Check(Next(170), Localizer.Text(TextKey.LabelSampleAllLayers), _canvas.CloneSampleAll,
+                              () => _canvas.CloneSampleAll = !_canvas.CloneSampleAll);
+                }
+
+                if (_canvas.EditingMask && tool is CanvasTool.CloneStamp or CanvasTool.Heal)
+                    _ui.Text(Localizer.Text(TextKey.NoteMaskTool), new Rect(x, bar.Y, _ui.P(320), bar.Height), Ui.Dim);
 
                 if (tool == CanvasTool.Heal)
                 {
@@ -586,8 +628,10 @@ internal sealed unsafe class Chrome : IDisposable
         var foreground = new Rect(x + _ui.P(2), y, swatch, swatch);
         var background = new Rect(x + _ui.P(12), y + _ui.P(12), swatch, swatch);
 
-        Swatch(background, _canvas.BackgroundColor, TextKey.TooltipBackground, colour => _canvas.BackgroundColor = colour);
-        Swatch(foreground, _canvas.ForegroundColor, TextKey.TooltipForeground, colour => _canvas.ForegroundColor = colour);
+        // On a mask the swatches are its white and black, and a click swaps them rather than
+        // opening the picker: a mask has no other colours to pick (upstream's rule).
+        Swatch(background, _canvas.ShownBackground, TextKey.TooltipBackground, colour => _canvas.BackgroundColor = colour);
+        Swatch(foreground, _canvas.ShownForeground, TextKey.TooltipForeground, colour => _canvas.ForegroundColor = colour);
 
         var swap = new Rect(x + _ui.P(24), y - _ui.P(4), _ui.P(14), _ui.P(14));
         _ui.Button(swap, _canvas.SwapColors, Localizer.Text(TextKey.TooltipSwapColors),
@@ -605,7 +649,11 @@ internal sealed unsafe class Chrome : IDisposable
     {
         _ui.Fill(area, new Color4(colour.R / 255f, colour.G / 255f, colour.B / 255f, 1f));
         _ui.Frame(area, Ui.Ink);
-        _ui.Area(area, () => PickColour(tooltip, colour, set), Localizer.Text(tooltip));
+        _ui.Area(area, () =>
+        {
+            if (_canvas.EditingMask) _canvas.SwapColors();
+            else PickColour(tooltip, colour, set);
+        }, Localizer.Text(tooltip));
     }
 
     /// <summary>
@@ -727,6 +775,13 @@ internal sealed unsafe class Chrome : IDisposable
         {
             var maskThumb = new Rect(x, thumb.Y, thumb.Width, thumb.Height);
             Picture(maskThumb, mask.Coverage, checker: false);
+            _ui.Area(Clip(maskThumb, _layersList), () => _canvas.ClickMask(id), Localizer.Text(TextKey.TooltipLayerMask));
+
+            // Which of the two the tools work on, framed as Photoshop frames it.
+            bool maskTargeted = chosen && _canvas.EditingMask;
+            Rect targeted = maskTargeted ? maskThumb : thumb;
+            if (chosen && (maskTargeted || !layer.IsGroup))
+                _ui.Frame(new Rect(targeted.X - _ui.P(1.5f), targeted.Y - _ui.P(1.5f), targeted.Width + _ui.P(3), targeted.Height + _ui.P(3)), Ui.Ink);
             if (!mask.IsEnabled) _ui.Rule(new Point(maskThumb.X, maskThumb.MaxY), new Point(maskThumb.MaxX, maskThumb.Y), Ui.Accent, _ui.P(1.5f));
             x = maskThumb.MaxX + _ui.P(4);
         }

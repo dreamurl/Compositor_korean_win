@@ -18,6 +18,7 @@ internal sealed class DocumentTab
     public CanvasViewport Viewport { get; set; } = new();
     public DocumentSelection? Selection { get; set; }
     public List<Guid> Chosen { get; set; } = [];
+    public Guid? MaskOf { get; set; }
 }
 
 /// <summary>
@@ -115,6 +116,7 @@ internal sealed partial class CanvasView
             _name = null;
             _selection = null;
             _chosen.Clear();
+            _maskOf = null;
             ForgetDocumentState();
             NeedsRedraw = true;
         }
@@ -132,6 +134,7 @@ internal sealed partial class CanvasView
         tab.Viewport = _viewport;
         tab.Selection = _selection;
         tab.Chosen = [.. _chosen];
+        tab.MaskOf = _maskOf;
     }
 
     /// <summary>A tab's document brought onto the canvas.</summary>
@@ -146,6 +149,7 @@ internal sealed partial class CanvasView
         _selection = tab.Selection;
         _chosen.Clear();
         foreach (Guid id in tab.Chosen) _chosen.Add(id);
+        _maskOf = tab.MaskOf;
 
         // The viewport keeps the window's size and scale; the tab keeps where it was looking.
         _viewport = tab.Document is CanvasDocument document && tab.Viewport.Zoom > 0

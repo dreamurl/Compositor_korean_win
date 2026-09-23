@@ -173,6 +173,7 @@ jobs:
               "| 스크린샷 | $($report.panelScreenshots) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
               "| 저장·열기 왕복 (레이어 $($report.filesLayers)개) | 최대 픽셀 차이 $($report.filesMaximumDifference) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
               "| 탭·끌어다 놓기 | 최대 탭 $($report.filesTabs)개, 통과 $($report.filesPassed) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 마스크 칠하기·문지르기·픽셀 유동화 | 확인 $($report.toolsChecks)개, 통과 $($report.toolsPassed) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
               "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
             }
 

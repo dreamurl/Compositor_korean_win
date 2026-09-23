@@ -81,6 +81,34 @@ internal static class UiCheck
 
                     device.Present();
                 }
+
+                // The blur tool's three modes and the clone stamp's sampling, which change the bar.
+                canvas.SetTool(CanvasTool.Blur);
+                foreach (BlurToolMode mode in Enum.GetValues<BlurToolMode>())
+                {
+                    canvas.BlurMode = mode;
+                    window.Render(present: false);
+                    strings += Check(chrome.Ui, language, untranslated);
+                    device.Present();
+                }
+                canvas.BlurMode = BlurToolMode.Blur;
+
+                // With the mask as the target: the bar says so, the swatches go black and white,
+                // and the tools that cannot work on a mask say that.
+                Guid masked = canvas.Document!.Layers.First(layer => layer.Mask is not null).Id;
+                canvas.ClickMask(masked);
+                if (!canvas.EditingMask) untranslated.Add($"{Localizer.Code(language)}: the mask did not become the target");
+                foreach (CanvasTool tool in new[] { CanvasTool.Brush, CanvasTool.CloneStamp, CanvasTool.Gradient })
+                {
+                    canvas.SetTool(tool);
+                    window.Render(present: false);
+                    strings += Check(chrome.Ui, language, untranslated);
+                    if (tool == CanvasTool.Brush && folder is not null)
+                        screenshots.Add(Screenshot(device, folder, $"ui-{Localizer.Code(language)}-mask.png"));
+                    device.Present();
+                }
+                canvas.ClickLayer(masked, control: false, shift: false, [masked]);
+                canvas.ChooseTopImageLayer();
             }
 
             // Every adjustment's and filter's sheet, over the photo's pixels, and an adjustment layer's

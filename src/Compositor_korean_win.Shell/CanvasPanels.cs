@@ -20,6 +20,7 @@ internal sealed partial class CanvasView
     public void ClickLayer(Guid id, bool control, bool shift, IReadOnlyList<Guid> rowsTopFirst)
     {
         if (!CanEdit || _document?.Layer(id) is null) return;
+        _maskOf = null;
 
         if (control)
         {
@@ -106,6 +107,13 @@ internal sealed partial class CanvasView
 
     public void SwapColors()
     {
+        if (EditingMask)
+        {
+            MaskPaintsWhite = !MaskPaintsWhite;
+            NeedsRedraw = true;
+            return;
+        }
+
         Rgba foreground = ForegroundColor;
         ForegroundColor = BackgroundColor;
         BackgroundColor = foreground;
@@ -114,6 +122,13 @@ internal sealed partial class CanvasView
 
     public void DefaultColors()
     {
+        if (EditingMask)
+        {
+            MaskPaintsWhite = false;
+            NeedsRedraw = true;
+            return;
+        }
+
         ForegroundColor = new Rgba(0, 0, 0);
         BackgroundColor = new Rgba(255, 255, 255);
         Gradient = Gradient with { To = BackgroundColor };

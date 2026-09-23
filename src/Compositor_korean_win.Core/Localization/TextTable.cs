@@ -323,6 +323,17 @@ public enum TextKey
     CommandNextDocument,
     CommandPreviousDocument,
     TooltipCloseTab,
+
+    // Painting a layer mask, Smudge and Liquify, and the clone stamp over every layer.
+    CommandInvertMask,
+    CommandSelectMask,
+    ToolSmudge,
+    ToolLiquify,
+    BlurModeBlur,
+    LabelSampleAllLayers,
+    LabelEditingMask,
+    TooltipLayerMask,
+    NoteMaskTool,
 }
 
 /// <summary>
@@ -649,6 +660,15 @@ public static class TextTable
         (TextKey.CommandNextDocument, "&Next Document", "다음 문서(&N)"),
         (TextKey.CommandPreviousDocument, "&Previous Document", "이전 문서(&P)"),
         (TextKey.TooltipCloseTab, "Close", "닫기"),
+        (TextKey.CommandInvertMask, "In&vert Mask", "마스크 반전(&V)"),
+        (TextKey.CommandSelectMask, "&Mask's Black Areas", "마스크의 검은 영역(&M)"),
+        (TextKey.ToolSmudge, "Smudge", "문지르기"),
+        (TextKey.ToolLiquify, "Liquify", "픽셀 유동화"),
+        (TextKey.BlurModeBlur, "Blur", "흐리게"),
+        (TextKey.LabelSampleAllLayers, "Sample all layers", "모든 레이어 샘플링"),
+        (TextKey.LabelEditingMask, "Mask", "마스크"),
+        (TextKey.TooltipLayerMask, "Layer mask — click to paint it", "레이어 마스크 — 클릭하면 마스크에 칠합니다"),
+        (TextKey.NoteMaskTool, "This tool works on pixels, not on a mask.", "이 도구는 마스크가 아닌 픽셀에만 작동합니다."),
     ];
 
     /// <summary>Phrases that are the same in both languages on purpose — names, not words.</summary>
