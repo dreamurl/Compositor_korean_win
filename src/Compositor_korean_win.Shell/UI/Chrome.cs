@@ -75,6 +75,10 @@ internal sealed unsafe class Chrome : IDisposable
 
     public void Draw(ID2D1DeviceContext context, int width, int height, double scale)
     {
+        // A window being torn down can still be asked to paint after its panels are gone; the
+        // DirectWrite factory they drew text with is released by then.
+        if (_disposed) return;
+
         context.BeginDraw();
         _ui.Begin(context, scale);
         _thumbnailsUsed.Clear();
@@ -698,8 +702,12 @@ internal sealed unsafe class Chrome : IDisposable
     private static Rect Shrink(Rect area, double factor) =>
         new(area.X + area.Width * (1 - factor) / 2, area.Y + area.Height * (1 - factor) / 2, area.Width * factor, area.Height * factor);
 
+    private bool _disposed;
+
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
         FinishRename(commit: false);
         foreach (ID2D1Bitmap1 bitmap in _thumbnails.Values) bitmap.Dispose();
         _thumbnails.Clear();
