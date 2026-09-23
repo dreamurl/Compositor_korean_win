@@ -226,7 +226,11 @@ public static class LayerCommands
     /// siblings is only ever the order in the list, so moving the folder's own entry is enough.
     /// Clipping that no longer sits directly on its base is released, as every other move does.
     /// </remarks>
-    public static CanvasDocument? Place(CanvasDocument document, IReadOnlyCollection<Guid> ids, Guid target, LayerDrop drop)
+    public static CanvasDocument? Place(CanvasDocument document, IReadOnlyCollection<Guid> ids, Guid target, LayerDrop drop) =>
+        Arranged(document, ids, target, drop) is CanvasDocument next && next != document ? next : null;
+
+    /// <summary><see cref="Place"/> without refusing a drop that lands where the layers already are.</summary>
+    private static CanvasDocument? Arranged(CanvasDocument document, IReadOnlyCollection<Guid> ids, Guid target, LayerDrop drop)
     {
         if (document.Layer(target) is not ImageLayer anchor || ids.Count == 0) return null;
         if (drop == LayerDrop.Into && !anchor.IsGroup) return null;
@@ -256,8 +260,7 @@ public static class LayerCommands
 
         rest.InsertRange(insertion, carried);
         ReleaseDetachedClipping(rest);
-        CanvasDocument next = document with { Layers = rest.ToEquatableList() };
-        return next == document ? null : next;
+        return document with { Layers = rest.ToEquatableList() };
     }
 
     private static IEnumerable<Guid> AncestorsOf(CanvasDocument document, Guid id)
@@ -289,7 +292,8 @@ public static class LayerCommands
         })];
 
         CanvasDocument withCopies = document with { Layers = document.Layers.Concat(copies).ToEquatableList() };
-        return Place(withCopies, [.. copies.Select(copy => copy.Id)], target, drop) is CanvasDocument placed
+        // Copies already at the end may already be where they are dropped; that is still a copy.
+        return Arranged(withCopies, [.. copies.Select(copy => copy.Id)], target, drop) is CanvasDocument placed
             ? (placed, [.. copies.Select(copy => copy.Id)])
             : null;
     }
