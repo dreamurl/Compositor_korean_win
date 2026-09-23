@@ -1,6 +1,8 @@
 using Compositor_korean_win.Core;
 using Vortice.DXGI;
 using static Compositor_korean_win.Shell.Win32;
+using Point = Compositor_korean_win.Core.Point;
+using Size = Compositor_korean_win.Core.Size;
 
 namespace Compositor_korean_win.Shell;
 
@@ -28,9 +30,12 @@ internal static class MenuCheck
         int CommandsRun,
         IReadOnlyList<string> NeverRan,
         IReadOnlyList<string> Errors,
-        string KoreanUndo)
+        string KoreanUndo,
+        string Jpeg,
+        string Clipboard)
     {
-        public bool Passed => Untranslated.Count == 0 && NeverRan.Count == 0 && Errors.Count == 0;
+        public bool Passed => Untranslated.Count == 0 && NeverRan.Count == 0 && Errors.Count == 0
+                              && Jpeg == "ok" && Clipboard is "ok" or "unavailable";
     }
 
     public static Result Run(GraphicsDevice device, Format format, PixelBuffer image)
@@ -41,6 +46,7 @@ internal static class MenuCheck
         var ran = new HashSet<int>();
         int items = 0;
         string koreanUndo = string.Empty;
+        string jpeg = "not run", clipboard = "not run";
 
         using var window = new MainWindow(device, format, 1280, 800, visible: false);
         using var canvas = new CanvasView(device);
@@ -110,6 +116,9 @@ internal static class MenuCheck
 
             koreanUndo = canvas.UndoName;
             if (!ReadsAs(koreanUndo, Language.Korean)) untranslated.Add($"ko: undo \"{koreanUndo}\"");
+
+            jpeg = JpegRoundTrip(canvas, format);
+            clipboard = ClipboardRoundTrip(window.Handle, image);
         }
         finally
         {
@@ -122,7 +131,58 @@ internal static class MenuCheck
                        .Select(command => Localizer.Text(command.Label, Language.English)),
         ];
 
-        return new Result(items, untranslated, ran.Count, neverRan, errors, koreanUndo);
+        return new Result(items, untranslated, ran.Count, neverRan, errors, koreanUndo, jpeg, clipboard);
+    }
+
+    /// <summary>
+    /// The document exported as a JPEG and read back: the export commands open a file dialog, so the
+    /// writer is exercised here directly.
+    /// </summary>
+    private static string JpegRoundTrip(CanvasView canvas, Format format)
+    {
+        if (canvas.Document is not CanvasDocument document) return "no document";
+
+        string path = Path.Combine(Path.GetTempPath(), $"compositor-check-{Guid.NewGuid():N}.jpg");
+        try
+        {
+            using var backend = new SoftwareRenderBackend();
+            using PixelBuffer pixels = LayerCompositor.Render(document, backend);
+            ImageWriter.WriteJpeg(pixels, path);
+
+            using var loader = new ImageLoader();
+            using PixelBuffer back = loader.Load(path, FormatProbe.WicFormatFor(format));
+            return back.Width == pixels.Width && back.Height == pixels.Height
+                ? "ok"
+                : $"read back {back.Width}x{back.Height} for {pixels.Width}x{pixels.Height}";
+        }
+        catch (Exception exception)
+        {
+            return exception.Message;
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// Pixels onto the Windows clipboard and back. A runner's session may not have a clipboard to
+    /// give, which is reported rather than failed; what comes back, if anything, must match.
+    /// </summary>
+    private static string ClipboardRoundTrip(nint owner, PixelBuffer image)
+    {
+        var clipboard = new Clipboard(owner);
+        var placement = new LayerTransform(new Point(3, 4), new Size(image.Width, image.Height));
+
+        clipboard.Put(image, placement);
+        if (clipboard.Take() is not var (pixels, where)) return "unavailable";
+
+        using (pixels)
+        {
+            if (pixels.Width != image.Width || pixels.Height != image.Height) return $"came back {pixels.Width}x{pixels.Height}";
+            if (where != placement) return "the copy's placement was lost";
+            return "ok";
+        }
     }
 
     /// <summary>Clicks through the layers until one makes the command runnable.</summary>

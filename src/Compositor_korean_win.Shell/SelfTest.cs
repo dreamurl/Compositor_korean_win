@@ -127,6 +127,8 @@ internal static class SelfTest
             foreach (string label in menus.Untranslated) failures.Add("menu not translated: " + label);
             foreach (string command in menus.NeverRan) failures.Add("command never became runnable: " + command);
             foreach (string error in menus.Errors) failures.Add("command failed: " + error);
+            if (menus.Jpeg != "ok") failures.Add("JPEG export: " + menus.Jpeg);
+            if (menus.Clipboard is not ("ok" or "unavailable")) failures.Add("clipboard: " + menus.Clipboard);
         }
         catch (Exception exception)
         {
@@ -285,6 +287,8 @@ internal static class SelfTest
             Line(report, "menuUntranslated", menus.Untranslated.Count);
             Line(report, "menuCommandsRun", menus.CommandsRun);
             Line(report, "menuKoreanUndo", menus.KoreanUndo);
+            Line(report, "menuJpeg", menus.Jpeg);
+            Line(report, "menuClipboard", menus.Clipboard);
             Line(report, "menuPassed", menus.Passed);
         }
 
