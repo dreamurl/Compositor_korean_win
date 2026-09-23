@@ -177,7 +177,7 @@ internal sealed class Ui : IDisposable
         };
 
         _brush!.Color = colour;
-        Context.DrawText(text, format, Raw(area), _brush, DrawTextOptions.Clip, MeasuringMode.Natural);
+        Context.DrawText(text, format, Raw(area), _brush, DrawTextOptions.Clip);
     }
 
     /// <summary>How wide a piece of text is in the body font, in device pixels.</summary>
