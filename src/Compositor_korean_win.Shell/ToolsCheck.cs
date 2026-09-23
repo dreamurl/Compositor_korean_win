@@ -126,8 +126,9 @@ internal static class ToolsCheck
             LayerTransform? maskWas = apart.Mask?.Placement;
 
             // And with the layer as the target, the layer moves and the unlinked mask stays.
+            // A different distance: a mask landing exactly on its layer goes back to following it.
             canvas.ClickLayer(id, control: false, shift: false, [id]);
-            Drag(w * 0.5, w * 0.5 + 24, h * 0.5);
+            Drag(w * 0.5, w * 0.5 + 40, h * 0.5);
             ImageLayer movedLayer = canvas.Document!.Layer(id)!;
             Expect(movedLayer.Transform != layerAt && movedLayer.Mask?.Placement == maskWas,
                    "an unlinked mask moved with its layer");
