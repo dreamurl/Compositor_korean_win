@@ -128,12 +128,32 @@ public sealed class SoftwareRenderBackend : IRenderBackend
         }
 
         /// <summary>Coverage from a mask that shares the layer's own grid.</summary>
-        private static double SampleCoverage(PixelBuffer mask, double u, double v, bool nearest)
+        private static double SampleCoverage(PixelBuffer mask, double u, double v, bool nearest) =>
+            MaskLevel(mask, u * mask.Width, v * mask.Height, nearest);
+
+        /// <summary>
+        /// A mask's level at pixel coordinates, its edge pixels standing for everything past them.
+        /// </summary>
+        /// <remarks>
+        /// A mask covers the whole of what it masks — an unpainted one is a single pixel stretched
+        /// over the layer — so the half pixel past its last row is more of that row, not nothing.
+        /// Reading it as transparent faded a one-pixel "reveal all" mask to 90% at the layer's
+        /// middle. The level is in the colour channels, as every mask keeps it.
+        /// </remarks>
+        private static double MaskLevel(PixelBuffer mask, double px, double py, bool nearest)
         {
-            Span<byte> sample = stackalloc byte[4];
-            SampleBuffer(mask, u * mask.Width, v * mask.Height, nearest, sample);
-            // A mask is grey with full alpha; outside it there is nothing, which hides.
-            return sample[3] == 0 ? 0 : sample[0] / 255.0;
+            int width = mask.Width, height = mask.Height;
+            int Level(int x, int y) => mask.Row(Math.Clamp(y, 0, height - 1))[Math.Clamp(x, 0, width - 1) * 4];
+
+            if (nearest) return Level((int)Math.Floor(px), (int)Math.Floor(py)) / 255.0;
+
+            double fx = px - 0.5, fy = py - 0.5;
+            int x0 = (int)Math.Floor(fx), y0 = (int)Math.Floor(fy);
+            double tx = fx - x0, ty = fy - y0;
+
+            double top = Level(x0, y0) * (1 - tx) + Level(x0 + 1, y0) * tx;
+            double bottom = Level(x0, y0 + 1) * (1 - tx) + Level(x0 + 1, y0 + 1) * tx;
+            return (top * (1 - ty) + bottom * ty) / 255.0;
         }
 
         /// <summary>Coverage from a clip placed on the document.</summary>
@@ -156,9 +176,7 @@ public sealed class SoftwareRenderBackend : IRenderBackend
             double u = localX / placement.Size.Width + 0.5;
             double v = localY / placement.Size.Height + 0.5;
 
-            Span<byte> sample = stackalloc byte[4];
-            SampleBuffer(clip.Coverage, u * clip.Coverage.Width, v * clip.Coverage.Height, nearest, sample);
-            return sample[3] == 0 ? 0 : sample[0] / 255.0;
+            return MaskLevel(clip.Coverage, u * clip.Coverage.Width, v * clip.Coverage.Height, nearest);
         }
 
         public void Dispose() => _pixels.Release();
