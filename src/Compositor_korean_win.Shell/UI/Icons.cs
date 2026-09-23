@@ -32,6 +32,29 @@ internal static class Icons
             case CanvasTool.MagicWand: Wand(ui, area, colour); break;
             case CanvasTool.Gradient: Gradient(ui, area, colour); break;
             case CanvasTool.Shape: Shape(ui, area, colour); break;
+            case CanvasTool.Eyedropper:
+                // A pipette: the bulb up right, the tube down to the tip.
+                Stroke(ui, area, colour, (3, 17), (12, 8));
+                Stroke(ui, area, colour, (10, 6), (14, 10));
+                Stroke(ui, area, colour, (13, 7), (16, 4), (17, 3), (17, 3.5));
+                Stroke(ui, area, colour, (12, 5), (15, 2), (18, 5), (15, 8));
+                break;
+            case CanvasTool.Hand:
+                // Four fingers and a thumb, open.
+                Stroke(ui, area, colour, (6, 18), (4, 11), (5, 10), (7, 13));
+                Stroke(ui, area, colour, (7, 13), (7, 4), (9, 4), (9, 11));
+                Stroke(ui, area, colour, (9, 11), (9, 2), (11, 2), (11, 11));
+                Stroke(ui, area, colour, (11, 11), (11, 3), (13, 3), (13, 11));
+                Stroke(ui, area, colour, (13, 11), (13, 5), (15, 5), (15, 13), (13, 18), (6, 18));
+                break;
+            case CanvasTool.Zoom:
+                for (int i = 0; i < 16; i++)
+                {
+                    double a = i * Math.PI / 8, b = (i + 1) * Math.PI / 8;
+                    Stroke(ui, area, colour, (8 + 6 * Math.Cos(a), 8 + 6 * Math.Sin(a)), (8 + 6 * Math.Cos(b), 8 + 6 * Math.Sin(b)));
+                }
+                Stroke(ui, area, colour, (12.5, 12.5), (18, 18));
+                break;
             case CanvasTool.Crop:
                 // Photoshop's two crossing corners.
                 Stroke(ui, area, colour, (5, 1), (5, 15), (19, 15));

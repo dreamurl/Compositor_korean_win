@@ -389,6 +389,11 @@ public enum TextKey
     HistoryArrangeLayers,
     CommandAddHideMask,
     CommandRenameLayer,
+
+    // The Eyedropper, Hand and Zoom tools.
+    ToolEyedropper,
+    ToolHand,
+    ToolZoom,
 }
 
 /// <summary>
@@ -765,6 +770,9 @@ public static class TextTable
         (TextKey.HistoryArrangeLayers, "Arrange Layers", "레이어 순서 변경"),
         (TextKey.CommandAddHideMask, "Add &Hide-All Mask", "모두 가리는 마스크 추가(&H)"),
         (TextKey.CommandRenameLayer, "Rename…", "이름 바꾸기…"),
+        (TextKey.ToolEyedropper, "Eyedropper Tool", "스포이드 도구"),
+        (TextKey.ToolHand, "Hand Tool", "손 도구"),
+        (TextKey.ToolZoom, "Zoom Tool", "돋보기 도구"),
     ];
 
     /// <summary>Phrases that are the same in both languages on purpose — names, not words.</summary>

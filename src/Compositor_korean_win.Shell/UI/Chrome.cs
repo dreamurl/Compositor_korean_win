@@ -33,6 +33,7 @@ internal sealed unsafe class Chrome : IDisposable
         (CanvasTool.Lasso, 'L'), (CanvasTool.PolygonLasso, 'L'), (CanvasTool.MagicWand, 'W'),
         (CanvasTool.Brush, 'B'), (CanvasTool.Eraser, 'E'), (CanvasTool.CloneStamp, 'S'),
         (CanvasTool.Heal, 'J'), (CanvasTool.Blur, 'R'), (CanvasTool.Gradient, 'G'), (CanvasTool.Shape, 'U'),
+        (CanvasTool.Eyedropper, 'I'), (CanvasTool.Hand, 'H'), (CanvasTool.Zoom, 'Z'),
     ];
 
     private static readonly FilterCommand[] AdjustmentKinds =

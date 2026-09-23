@@ -49,6 +49,15 @@ internal enum CanvasTool
 
     /// <summary>Frames what the canvas becomes.</summary>
     Crop,
+
+    /// <summary>Takes the colour the document shows.</summary>
+    Eyedropper,
+
+    /// <summary>Moves the view.</summary>
+    Hand,
+
+    /// <summary>Zooms in on a click, out with Alt, continuously on a drag.</summary>
+    Zoom,
 }
 
 /// <summary>Which tools make a stroke rather than a drag or a click.</summary>
@@ -304,6 +313,8 @@ internal sealed partial class CanvasView : IDisposable
 
         Point pixel = _viewport.DocumentPoint(view, _document.Size);
 
+        if (BeginNavigation(view, pixel, Win32.IsKeyDown(Win32.VK_MENU))) return;
+
         if (_tool == CanvasTool.PolygonLasso)
         {
             AddCorner(pixel);
@@ -479,6 +490,8 @@ internal sealed partial class CanvasView : IDisposable
 
         _pointer = view;
 
+        if (DragNavigation(view, _viewport.DocumentPoint(view, _document.Size))) return;
+
         if (_cropDragging)
         {
             DragCrop(_viewport.DocumentPoint(view, _document.Size), alt);
@@ -589,6 +602,8 @@ internal sealed partial class CanvasView : IDisposable
     {
         _panning = false;
         if (IsFiltering) return;
+
+        if (EndNavigation()) return;
 
         if (_cropDragging)
         {
@@ -1038,6 +1053,9 @@ internal sealed partial class CanvasView : IDisposable
         CanvasTool.Gradient => TextKey.ToolGradient,
         CanvasTool.Shape => TextKey.ToolShape,
         CanvasTool.Crop => TextKey.ToolCrop,
+        CanvasTool.Eyedropper => TextKey.ToolEyedropper,
+        CanvasTool.Hand => TextKey.ToolHand,
+        CanvasTool.Zoom => TextKey.ToolZoom,
         _ => TextKey.HistoryEdit,
     };
 
@@ -1160,6 +1178,18 @@ internal sealed partial class CanvasView : IDisposable
 
             case Win32.VK_C when !control:
                 _tool = CanvasTool.Crop;
+                break;
+
+            case Win32.VK_I when !control:
+                _tool = CanvasTool.Eyedropper;
+                break;
+
+            case Win32.VK_H when !control:
+                _tool = CanvasTool.Hand;
+                break;
+
+            case Win32.VK_Z when !control:
+                _tool = CanvasTool.Zoom;
                 break;
 
             case Win32.VK_B when !control:

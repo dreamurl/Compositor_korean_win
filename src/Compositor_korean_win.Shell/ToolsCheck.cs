@@ -236,6 +236,29 @@ internal static class ToolsCheck
                    "Add Hide-All Mask did not add a black mask");
             canvas.ToggleMaskOf(id);
             Expect(canvas.Document!.Layer(id)!.Mask?.IsEnabled == false, "Shift-click did not switch the mask off");
+
+            // The Zoom tool doubles on a click and halves with Alt; the Hand moves the view; the
+            // Eyedropper takes the colour the document shows.
+            canvas.FitOnScreen();
+            Point Middle() => canvas.Viewport.ViewPoint(new Point(w / 2.0, h / 2.0), canvas.Document!.Size);
+            canvas.SetTool(CanvasTool.Zoom);
+            double fitted = canvas.Viewport.Zoom;
+            canvas.PointerDown(Middle(), pan: false);
+            canvas.PointerUp();
+            Expect(Math.Abs(canvas.Viewport.Zoom - fitted * 2) < 1e-6, $"a Zoom click went from {fitted} to {canvas.Viewport.Zoom}");
+
+            canvas.SetTool(CanvasTool.Hand);
+            Point startView = Middle();
+            canvas.PointerDown(startView, pan: false);
+            canvas.PointerMoved(new Point(startView.X + 40, startView.Y), shift: false, alt: false, control: false);
+            canvas.PointerUp();
+            Expect(Math.Abs(Middle().X - (startView.X + 40)) < 1, "the Hand did not move the view");
+
+            canvas.SetTool(CanvasTool.Eyedropper);
+            canvas.ForegroundColor = new Rgba(1, 2, 3);
+            canvas.PointerDown(Middle(), pan: false);
+            canvas.PointerUp();
+            Expect(canvas.ForegroundColor != new Rgba(1, 2, 3), "the Eyedropper took no colour");
         }
         catch (Exception exception)
         {
