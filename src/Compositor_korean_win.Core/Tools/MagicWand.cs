@@ -11,6 +11,9 @@ public sealed record WandSettings
 
     /// <summary>Half-width of the square averaged to get the colour to match against.</summary>
     public int SampleRadius { get; init; }
+
+    /// <summary>Whether matching reads the composited document instead of only the active layer.</summary>
+    public bool SampleAllLayers { get; init; }
 }
 
 /// <summary>What came of a wand click.</summary>

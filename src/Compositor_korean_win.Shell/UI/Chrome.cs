@@ -261,18 +261,31 @@ internal sealed unsafe class Chrome : IDisposable
             }
 
             case CanvasTool.RectangleMarquee or CanvasTool.EllipseMarquee or CanvasTool.Lasso or CanvasTool.PolygonLasso:
+                SelectionControls(ref x, y, h);
                 _ui.Slider(Next(230), Localizer.Text(TextKey.LabelSelectionStep), (_canvas.SelectionStep - 1) / 99.0,
                            Pixels(_canvas.SelectionStep), f => _canvas.SelectionStep = (int)Math.Round(1 + f * 99));
                 break;
 
             case CanvasTool.MagicWand:
             {
+                SelectionControls(ref x, y, h);
                 WandSettings wand = _canvas.Wand;
                 _ui.Slider(Next(200), Localizer.Text(TextKey.LabelTolerance), wand.Tolerance / 255.0,
                            wand.Tolerance.ToString(System.Globalization.CultureInfo.InvariantCulture),
                            f => _canvas.Wand = _canvas.Wand with { Tolerance = (int)Math.Round(f * 255) });
                 _ui.Check(Next(90), Localizer.Text(TextKey.LabelContiguous), wand.Contiguous,
                           () => _canvas.Wand = _canvas.Wand with { Contiguous = !_canvas.Wand.Contiguous });
+                Segment(ref x, y, h, Localizer.Text(TextKey.LabelSampleSize),
+                [
+                    (Localizer.Text(TextKey.SamplePoint), wand.SampleRadius == 0,
+                     () => _canvas.Wand = _canvas.Wand with { SampleRadius = 0 }),
+                    (Localizer.Text(TextKey.Sample3By3), wand.SampleRadius == 1,
+                     () => _canvas.Wand = _canvas.Wand with { SampleRadius = 1 }),
+                    (Localizer.Text(TextKey.Sample5By5), wand.SampleRadius == 2,
+                     () => _canvas.Wand = _canvas.Wand with { SampleRadius = 2 }),
+                ]);
+                _ui.Check(Next(110), Localizer.Text(TextKey.LabelAllLayers), wand.SampleAllLayers,
+                          () => _canvas.Wand = _canvas.Wand with { SampleAllLayers = !_canvas.Wand.SampleAllLayers });
                 break;
             }
 
@@ -314,6 +327,8 @@ internal sealed unsafe class Chrome : IDisposable
             {
                 // Upstream's TransformInspector: the chosen layer's placement — or an unlinked mask's,
                 // when that is the target — typed. Each number typed is one history step, as a drag is.
+                _ui.Check(Next(110), Localizer.Text(TextKey.LabelAutoSelect), _canvas.AutoSelect,
+                          () => _canvas.AutoSelect = !_canvas.AutoSelect);
                 Core.Size pixelSize = _canvas.TransformTargetPixels;
 
                 void Box(string name, bool user, double value, int points, Action<double> set, string suffix = "")
@@ -383,6 +398,22 @@ internal sealed unsafe class Chrome : IDisposable
             x += width + _ui.P(2);
         }
         x += _ui.P(16);
+    }
+
+    private void SelectionControls(ref double x, double y, double h)
+    {
+        Segment(ref x, y, h, Localizer.Text(TextKey.LabelSelectionMode),
+        [
+            (Localizer.Text(TextKey.SelectionReplace), _canvas.SelectionMode == SelectionModeChoice.Replace,
+             () => _canvas.SelectionMode = SelectionModeChoice.Replace),
+            (Localizer.Text(TextKey.SelectionAdd), _canvas.SelectionMode == SelectionModeChoice.Add,
+             () => _canvas.SelectionMode = SelectionModeChoice.Add),
+            (Localizer.Text(TextKey.SelectionSubtract), _canvas.SelectionMode == SelectionModeChoice.Subtract,
+             () => _canvas.SelectionMode = SelectionModeChoice.Subtract),
+        ]);
+        _ui.Check(new Rect(x, y, _ui.P(110), h), Localizer.Text(TextKey.LabelAntiAlias), _canvas.SelectionAntialiased,
+                  () => _canvas.SelectionAntialiased = !_canvas.SelectionAntialiased);
+        x += _ui.P(126);
     }
 
     // MARK: Sheets

@@ -107,6 +107,16 @@ public enum TextKey
     LabelContiguous,
     LabelAligned,
     LabelAntiAlias,
+    LabelSelectionMode,
+    SelectionReplace,
+    SelectionAdd,
+    SelectionSubtract,
+    LabelSampleSize,
+    SamplePoint,
+    Sample3By3,
+    Sample5By5,
+    LabelAllLayers,
+    LabelAutoSelect,
     LabelSelectionStep,
     LabelType,
     LabelCornerRadius,
@@ -773,11 +783,25 @@ public static class TextTable
         (TextKey.ToolEyedropper, "Eyedropper Tool", "스포이드 도구"),
         (TextKey.ToolHand, "Hand Tool", "손 도구"),
         (TextKey.ToolZoom, "Zoom Tool", "돋보기 도구"),
+        (TextKey.LabelSelectionMode, "Selection", "선택"),
+        (TextKey.SelectionReplace, "New", "새 선택"),
+        (TextKey.SelectionAdd, "Add", "추가"),
+        (TextKey.SelectionSubtract, "Subtract", "빼기"),
+        (TextKey.LabelSampleSize, "Sample Size", "표본 크기"),
+        (TextKey.SamplePoint, "Point", "포인트"),
+        (TextKey.Sample3By3, "3 × 3", "3 × 3"),
+        (TextKey.Sample5By5, "5 × 5", "5 × 5"),
+        (TextKey.LabelAllLayers, "All Layers", "모든 레이어"),
+        (TextKey.LabelAutoSelect, "Auto Select", "자동 선택"),
     ];
 
     /// <summary>Phrases that are the same in both languages on purpose — names, not words.</summary>
     public static readonly FrozenSet<TextKey> Untranslated =
-        new[] { TextKey.LanguageEnglish, TextKey.LanguageKorean, TextKey.UnitPercent, TextKey.ChannelRgb, TextKey.LabelR, TextKey.LabelG, TextKey.LabelB }.ToFrozenSet();
+        new[]
+        {
+            TextKey.LanguageEnglish, TextKey.LanguageKorean, TextKey.UnitPercent, TextKey.ChannelRgb,
+            TextKey.LabelR, TextKey.LabelG, TextKey.LabelB, TextKey.Sample3By3, TextKey.Sample5By5,
+        }.ToFrozenSet();
 
     private static readonly FrozenDictionary<TextKey, (string English, string Korean)> s_byKey =
         Entries.ToFrozenDictionary(entry => entry.Key, entry => (entry.English, entry.Korean));

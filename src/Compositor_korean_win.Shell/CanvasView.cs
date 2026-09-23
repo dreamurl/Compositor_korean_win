@@ -60,6 +60,14 @@ internal enum CanvasTool
     Zoom,
 }
 
+/// <summary>How a selection tool combines its next outline with the current selection.</summary>
+internal enum SelectionModeChoice
+{
+    Replace,
+    Add,
+    Subtract,
+}
+
 /// <summary>Which tools make a stroke rather than a drag or a click.</summary>
 internal static class CanvasTools
 {
@@ -153,6 +161,13 @@ internal sealed partial class CanvasView : IDisposable
     private List<Point>? _lasso;
     private bool _marqueeAdds;
     private bool _marqueeTakesAway;
+
+    public SelectionModeChoice SelectionMode { get; set; }
+
+    public bool SelectionAntialiased { get; set; } = true;
+
+    /// <summary>Whether the Move tool chooses the topmost layer under the pointer.</summary>
+    public bool AutoSelect { get; set; }
 
     public CanvasView(GraphicsDevice device)
     {
@@ -343,7 +358,8 @@ internal sealed partial class CanvasView : IDisposable
 
         if (_tool == CanvasTool.MagicWand)
         {
-            Wave(pixel, add: Win32.IsKeyDown(Win32.VK_SHIFT), subtract: Win32.IsKeyDown(Win32.VK_MENU));
+            (bool add, bool subtract) = SelectionOperationForHeldKeys();
+            Wave(pixel, add, subtract);
             return;
         }
 
@@ -352,8 +368,7 @@ internal sealed partial class CanvasView : IDisposable
             _marqueeFrom = pixel;
             _marqueeTo = pixel;
             _lasso = _tool == CanvasTool.Lasso ? [pixel] : null;
-            _marqueeAdds = Win32.IsKeyDown(Win32.VK_SHIFT);
-            _marqueeTakesAway = Win32.IsKeyDown(Win32.VK_MENU);
+            (_marqueeAdds, _marqueeTakesAway) = SelectionOperationForHeldKeys();
             NeedsRedraw = true;
             return;
         }
@@ -418,7 +433,9 @@ internal sealed partial class CanvasView : IDisposable
             return;
         }
 
-        ImageLayer? hit = Topmost(pixel);
+        // Auto Select follows the pointer. With it off the active layer moves, while Control is
+        // the temporary upstream override that selects a layer under the pointer.
+        ImageLayer? hit = AutoSelect || control ? Topmost(pixel) : ActiveLayer;
         NeedsRedraw = true;
 
         if (hit is null)
@@ -859,12 +876,12 @@ internal sealed partial class CanvasView : IDisposable
 
         if (corners is not { Count: >= 3 }) return;
 
-        DocumentSelection made = DocumentSelection.Lasso(corners);
-        bool adds = Win32.IsKeyDown(Win32.VK_SHIFT), takesAway = Win32.IsKeyDown(Win32.VK_MENU);
+        DocumentSelection made = DocumentSelection.Lasso(corners) with { IsAntialiased = SelectionAntialiased };
+        (bool adds, bool takesAway) = SelectionOperationForHeldKeys();
 
-        _selection = _selection is DocumentSelection existing && (adds || takesAway)
+        _selection = (_selection is DocumentSelection existing && (adds || takesAway)
             ? takesAway ? existing.Subtracting(made) : existing.Adding(made)
-            : made;
+            : made) with { IsAntialiased = SelectionAntialiased };
     }
 
     /// <summary>
@@ -1011,18 +1028,33 @@ internal sealed partial class CanvasView : IDisposable
         if (_document is null || Primary is not Guid id
             || _document.Layer(id) is not ImageLayer layer || layer.Image is not PixelBuffer pixels) return;
 
-        Point pixel = LayerGeometry.ToPixels(layer.Transform, document, pixels.Width, pixels.Height);
-        (DocumentSelection? matched, WandOutcome outcome) = MagicWand.Select(pixels, pixel, Wand);
+        DocumentSelection? matched;
+        WandOutcome outcome;
+        bool alreadyInDocument = Wand.SampleAllLayers;
+
+        if (alreadyInDocument)
+        {
+            using var backend = new SoftwareRenderBackend();
+            using PixelBuffer composite = LayerCompositor.Render(_document, backend);
+            (matched, outcome) = MagicWand.Select(composite, document, Wand);
+        }
+        else
+        {
+            Point pixel = LayerGeometry.ToPixels(layer.Transform, document, pixels.Width, pixels.Height);
+            (matched, outcome) = MagicWand.Select(pixels, pixel, Wand);
+        }
 
         LastWandOutcome = outcome;
         if (matched is null) return;
 
-        DocumentSelection inDocument = matched.Transformed(
-            point => LayerGeometry.ToDocument(layer.Transform, point, pixels.Width, pixels.Height));
+        DocumentSelection inDocument = (alreadyInDocument
+            ? matched
+            : matched.Transformed(point => LayerGeometry.ToDocument(layer.Transform, point, pixels.Width, pixels.Height)))
+            with { IsAntialiased = SelectionAntialiased };
 
-        _selection = _selection is DocumentSelection existing && (add || subtract)
+        _selection = (_selection is DocumentSelection existing && (add || subtract)
             ? subtract ? existing.Subtracting(inDocument) : existing.Adding(inDocument)
-            : inDocument;
+            : inDocument) with { IsAntialiased = SelectionAntialiased };
 
         NeedsRedraw = true;
     }
@@ -1087,15 +1119,25 @@ internal sealed partial class CanvasView : IDisposable
             _ => null,
         };
 
+        if (made is not null) made = made with { IsAntialiased = SelectionAntialiased };
+
         if (made is null)
         {
             if (!adds && !takesAway) _selection = null;
             return;
         }
 
-        _selection = _selection is DocumentSelection existing && (adds || takesAway)
+        _selection = (_selection is DocumentSelection existing && (adds || takesAway)
             ? takesAway ? existing.Subtracting(made) : existing.Adding(made)
-            : made;
+            : made) with { IsAntialiased = SelectionAntialiased };
+    }
+
+    /// <summary>The persistent option, temporarily overridden by Shift and Alt.</summary>
+    private (bool Add, bool Subtract) SelectionOperationForHeldKeys()
+    {
+        if (Win32.IsKeyDown(Win32.VK_MENU)) return (false, true);
+        if (Win32.IsKeyDown(Win32.VK_SHIFT)) return (true, false);
+        return (SelectionMode == SelectionModeChoice.Add, SelectionMode == SelectionModeChoice.Subtract);
     }
 
     /// <summary>The wheel turned by <paramref name="notches"/> of its own unit at a point.</summary>

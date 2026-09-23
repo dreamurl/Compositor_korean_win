@@ -215,6 +215,26 @@ internal static class ToolsCheck
             canvas.Key(Win32.VK_ESCAPE, control: false);
             Expect(!canvas.IsFloating && canvas.Document == unlifted && canvas.Selection is not null, "Escape did not put the pixels back");
 
+            // Selection options persist without modifier keys, and their antialias choice reaches
+            // the selection model. The wand exposes all three sample sizes and composited sampling.
+            canvas.SelectionMode = SelectionModeChoice.Add;
+            canvas.SelectionAntialiased = false;
+            canvas.SetTool(CanvasTool.RectangleMarquee);
+            canvas.PointerDown(At(w * 0.55, h * 0.55), pan: false);
+            canvas.PointerMoved(At(w * 0.75, h * 0.75), shift: false, alt: false, control: false);
+            canvas.PointerUp();
+            Expect(canvas.Selection is { IsAntialiased: false, Shapes.Count: > 1 },
+                   "the persistent Add or anti-alias selection option did not reach the selection");
+            canvas.Wand = canvas.Wand with { SampleRadius = 2, SampleAllLayers = true };
+            Expect(canvas.Wand is { SampleRadius: 2, SampleAllLayers: true },
+                   "the Magic Wand did not retain its sample size and all-layers option");
+            canvas.SelectionMode = SelectionModeChoice.Replace;
+            canvas.SelectionAntialiased = true;
+
+            canvas.AutoSelect = true;
+            Expect(canvas.AutoSelect, "the Move tool did not retain Auto Select");
+            canvas.AutoSelect = false;
+
             // The Layers panel: a row dropped below another, Alt copying it, a thumbnail's pixels as
             // the selection, a hide-all mask, and Shift-click switching a mask off.
             menu.Run(CommandIds.Deselect);
