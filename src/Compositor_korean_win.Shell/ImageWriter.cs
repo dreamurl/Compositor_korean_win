@@ -38,7 +38,7 @@ internal static class ImageWriter
         using var factory = new IWICImagingFactory();
         using var file = new FileStream(path, FileMode.Create, FileAccess.Write);
         using IWICBitmapEncoder encoder = factory.CreateEncoder(ContainerFormat.Jpeg, file);
-        using IWICBitmapFrameEncode frame = encoder.CreateNewFrame(out IPropertyBag2 options);
+        using IWICBitmapFrameEncode frame = encoder.CreateNewFrame(out var options);
 
         frame.Initialize(options);
         frame.SetSize((uint)width, (uint)height);
