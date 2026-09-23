@@ -277,7 +277,9 @@ internal sealed class Ui : IDisposable
         float valueWidth = P(52);
         Text(label, new Rect(area.X, area.Y, labelWidth, area.Height), Dim);
 
-        var track = new Rect(area.X + labelWidth, area.Y, Math.Max(P(20), area.Width - labelWidth - valueWidth), area.Height);
+        // The knob's centre travels the track, so the track stops a knob's width short of the value
+        // written after it; otherwise a full slider's knob sits on its own number.
+        var track = new Rect(area.X + labelWidth + P(6), area.Y, Math.Max(P(20), area.Width - labelWidth - valueWidth - P(12)), area.Height);
         double middle = track.Y + track.Height / 2;
         fraction = Math.Clamp(fraction, 0, 1);
 
@@ -286,7 +288,7 @@ internal sealed class Ui : IDisposable
         _brush!.Color = Ink;
         Context.FillEllipse(new Ellipse(new Vector2((float)(track.X + track.Width * fraction), (float)middle), P(5), P(5)), _brush);
 
-        Text(value, new Rect(track.MaxX + P(6), area.Y, valueWidth - P(6), area.Height), Ink, user: IsNumeric(value));
+        Text(value, new Rect(track.MaxX + P(12), area.Y, valueWidth - P(6), area.Height), Ink, user: IsNumeric(value));
 
         bool started = false;
         _hits.Add(new Hit(track, null, (point, finished) =>
