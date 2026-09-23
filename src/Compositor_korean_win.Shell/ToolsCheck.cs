@@ -102,6 +102,48 @@ internal static class ToolsCheck
             // Filters are for pixels.
             Expect(!canvas.CanFilter, "a filter could start on a mask");
 
+            // Copied as grey pixels when the mask is the target.
+            if (canvas.CopyPixels(merged: false) is var (grey, _))
+            {
+                ReadOnlySpan<byte> pixel = grey.Row(grey.Height / 2).Slice(grey.Width / 2 * 4, 4);
+                Expect(pixel[0] == pixel[1] && pixel[1] == pixel[2] && pixel[3] == 255, "Copy on a mask did not take its grey");
+                grey.Release();
+            }
+            else
+            {
+                Expect(false, "Copy on a mask took nothing");
+            }
+
+            // Unlinked, the Move tool carries the mask alone.
+            menu.Run(CommandIds.ToggleMaskLink);
+            Expect(canvas.TransformsMask, "unlinking did not let the mask move on its own");
+            LayerTransform layerAt = canvas.Document!.Layer(id)!.Transform;
+            canvas.SetTool(CanvasTool.Move);
+            Drag(w * 0.5, w * 0.5 + 24, h * 0.5);
+            ImageLayer apart = canvas.Document!.Layer(id)!;
+            Expect(apart.Transform == layerAt && apart.Mask?.Placement is LayerTransform maskAt && maskAt.Origin.X > layerAt.Origin.X,
+                   "the Move tool did not move an unlinked mask on its own");
+            LayerTransform? maskWas = apart.Mask?.Placement;
+
+            // And with the layer as the target, the layer moves and the unlinked mask stays.
+            canvas.ClickLayer(id, control: false, shift: false, [id]);
+            Drag(w * 0.5, w * 0.5 + 24, h * 0.5);
+            ImageLayer movedLayer = canvas.Document!.Layer(id)!;
+            Expect(movedLayer.Transform != layerAt && movedLayer.Mask?.Placement == maskWas,
+                   "an unlinked mask moved with its layer");
+
+            // Dropped on another layer, a copy of the mask lands there, where it sat, and is the target.
+            menu.Run(CommandIds.NewLayer);
+            Guid other = canvas.ActiveLayer!.Id;
+            Expect(canvas.CanCopyMaskTo(id, other), "a mask could not be copied to a plain layer");
+            canvas.CopyMask(id, other);
+            ImageLayer receiver = canvas.Document!.Layer(other)!;
+            Expect(receiver.Mask?.Placement == maskWas && canvas.EditingMask, "a copied mask did not land where it sat");
+            canvas.ClickLayer(other, control: false, shift: false, [other]);
+            menu.Run(CommandIds.DeleteLayer);
+            canvas.ClickLayer(id, control: false, shift: false, [id]);
+            canvas.ClickMask(id);
+
             // Choosing the layer's row puts the pixels back as the target.
             canvas.ClickLayer(id, control: false, shift: false, [id]);
             Expect(!canvas.EditingMask, "choosing the layer left the mask as the target");

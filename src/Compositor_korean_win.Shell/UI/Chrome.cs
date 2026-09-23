@@ -131,7 +131,7 @@ internal sealed unsafe class Chrome : IDisposable
 
         // What the tools are working on, when it is the mask rather than the layer: upstream's
         // "Mask" beside the brush settings.
-        if (_canvas.EditingMask && (tool.Paints() || tool == CanvasTool.Gradient))
+        if (_canvas.EditingMask && (tool.Paints() || tool == CanvasTool.Gradient || tool == CanvasTool.Move && _canvas.TransformsMask))
         {
             string mask = Localizer.Text(TextKey.LabelEditingMask);
             float maskWidth = _ui.Measure(mask) + _ui.P(18);
@@ -268,12 +268,12 @@ internal sealed unsafe class Chrome : IDisposable
                 break;
             }
 
-            case CanvasTool.Move when _canvas.ActiveLayer is { IsGroup: false } layer:
+            case CanvasTool.Move when _canvas.ActiveLayer is { } layer && (!layer.IsGroup || _canvas.TransformsMask)
+                                      && _canvas.TransformTarget is LayerTransform t:
             {
-                // Upstream's TransformInspector: the chosen layer's placement, typed. Each number
-                // typed is one history step, as a drag is.
-                LayerTransform t = layer.Transform;
-                var pixelSize = new Core.Size(layer.Image?.Width ?? t.Size.Width, layer.Image?.Height ?? t.Size.Height);
+                // Upstream's TransformInspector: the chosen layer's placement — or an unlinked mask's,
+                // when that is the target — typed. Each number typed is one history step, as a drag is.
+                Core.Size pixelSize = _canvas.TransformTargetPixels;
 
                 void Box(string name, bool user, double value, int points, Action<double> set, string suffix = "")
                 {
@@ -709,6 +709,7 @@ internal sealed unsafe class Chrome : IDisposable
         if (document is null) return;
 
         List<(ImageLayer Layer, int Depth)> rows = Rows(document);
+        _rowAreas.Clear();
         IReadOnlyList<Guid> order = [.. rows.Select(row => row.Layer.Id)];
 
         double rowHeight = _ui.P(RowHeight);
@@ -771,11 +772,27 @@ internal sealed unsafe class Chrome : IDisposable
         if (layer.Adjustment is not null)
             _ui.Area(Clip(thumb, _layersList), Choose, doubleClick: () => _canvas.EditAdjustmentLayer(id));
 
+        _rowAreas.Add((visible, id));
+
+        // Where a mask being dragged would land, as upstream's table shows its drop row.
+        if (_maskDragFrom is Guid dragged && _maskDragMoved && visible.Contains(_maskDragAt) && _canvas.CanCopyMaskTo(dragged, id))
+            _ui.Frame(visible, Ui.Accent, _ui.P(2));
+
         if (layer.Mask is LayerMask mask)
         {
+            // The link between them: a chain while they move together, a gap once unlinked.
+            var link = new Rect(x - _ui.P(1), row.Y, _ui.P(12), row.Height);
+            bool linked = mask.IsLinked;
+            _ui.Button(Clip(link, _layersList), () => _canvas.ToggleMaskLink(id),
+                       Localizer.Text(linked ? TextKey.TooltipMaskLink : TextKey.TooltipMaskUnlinked),
+                       face: _ => { if (linked) Icons.Chain(_ui, link, Ui.Dim); });
+            x = link.MaxX;
+
             var maskThumb = new Rect(x, thumb.Y, thumb.Width, thumb.Height);
             Picture(maskThumb, mask.Coverage, checker: false);
-            _ui.Area(Clip(maskThumb, _layersList), () => _canvas.ClickMask(id), Localizer.Text(TextKey.TooltipLayerMask));
+            // A click makes the mask the target; a drag onto another layer's row copies it there.
+            _ui.Drag(Clip(maskThumb, _layersList), (point, finished) => MaskDrag(id, point, finished),
+                     Localizer.Text(TextKey.TooltipLayerMask));
 
             // Which of the two the tools work on, framed as Photoshop frames it.
             bool maskTargeted = chosen && _canvas.EditingMask;
@@ -789,6 +806,44 @@ internal sealed unsafe class Chrome : IDisposable
         // A layer's name is the user's own, whatever language it was made in.
         _ui.Text(layer.Name, new Rect(x + _ui.P(4), row.Y, row.MaxX - x - _ui.P(8), row.Height),
                  layer.IsVisible ? Ui.Ink : Ui.Dim, user: true);
+    }
+
+    private readonly List<(Rect Row, Guid Id)> _rowAreas = [];
+    private Guid? _maskDragFrom;
+    private Point _maskDragStart;
+    private Point _maskDragAt;
+    private bool _maskDragMoved;
+
+    /// <summary>
+    /// A press on a mask thumbnail, followed until release: left where it was it is a click, which
+    /// makes the mask the target; carried onto another layer's row it copies the mask there.
+    /// </summary>
+    private void MaskDrag(Guid id, Point point, bool finished)
+    {
+        if (_maskDragFrom is null)
+        {
+            _maskDragFrom = id;
+            _maskDragStart = point;
+            _maskDragMoved = false;
+        }
+
+        _maskDragAt = point;
+        if (Math.Abs(point.X - _maskDragStart.X) + Math.Abs(point.Y - _maskDragStart.Y) > _ui.P(4)) _maskDragMoved = true;
+        if (!finished) return;
+
+        _maskDragFrom = null;
+        if (!_maskDragMoved)
+        {
+            _canvas.ClickMask(id);
+            return;
+        }
+
+        foreach ((Rect row, Guid target) in _rowAreas)
+        {
+            if (!row.Contains(point) || !_canvas.CanCopyMaskTo(id, target)) continue;
+            _canvas.CopyMask(id, target);
+            return;
+        }
     }
 
     private void Thumbnail(Rect area, ImageLayer layer)

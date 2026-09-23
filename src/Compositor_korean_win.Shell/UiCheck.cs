@@ -107,6 +107,14 @@ internal static class UiCheck
                         screenshots.Add(Screenshot(device, folder, $"ui-{Localizer.Code(language)}-mask.png"));
                     device.Present();
                 }
+                // Unlinked, the chain gives way and the Move tool's fields are the mask's.
+                canvas.ToggleMaskLink(masked);
+                canvas.SetTool(CanvasTool.Move);
+                window.Render(present: false);
+                strings += Check(chrome.Ui, language, untranslated);
+                device.Present();
+                canvas.ToggleMaskLink(masked);
+
                 canvas.ClickLayer(masked, control: false, shift: false, [masked]);
                 canvas.ChooseTopImageLayer();
             }

@@ -334,6 +334,15 @@ public enum TextKey
     LabelEditingMask,
     TooltipLayerMask,
     NoteMaskTool,
+
+    // Linking a mask to its layer, moving it on its own, and copying it to another layer.
+    CommandLinkMask,
+    CommandUnlinkMask,
+    HistoryTransformMask,
+    HistoryCopyMask,
+    HistoryReplaceMask,
+    TooltipMaskLink,
+    TooltipMaskUnlinked,
 }
 
 /// <summary>
@@ -669,6 +678,13 @@ public static class TextTable
         (TextKey.LabelEditingMask, "Mask", "마스크"),
         (TextKey.TooltipLayerMask, "Layer mask — click to paint it", "레이어 마스크 — 클릭하면 마스크에 칠합니다"),
         (TextKey.NoteMaskTool, "This tool works on pixels, not on a mask.", "이 도구는 마스크가 아닌 픽셀에만 작동합니다."),
+        (TextKey.CommandLinkMask, "&Link Layer Mask", "레이어 마스크 연결(&L)"),
+        (TextKey.CommandUnlinkMask, "Un&link Layer Mask", "레이어 마스크 연결 해제(&L)"),
+        (TextKey.HistoryTransformMask, "Transform Layer Mask", "레이어 마스크 변형"),
+        (TextKey.HistoryCopyMask, "Copy Layer Mask", "레이어 마스크 복사"),
+        (TextKey.HistoryReplaceMask, "Replace Layer Mask", "레이어 마스크 교체"),
+        (TextKey.TooltipMaskLink, "Link the layer and its mask so they move together", "레이어와 마스크를 연결해 함께 움직입니다"),
+        (TextKey.TooltipMaskUnlinked, "Unlinked: the mask moves on its own. Click to link", "연결 해제됨: 마스크가 따로 움직입니다. 클릭하면 연결합니다"),
     ];
 
     /// <summary>Phrases that are the same in both languages on purpose — names, not words.</summary>

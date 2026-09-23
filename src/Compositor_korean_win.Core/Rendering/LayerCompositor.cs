@@ -284,7 +284,7 @@ public static class LayerCompositor
                     IReadOnlyList<MaskClip> inner = clips;
                     if (layer.Mask is { IsEnabled: true } mask)
                     {
-                        inner = [.. clips, new MaskClip(mask.Coverage, mask.Placement ?? layer.Transform)];
+                        inner = [.. clips, PlacedClip(mask, layer.Transform)];
                     }
 
                     Visit(layer.Id, effective, inner, depth + 1);
@@ -420,7 +420,7 @@ public static class LayerCompositor
         // The layer's own mask is placed on the document whether or not it is linked: an
         // adjustment has no pixels of its own for a mask to share a grid with.
         if (layer.Mask is { IsEnabled: true } mask)
-            clips.Add(projection.Apply(new MaskClip(mask.Coverage, mask.Placement ?? layer.Transform)));
+            clips.Add(projection.Apply(PlacedClip(mask, layer.Transform)));
 
         if (extra is MaskClip clip) clips.Add(clip);
 
@@ -551,7 +551,7 @@ public static class LayerCompositor
         foreach (MaskClip inherited in item.Clips) clips.Add(projection.Apply(inherited));
 
         if (layer.Mask is { IsEnabled: true, Placement: LayerTransform placement } placed)
-            clips.Add(projection.Apply(new MaskClip(placed.Coverage, placement)));
+            clips.Add(projection.Apply(PlacedClip(placed, placement)));
 
         PixelBuffer? ownMask = layer.Mask is { IsEnabled: true } mask && mask.Placement is null ? mask.Coverage : null;
         if (ownMask is not null && moved is not null)
@@ -572,6 +572,15 @@ public static class LayerCompositor
             Clips = clips,
         });
     }
+
+    /// <summary>
+    /// A layer's mask as a clip on the document: over the layer while it follows it, and over its
+    /// own box, showing its edge's level beyond, once it has been placed apart.
+    /// </summary>
+    private static MaskClip PlacedClip(LayerMask mask, LayerTransform layer) =>
+        mask.Placement is LayerTransform placement
+            ? new MaskClip(mask.Coverage, placement, mask.Beyond())
+            : new MaskClip(mask.Coverage, layer);
 
     /// <summary>What one layer covers, on its own, as a grey buffer the size of the target.</summary>
     private static PixelBuffer Coverage(ImageLayer layer, IRenderSurface target,

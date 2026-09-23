@@ -400,6 +400,18 @@ internal static class RenderCheck
             ParentId = folderId,
         });
 
+        // A mask moved apart from its layer, half off it: past its own box it shows its edge's level.
+        PixelBuffer apart = Solid(40, 24, 120, 0, 220), apartRamp = Ramp(24, 16);
+        owned.AddRange([apart, apartRamp]);
+        layers.Add(new ImageLayer
+        {
+            Id = Guid.NewGuid(),
+            Name = "Mask apart",
+            Image = apart,
+            Transform = Place(84, 88, 40, 24, scaled),
+            Mask = new LayerMask { Coverage = apartRamp, Placement = Place(96, 92, 24, 16, scaled), IsLinked = false },
+        });
+
         Guid baseId = Guid.NewGuid();
         layers.Add(new ImageLayer
         {

@@ -128,6 +128,7 @@ internal static class CommandIds
     public const int LayerViaCut = 531;
     public const int AddLayerMask = 540;
     public const int DeleteLayerMask = 542;
+    public const int ToggleMaskLink = 543;
     public const int ToggleLayerMask = 541;
 
     public const int DuplicateLayer = 500;

@@ -169,9 +169,10 @@ public sealed class SoftwareRenderBackend : IRenderBackend
             if (placement.FlipX) localX = -localX;
             if (placement.FlipY) localY = -localY;
 
-            // Outside a folder's mask rectangle is hidden, exactly as upstream treats it.
+            // Outside the clip's rectangle is whatever the clip says is there: hidden for a folder's
+            // mask, exactly as upstream treats it, and the edge's level for a mask placed apart.
             if (Math.Abs(localX) > placement.Size.Width / 2 || Math.Abs(localY) > placement.Size.Height / 2)
-                return 0;
+                return clip.Outside / 255.0;
 
             double u = localX / placement.Size.Width + 0.5;
             double v = localY / placement.Size.Height + 0.5;

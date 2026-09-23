@@ -215,4 +215,119 @@ public class MaskAndWarpTests
         Assert.Equal((10, 20), (sample.Width, sample.Height));
         Assert.Equal((0, 0, 255, 255), RenderFixture.At(sample, 2, 5));
     }
+
+    // MARK: Linking, moving and copying a mask
+
+    [Fact]
+    public void AnUnlinkedMaskStaysWhereItWasWhenItsLayerMoves()
+    {
+        using PixelBuffer image = RenderFixture.Solid(20, 20, 1, 2, 3);
+        using PixelBuffer coverage = RenderFixture.Coverage(20, 20, (x, _) => (byte)(x * 12));
+        ImageLayer layer = RenderFixture.Layer("a", image, 10, 10) with
+        {
+            Mask = new LayerMask { Coverage = coverage, IsLinked = false },
+        };
+
+        ImageLayer moved = MaskEditing.WithTransform(layer, layer.Transform with { Origin = new Point(30, 10) });
+
+        Assert.Equal(new Point(30, 10), moved.Transform.Origin);
+        Assert.Equal(layer.Transform, moved.Mask!.Placement);
+    }
+
+    [Fact]
+    public void ALinkedMaskPlacedApartMovesWithItsLayer()
+    {
+        using PixelBuffer image = RenderFixture.Solid(20, 20, 1, 2, 3);
+        using PixelBuffer coverage = RenderFixture.Coverage(10, 10, (_, _) => 255);
+        var apart = new LayerTransform(new Point(0, 0), new Size(10, 10));
+        ImageLayer layer = RenderFixture.Layer("a", image, 10, 10) with
+        {
+            Mask = new LayerMask { Coverage = coverage, Placement = apart },
+        };
+
+        ImageLayer moved = MaskEditing.WithTransform(layer, layer.Transform with { Origin = new Point(15, 13) });
+
+        Assert.Equal(new Point(5, 3), moved.Mask!.Placement!.Origin);
+    }
+
+    [Fact]
+    public void AMaskFollowingItsLayersGridKeepsFollowingIt()
+    {
+        using PixelBuffer image = RenderFixture.Solid(20, 20, 1, 2, 3);
+        using PixelBuffer coverage = RenderFixture.Coverage(20, 20, (_, _) => 255);
+        ImageLayer layer = RenderFixture.Layer("a", image) with { Mask = new LayerMask { Coverage = coverage } };
+
+        ImageLayer moved = MaskEditing.WithTransform(layer, layer.Transform with { Origin = new Point(7, 7) });
+
+        Assert.Null(moved.Mask!.Placement);
+    }
+
+    [Fact]
+    public void AMaskMovedOnItsOwnBackOntoItsLayerFollowsItsGridAgain()
+    {
+        using PixelBuffer image = RenderFixture.Solid(20, 20, 1, 2, 3);
+        using PixelBuffer coverage = RenderFixture.Coverage(20, 20, (_, _) => 255);
+        ImageLayer layer = RenderFixture.Layer("a", image, 4, 4) with
+        {
+            Mask = new LayerMask { Coverage = coverage, IsLinked = false, Placement = new LayerTransform(Point.Zero, new Size(20, 20)) },
+        };
+
+        Assert.Null(MaskEditing.WithMaskPlacement(layer, layer.Transform).Mask!.Placement);
+        Assert.True(MaskEditing.ToggleLink(layer)!.Mask!.IsLinked);
+    }
+
+    [Fact]
+    public void AMaskCopiedToAnotherLayerSitsWhereItSat()
+    {
+        using PixelBuffer image = RenderFixture.Solid(20, 20, 1, 2, 3);
+        using PixelBuffer coverage = RenderFixture.Coverage(20, 20, (x, _) => (byte)(x * 12));
+        ImageLayer source = RenderFixture.Layer("a", image, 5, 5) with { Mask = new LayerMask { Coverage = coverage } };
+        ImageLayer target = RenderFixture.Layer("b", image, 40, 0);
+
+        ImageLayer copied = MaskEditing.CopyTo(source, target)!;
+
+        Assert.Same(coverage, copied.Mask!.Coverage);
+        Assert.Equal(source.Transform, copied.Mask.Placement);
+        Assert.Null(MaskEditing.CopyTo(source, source));
+    }
+
+    [Theory]
+    [InlineData(255, 255)]
+    [InlineData(0, 0)]
+    public void AMaskPlacedApartShowsItsEdgeBeyondItself(byte level, int expected)
+    {
+        using PixelBuffer image = RenderFixture.Solid(20, 20, 200, 0, 0);
+        using PixelBuffer coverage = RenderFixture.Coverage(10, 20, (_, _) => level);
+        // The mask covers the left half of the layer; the right half is beyond it.
+        ImageLayer layer = RenderFixture.Layer("a", image) with
+        {
+            Mask = new LayerMask { Coverage = coverage, Placement = new LayerTransform(Point.Zero, new Size(10, 20)) },
+        };
+
+        using var backend = new SoftwareRenderBackend();
+        using PixelBuffer frame = LayerCompositor.Render(RenderFixture.Document(20, 20, layer), backend);
+
+        Assert.Equal(expected, RenderFixture.At(frame, 15, 10).A);
+    }
+
+    [Fact]
+    public void AFoldersMaskStillHidesWhatItDoesNotReach()
+    {
+        using PixelBuffer image = RenderFixture.Solid(20, 20, 200, 0, 0);
+        using PixelBuffer coverage = RenderFixture.Coverage(10, 20, (_, _) => 255);
+        var folder = new ImageLayer
+        {
+            Id = Guid.NewGuid(),
+            Name = "folder",
+            IsGroup = true,
+            Transform = new LayerTransform(Point.Zero, new Size(10, 20)),
+            Mask = new LayerMask { Coverage = coverage },
+        };
+        ImageLayer inside = RenderFixture.Layer("in", image) with { ParentId = folder.Id };
+
+        using var backend = new SoftwareRenderBackend();
+        using PixelBuffer frame = LayerCompositor.Render(RenderFixture.Document(20, 20, folder, inside), backend);
+
+        Assert.Equal(0, RenderFixture.At(frame, 15, 10).A);
+    }
 }

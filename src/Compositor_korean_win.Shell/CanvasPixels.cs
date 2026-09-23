@@ -51,6 +51,12 @@ internal sealed partial class CanvasView
 
     public bool CanEditSelectedPixels => CanEditExistingPixels && HasSelection;
 
+    /// <summary>Whether Copy has something to take: the layer's pixels, or the mask when it is the target.</summary>
+    public bool CanCopyPixels => CanEditExistingPixels || CanEdit && EditingMask;
+
+    /// <summary>Whether Cut can take and clear: from pixels, or from the mask, which it paints with its background.</summary>
+    public bool CanCutPixels => CanEditSelectedPixels || CanEditMask && HasSelection;
+
     private void PixelEdit(HistoryName name, Func<CanvasDocument, ImageLayer, ImageLayer?> change)
     {
         if (Primary is not Guid id) return;
@@ -102,6 +108,13 @@ internal sealed partial class CanvasView
             return;
         }
 
+        // From a mask: its grey pixels in the selection, as a new layer above.
+        if (EditingMask)
+        {
+            if (CopyPixels(merged: false) is var (pixels, placement)) Paste(pixels, placement);
+            return;
+        }
+
         if (Primary is not Guid id) return;
         Edit(TextKey.CommandLayerViaCopy, document =>
             PixelCommands.LayerVia(document, id, _selection, cut: false) is var (next, copy) ? (next, copy) : null);
@@ -123,6 +136,20 @@ internal sealed partial class CanvasView
     public (PixelBuffer Pixels, LayerTransform Placement)? CopyPixels(bool merged)
     {
         if (_document is not CanvasDocument document) return null;
+
+        // The mask as grey pixels, where it sits, when it is the target — upstream copies it so.
+        if (!merged && EditingMask && ActiveLayer is ImageLayer owner && MaskEditing.AsPixels(owner) is ImageLayer grey)
+        {
+            try
+            {
+                return PixelCommands.Copy(grey, _selection);
+            }
+            finally
+            {
+                grey.Image!.Release();
+            }
+        }
+
         if (!merged) return ActiveLayer is ImageLayer layer ? PixelCommands.Copy(layer, _selection) : null;
 
         using var backend = new SoftwareRenderBackend();
@@ -147,8 +174,9 @@ internal sealed partial class CanvasView
     /// <summary>Clears what Cut just copied, as the Cut step.</summary>
     public void ClearAfterCut()
     {
-        if (_selection is DocumentSelection selection)
-            PixelEdit(TextKey.CommandCut, (_, layer) => PixelCommands.Clear(layer, selection));
+        if (_selection is not DocumentSelection selection) return;
+        if (EditingMask) PixelEdit(TextKey.CommandCut, (_, layer) => MaskEditing.Fill(layer, !MaskPaintsWhite, selection));
+        else PixelEdit(TextKey.CommandCut, (_, layer) => PixelCommands.Clear(layer, selection));
     }
 
     /// <summary>

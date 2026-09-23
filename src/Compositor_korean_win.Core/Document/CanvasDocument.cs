@@ -51,6 +51,31 @@ public sealed record LayerMask
     /// </summary>
     public bool IsLinked { get; init; } = true;
 
+    /// <summary>
+    /// What the mask shows beyond its own pixels once it is placed apart from its layer: white or
+    /// black, whichever most of its edge is — upstream's <c>LayerMask.background(of:)</c>.
+    /// </summary>
+    /// <remarks>
+    /// So a reveal-all mask moved half off its layer keeps revealing the rest, and a hide-all mask
+    /// keeps hiding it; the edge is what the mask was saying about everything it did not reach.
+    /// </remarks>
+    public byte Beyond()
+    {
+        long total = 0, count = 0;
+        int width = Coverage.Width, height = Coverage.Height;
+        for (int y = 0; y < height; y++)
+        {
+            ReadOnlySpan<byte> row = Coverage.Row(y);
+            bool edgeRow = y == 0 || y == height - 1;
+            for (int x = 0; x < width; x += edgeRow || width == 1 ? 1 : width - 1)
+            {
+                total += row[x * 4];
+                count++;
+            }
+        }
+        return total * 2 >= count * 255 ? (byte)255 : (byte)0;
+    }
+
     /// <summary>A mask that hides nothing, or one that hides everything, in a single pixel.</summary>
     public static LayerMask Solid(bool revealing)
     {

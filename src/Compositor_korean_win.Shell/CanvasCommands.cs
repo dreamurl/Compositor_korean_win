@@ -1,6 +1,7 @@
 using Compositor_korean_win.Core;
 using Point = Compositor_korean_win.Core.Point;
 using Rect = Compositor_korean_win.Core.Rect;
+using Size = Compositor_korean_win.Core.Size;
 
 namespace Compositor_korean_win.Shell;
 
@@ -297,18 +298,43 @@ internal sealed partial class CanvasView
     /// The chosen layer placed by numbers — the options bar's X, Y, W, H, scale and angle — as one
     /// history step, its mask moving with it.
     /// </summary>
-    public void ChangeTransform(Func<LayerTransform, LayerTransform> change) =>
+    public void ChangeTransform(Func<LayerTransform, LayerTransform> change)
+    {
+        if (TransformsMask)
+        {
+            Edit(TextKey.HistoryTransformMask, document =>
+            {
+                if (ActiveLayer is not ImageLayer layer || MaskEditing.PlacementOf(layer) is not LayerTransform at) return null;
+                LayerTransform next = change(at);
+                if (next == at || !next.IsValid) return null;
+                return (document.Replacing(MaskEditing.WithMaskPlacement(layer, next)), layer.Id);
+            });
+            return;
+        }
+
         Edit(TextKey.HistoryTransformLayer, document =>
         {
             if (ActiveLayer is not { IsGroup: false } layer) return null;
             LayerTransform next = change(layer.Transform);
             if (next == layer.Transform || !next.IsValid) return null;
-            return (document.Replacing(layer with
-            {
-                Transform = next,
-                Mask = layer.Mask is { Placement: LayerTransform placement } mask
-                    ? mask with { Placement = placement.Following(layer.Transform, next) }
-                    : layer.Mask,
-            }), layer.Id);
+            return (document.Replacing(MaskEditing.WithTransform(layer, next)), layer.Id);
         });
+    }
+
+    /// <summary>What the Move tool and the transform fields work on: the layer, or an unlinked mask.</summary>
+    public LayerTransform? TransformTarget =>
+        ActiveLayer is not ImageLayer layer ? null
+        : TransformsMask ? MaskEditing.PlacementOf(layer)
+        : layer.Transform;
+
+    /// <summary>The pixels behind <see cref="TransformTarget"/>, for its scale.</summary>
+    public Size TransformTargetPixels
+    {
+        get
+        {
+            if (ActiveLayer is not ImageLayer layer || TransformTarget is not LayerTransform t) return new Size(1, 1);
+            PixelBuffer? pixels = TransformsMask ? layer.Mask!.Coverage : layer.Image;
+            return pixels is { Width: > 1 } or { Height: > 1 } ? new Size(pixels.Width, pixels.Height) : t.Size;
+        }
+    }
 }

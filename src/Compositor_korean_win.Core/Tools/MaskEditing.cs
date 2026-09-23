@@ -54,6 +54,74 @@ public static class MaskEditing
         return (spread, placement);
     }
 
+    /// <summary>
+    /// The layer moved to <paramref name="to"/>, its mask with it or not — upstream's
+    /// <c>placement(movingLayer:to:)</c>.
+    /// </summary>
+    /// <remarks>
+    /// Linked, a mask covering the layer's grid goes on covering it, and one placed apart moves the
+    /// same way the layer did. Unlinked, the mask stays where it was on the document, which for one
+    /// that covered the layer means it is placed apart for the first time, at the layer's old box.
+    /// A mask that lands exactly on the layer again goes back to following its grid.
+    /// </remarks>
+    public static ImageLayer WithTransform(ImageLayer layer, LayerTransform to)
+    {
+        if (layer.Mask is not LayerMask mask || layer.Transform == to) return layer with { Transform = to };
+
+        LayerTransform? placement = mask.IsLinked
+            ? mask.Placement?.Following(layer.Transform, to)
+            : mask.Placement ?? layer.Transform;
+        if (placement == to) placement = null;
+
+        return layer with { Transform = to, Mask = mask with { Placement = placement } };
+    }
+
+    /// <summary>Where the layer's mask sits on the document.</summary>
+    public static LayerTransform? PlacementOf(ImageLayer layer) =>
+        layer.Mask is LayerMask mask ? mask.Placement ?? layer.Transform : null;
+
+    /// <summary>The mask alone moved to <paramref name="to"/>, the layer left where it is.</summary>
+    public static ImageLayer WithMaskPlacement(ImageLayer layer, LayerTransform to) =>
+        layer.Mask is LayerMask mask
+            ? layer with { Mask = mask with { Placement = to == layer.Transform ? null : to } }
+            : layer;
+
+    /// <summary>Linked becomes unlinked and the other way round; the mask does not move.</summary>
+    public static ImageLayer? ToggleLink(ImageLayer layer) =>
+        layer.Mask is LayerMask mask ? layer with { Mask = mask with { IsLinked = !mask.IsLinked } } : null;
+
+    /// <summary>
+    /// A copy of <paramref name="source"/>'s mask on <paramref name="target"/>, sitting where it
+    /// sat on the document and replacing any mask the target had — upstream's <c>copyMask</c>.
+    /// Null when there is nothing to copy or nowhere to put it.
+    /// </summary>
+    public static ImageLayer? CopyTo(ImageLayer source, ImageLayer target)
+    {
+        if (source.Mask is not LayerMask mask || source.Id == target.Id || target.IsGroup) return null;
+
+        LayerTransform where = mask.Placement ?? source.Transform;
+        return target with
+        {
+            Mask = mask with { Placement = where == target.Transform ? null : where },
+        };
+    }
+
+    /// <summary>
+    /// The mask as grey pixels, placed where it sits — what Copy takes from a mask. The caller owns
+    /// the pixels; null with no mask.
+    /// </summary>
+    public static ImageLayer? AsPixels(ImageLayer layer)
+    {
+        if (Canvas(layer) is not (PixelBuffer pixels, LayerTransform placement)) return null;
+        return new ImageLayer
+        {
+            Id = Guid.NewGuid(),
+            Name = layer.Name,
+            Image = pixels,
+            Transform = placement,
+        };
+    }
+
     /// <summary>The layer with <paramref name="coverage"/> as its mask, kept where the mask was.</summary>
     public static ImageLayer WithMask(ImageLayer layer, PixelBuffer coverage) =>
         layer.Mask is LayerMask mask ? layer with { Mask = mask with { Coverage = coverage } } : layer;

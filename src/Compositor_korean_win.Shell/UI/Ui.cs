@@ -442,7 +442,8 @@ internal sealed class Ui : IDisposable
     /// An area that follows a drag, for controls the caller draws — a histogram's handles, a curve.
     /// The drag hears every position, and <c>true</c> with the last one.
     /// </summary>
-    public void Drag(Rect area, Action<Point, bool> drag) => _hits.Add(new Hit(area, null, drag, null, null));
+    public void Drag(Rect area, Action<Point, bool> drag, string? tooltip = null) =>
+        _hits.Add(new Hit(area, null, drag, tooltip, null));
 
     /// <summary>A filled circle with an edge — a curve's handle, a colour field's marker.</summary>
     public void Dot(Point centre, double radius, Color4 colour, Color4 edge)

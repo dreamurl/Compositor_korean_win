@@ -288,12 +288,17 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
             ID2D1Bitmap1 coverage = CreateBitmap(_device.D2DContext, Width, Height, BitmapOptions.Target);
             using (var _ = new TargetScope(_device.D2DContext, coverage))
             {
-                // Cleared to nothing, so anything past the clip's rectangle is hidden — the same
-                // rule the software backend follows for a folder mask.
-                _device.D2DContext.Clear(new Color4(0f, 0f, 0f, 0f));
+                // Cleared to what lies past the clip's rectangle — nothing for a folder's mask, the
+                // edge's level for a mask placed apart — the same rule the software backend follows.
+                // The mask then replaces that rather than laying over it, or a grey inside the
+                // rectangle would come out lighter than it is.
+                _device.D2DContext.Clear(new Color4(0f, 0f, 0f, clip.Outside / 255f));
+                PrimitiveBlend blend = _device.D2DContext.PrimitiveBlend;
+                _device.D2DContext.PrimitiveBlend = PrimitiveBlend.Copy;
                 DrawPlaced(_device.D2DContext, source,
                            new LayerDraw { Source = new BufferSource(asAlpha), Placement = clip.Placement },
                            asAlpha.Width, asAlpha.Height);
+                _device.D2DContext.PrimitiveBlend = blend;
             }
 
             return coverage;

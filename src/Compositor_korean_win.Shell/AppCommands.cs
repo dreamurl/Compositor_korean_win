@@ -108,13 +108,13 @@ internal static class AppCommands
                     clipboard.Put(pixels, placement);
                     pixels.Release();
                     canvas.ClearAfterCut();
-                }, () => canvas.CanEditSelectedPixels, [new(VK_X, Control: true)]),
+                }, () => canvas.CanCutPixels, [new(VK_X, Control: true)]),
             new(CommandIds.Copy, TextKey.CommandCopy, () =>
                 {
                     if (canvas.CopyPixels(merged: false) is not var (pixels, placement)) return;
                     clipboard.Put(pixels, placement);
                     pixels.Release();
-                }, () => canvas.CanEditExistingPixels, [new(VK_C, Control: true)]),
+                }, () => canvas.CanCopyPixels, [new(VK_C, Control: true)]),
             new(CommandIds.CopyMerged, TextKey.CommandCopyMerged, () =>
                 {
                     if (canvas.CopyPixels(merged: true) is not var (pixels, placement)) return;
@@ -158,6 +158,10 @@ internal static class AppCommands
 
             new(CommandIds.AddLayerMask, TextKey.CommandAddLayerMask, canvas.AddMask, () => canvas.CanAddMask),
             new(CommandIds.DeleteLayerMask, TextKey.CommandDeleteLayerMask, canvas.DeleteMask, () => canvas.CanChangeMask),
+            new(CommandIds.ToggleMaskLink, TextKey.CommandUnlinkMask, () => canvas.ToggleMaskLink(), () => canvas.CanToggleMaskLink)
+            {
+                DynamicLabel = () => Localizer.Text(canvas.MaskLinked ? TextKey.CommandUnlinkMask : TextKey.CommandLinkMask),
+            },
             new(CommandIds.ToggleLayerMask, TextKey.CommandDisableLayerMask, canvas.ToggleMask, () => canvas.CanChangeMask)
             {
                 DynamicLabel = () => Localizer.Text(canvas.MaskEnabled ? TextKey.CommandDisableLayerMask : TextKey.CommandEnableLayerMask),
@@ -296,7 +300,8 @@ internal static class AppCommands
                 Item(CommandIds.NewLayer), Item(CommandIds.DuplicateLayer), Item(CommandIds.LayerViaCut),
                 Item(CommandIds.DeleteLayer), MenuEntry.Line,
                 new MenuEntry.Submenu(TextKey.MenuLayerMask,
-                    [Item(CommandIds.AddLayerMask), Item(CommandIds.DeleteLayerMask), Item(CommandIds.ToggleLayerMask)]),
+                    [Item(CommandIds.AddLayerMask), Item(CommandIds.DeleteLayerMask), Item(CommandIds.ToggleLayerMask),
+                     Item(CommandIds.ToggleMaskLink)]),
                 new MenuEntry.Submenu(TextKey.MenuNewAdjustmentLayer,
                     [.. Adjustments.Select(adjustment => Item(CommandIds.AdjustmentLayerFirst + (int)adjustment))]),
                 MenuEntry.Line,

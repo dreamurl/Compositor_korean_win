@@ -360,13 +360,20 @@ internal sealed partial class CanvasView : IDisposable
                 ? TransformDragMode.Rotate
                 : TransformDragMode.Resize(handle);
 
-            if (control && handle != RotationHandle && _chosen.Count == 1)
+            if (control && handle != RotationHandle && _chosen.Count == 1 && !TransformsMask)
             {
                 Begin(box, TransformDragMode.Distort(handle), pixel);
                 return;
             }
 
             Begin(box, mode, pixel);
+            return;
+        }
+
+        // An unlinked mask is picked up by its own box, wherever the layer is.
+        if (TransformsMask && Box() is LayerTransform maskBox && maskBox.Contains(pixel))
+        {
+            Begin(maskBox, TransformDragMode.Move, pixel);
             return;
         }
 
@@ -518,7 +525,9 @@ internal sealed partial class CanvasView : IDisposable
         // between what the handle said and what the layer got.
         if (Primary is Guid only && _chosen.Count == 1 && _document.Layer(only) is ImageLayer single)
         {
-            _document = _document.Replacing(single with { Transform = draft });
+            _document = _document.Replacing(TransformsMask
+                ? MaskEditing.WithMaskPlacement(single, draft)
+                : MaskEditing.WithTransform(single, draft));
         }
         else
         {
@@ -536,7 +545,7 @@ internal sealed partial class CanvasView : IDisposable
         foreach ((Guid id, LayerTransform placement) in placements)
         {
             if (_document.Layer(id) is not ImageLayer layer) continue;
-            _document = _document.Replacing(layer with { Transform = placement });
+            _document = _document.Replacing(MaskEditing.WithTransform(layer, placement));
         }
     }
 
@@ -1150,6 +1159,15 @@ internal sealed partial class CanvasView : IDisposable
         double dx = key == Win32.VK_LEFT ? -step : key == Win32.VK_RIGHT ? step : 0;
         double dy = key == Win32.VK_UP ? -step : key == Win32.VK_DOWN ? step : 0;
 
+        if (TransformsMask && ActiveLayer is ImageLayer masked && MaskEditing.PlacementOf(masked) is LayerTransform at)
+        {
+            _history.Begin(TextKey.HistoryTransformMask, _document, Primary);
+            _document = _document.Replacing(MaskEditing.WithMaskPlacement(masked,
+                at with { Origin = new Point(at.Origin.X + dx, at.Origin.Y + dy) }));
+            _history.End(_document, Primary);
+            return;
+        }
+
         _history.Begin(TextKey.HistoryMoveLayer, _document, Primary);
 
         foreach (Guid id in _chosen)
@@ -1160,7 +1178,7 @@ internal sealed partial class CanvasView : IDisposable
                 Origin = new Point(layer.Transform.Origin.X + dx, layer.Transform.Origin.Y + dy),
             };
 
-            if (moved.IsValid) _document = _document.Replacing(layer with { Transform = moved });
+            if (moved.IsValid) _document = _document.Replacing(MaskEditing.WithTransform(layer, moved));
         }
 
         _history.End(_document, Primary);
@@ -1223,6 +1241,7 @@ internal sealed partial class CanvasView : IDisposable
     private LayerTransform? Box()
     {
         if (_document is null || _chosen.Count == 0) return null;
+        if (TransformsMask && ActiveLayer is ImageLayer masked) return MaskEditing.PlacementOf(masked);
 
         var placements = new List<LayerTransform>(_chosen.Count);
         foreach (Guid id in _chosen)
@@ -1244,7 +1263,7 @@ internal sealed partial class CanvasView : IDisposable
             if (_document.Layer(id) is ImageLayer layer) _originals[id] = layer.Transform;
         }
 
-        _history.Begin(TextKey.HistoryTransformLayer, _document, Primary);
+        _history.Begin(TransformsMask ? TextKey.HistoryTransformMask : TextKey.HistoryTransformLayer, _document, Primary);
         _boxAtStart = box;
         _distorting = null;
         _drag = new TransformDrag

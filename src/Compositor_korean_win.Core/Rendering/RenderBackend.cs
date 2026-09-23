@@ -5,7 +5,12 @@ namespace Compositor_korean_win.Core;
 /// A folder's mask and a clipping mask's borrowed alpha both reduce to this, and so does a layer's
 /// own mask once it has been moved apart from its layer. Several clips multiply.
 /// </remarks>
-public readonly record struct MaskClip(PixelBuffer Coverage, LayerTransform Placement);
+/// <param name="Outside">
+/// The coverage beyond the clip's own rectangle: none for a folder's mask or a clipping base, which
+/// hide what they do not reach, and the mask's edge level for a layer mask placed apart
+/// (<see cref="LayerMask.Beyond"/>).
+/// </param>
+public readonly record struct MaskClip(PixelBuffer Coverage, LayerTransform Placement, byte Outside = 0);
 
 /// <summary>One layer, ready to be drawn.</summary>
 public sealed record LayerDraw

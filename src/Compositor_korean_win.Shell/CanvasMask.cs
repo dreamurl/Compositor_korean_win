@@ -28,6 +28,45 @@ internal sealed partial class CanvasView
     public bool EditingMask => _maskOf is Guid id && _chosen.Count == 1 && Primary == id && ActiveLayer?.Mask is not null;
 
     /// <summary>
+    /// Whether the Move tool and the transform fields move the mask on its own: it is the target, and
+    /// it has been unlinked from its layer — upstream's <c>transformTargetsMask</c>.
+    /// </summary>
+    public bool TransformsMask => EditingMask && ActiveLayer!.Mask!.IsLinked == false;
+
+    public bool CanToggleMaskLink => CanEdit && ActiveLayer?.Mask is not null;
+
+    public bool MaskLinked => ActiveLayer?.Mask?.IsLinked ?? true;
+
+    /// <summary>Links or unlinks a layer's mask, the active layer's when no id is given.</summary>
+    public void ToggleMaskLink(Guid? id = null)
+    {
+        if ((id ?? Primary) is not Guid target || _document?.Layer(target) is not ImageLayer layer) return;
+        Edit(layer.Mask?.IsLinked == false ? TextKey.CommandLinkMask : TextKey.CommandUnlinkMask, document =>
+            document.Layer(target) is ImageLayer current && MaskEditing.ToggleLink(current) is ImageLayer toggled
+                ? (document.Replacing(toggled), null)
+                : null);
+    }
+
+    /// <summary>
+    /// A mask dropped on another layer's row: a copy of it there, sitting where it sat, the target
+    /// layer's own mask replaced. The copy becomes the target, as upstream has it.
+    /// </summary>
+    public void CopyMask(Guid from, Guid to)
+    {
+        if (_document?.Layer(from) is not ImageLayer source || _document.Layer(to) is not ImageLayer target) return;
+        if (MaskEditing.CopyTo(source, target) is null) return;
+
+        Edit(target.Mask is null ? TextKey.HistoryCopyMask : TextKey.HistoryReplaceMask, document =>
+            document.Layer(from) is ImageLayer s && document.Layer(to) is ImageLayer t && MaskEditing.CopyTo(s, t) is ImageLayer copied
+                ? (document.Replacing(copied), to)
+                : null);
+        _maskOf = to;
+    }
+
+    public bool CanCopyMaskTo(Guid from, Guid to) =>
+        CanEdit && from != to && _document?.Layer(from)?.Mask is not null && _document.Layer(to) is { IsGroup: false };
+
+    /// <summary>
     /// The mask's foreground is white rather than black. Upstream's <c>maskPaintWhite</c>; black by
     /// default, as Photoshop's reset gives.
     /// </summary>
