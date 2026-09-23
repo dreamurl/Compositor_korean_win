@@ -118,13 +118,18 @@ internal sealed unsafe class MenuBar : IDisposable
     /// </summary>
     public bool TryShortcut(Shortcut pressed)
     {
-        foreach (Command command in _commands.Values)
+        // One key can belong to several commands - Delete clears a selection or, with none, deletes
+        // the layer - so the first that can run takes it.
+        bool claimed = false;
+        foreach (Command command in _commands.Values.OrderBy(command => command.Id))
         {
             if (command.Shortcuts is null || !command.Shortcuts.Contains(pressed)) continue;
-            if (command.CanRun) command.Run();
+            claimed = true;
+            if (!command.CanRun) continue;
+            command.Run();
             return true;
         }
-        return false;
+        return claimed;
     }
 
     /// <summary>Every label in the bar, submenus included, as the user would read it.</summary>

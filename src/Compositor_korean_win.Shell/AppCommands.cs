@@ -36,6 +36,7 @@ internal static class AppCommands
     {
         bool Idle() => !canvas.IsFiltering;
         bool Editable() => canvas.CanEdit;
+        var clipboard = new Clipboard(owner);
 
         var commands = new List<Command>
         {
@@ -79,11 +80,74 @@ internal static class AppCommands
             new(CommandIds.Deselect, TextKey.CommandDeselect, canvas.Deselect,
                 () => Editable() && canvas.HasSelection, [new(VK_D, Control: true)]),
 
-            new(CommandIds.DuplicateLayer, TextKey.CommandDuplicateLayer, canvas.DuplicateLayer,
-                () => canvas.CanDuplicateLayer, [new(VK_J, Control: true)]),
+            new(CommandIds.DuplicateLayer, TextKey.CommandDuplicateLayer, canvas.LayerViaCopy,
+                () => canvas.CanDuplicateLayer, [new(VK_J, Control: true)])
+            {
+                DynamicLabel = () => Localizer.Text(canvas.HasSelection ? TextKey.CommandLayerViaCopy : TextKey.CommandDuplicateLayer),
+            },
+            new(CommandIds.LayerViaCut, TextKey.CommandLayerViaCut, canvas.LayerViaCut, () => canvas.CanEditSelectedPixels,
+                [new(VK_J, Control: true, Shift: true)]),
+
+            new(CommandIds.Cut, TextKey.CommandCut, () =>
+                {
+                    if (canvas.CopyPixels(merged: false) is not var (pixels, placement)) return;
+                    clipboard.Put(pixels, placement);
+                    pixels.Release();
+                    canvas.ClearAfterCut();
+                }, () => canvas.CanEditSelectedPixels, [new(VK_X, Control: true)]),
+            new(CommandIds.Copy, TextKey.CommandCopy, () =>
+                {
+                    if (canvas.CopyPixels(merged: false) is not var (pixels, placement)) return;
+                    clipboard.Put(pixels, placement);
+                    pixels.Release();
+                }, () => canvas.CanEditExistingPixels, [new(VK_C, Control: true)]),
+            new(CommandIds.CopyMerged, TextKey.CommandCopyMerged, () =>
+                {
+                    if (canvas.CopyPixels(merged: true) is not var (pixels, placement)) return;
+                    clipboard.Put(pixels, placement);
+                    pixels.Release();
+                }, Editable, [new(VK_C, Control: true, Shift: true)]),
+            new(CommandIds.Paste, TextKey.CommandPaste, () =>
+                {
+                    if (clipboard.Take() is var (pixels, placement)) canvas.Paste(pixels, placement);
+                }, Editable, [new(VK_V, Control: true)]),
+
+            new(CommandIds.FillForeground, TextKey.CommandFillForeground, () => canvas.Fill(foreground: true),
+                () => canvas.CanEditPixels, [new(VK_BACK, Alt: true)]),
+            new(CommandIds.FillBackground, TextKey.CommandFillBackground, () => canvas.Fill(foreground: false),
+                () => canvas.CanEditPixels, [new(VK_BACK, Control: true)]),
+            new(CommandIds.Clear, TextKey.CommandClear, canvas.Clear, () => canvas.CanEditSelectedPixels, [new(VK_DELETE)]),
+            new(CommandIds.ContentAwareFill, TextKey.CommandContentAwareFill, canvas.ContentAwareFill,
+                () => canvas.CanEditSelectedPixels, [new(VK_BACK, Shift: true)]),
+
+            new(CommandIds.Inverse, TextKey.CommandInverse, canvas.Inverse, () => canvas.CanInverse,
+                [new(VK_I, Control: true, Shift: true)]),
+            new(CommandIds.SelectLayerPixels, TextKey.CommandSelectLayerPixels, canvas.SelectLayerPixels,
+                () => canvas.CanSelectLayerPixels),
+            new(CommandIds.ExpandSelection, TextKey.CommandExpandSelection, () => canvas.GrowSelection(outwards: true),
+                () => canvas.CanInverse)
+            {
+                DynamicLabel = () => Localizer.Format(TextKey.CommandExpandSelection, canvas.SelectionStep),
+            },
+            new(CommandIds.ContractSelection, TextKey.CommandContractSelection, () => canvas.GrowSelection(outwards: false),
+                () => canvas.CanInverse)
+            {
+                DynamicLabel = () => Localizer.Format(TextKey.CommandContractSelection, canvas.SelectionStep),
+            },
+
+            new(CommandIds.Invert, TextKey.CommandInvert, canvas.Invert, () => canvas.CanEditExistingPixels,
+                [new(VK_I, Control: true)]),
+
+            new(CommandIds.AddLayerMask, TextKey.CommandAddLayerMask, canvas.AddMask, () => canvas.CanAddMask),
+            new(CommandIds.DeleteLayerMask, TextKey.CommandDeleteLayerMask, canvas.DeleteMask, () => canvas.CanChangeMask),
+            new(CommandIds.ToggleLayerMask, TextKey.CommandDisableLayerMask, canvas.ToggleMask, () => canvas.CanChangeMask)
+            {
+                DynamicLabel = () => Localizer.Text(canvas.MaskEnabled ? TextKey.CommandDisableLayerMask : TextKey.CommandEnableLayerMask),
+            },
             new(CommandIds.NewLayer, TextKey.CommandNewLayer, canvas.AddLayer, Editable,
                 [new(VK_N, Control: true, Shift: true)]),
-            new(CommandIds.DeleteLayer, TextKey.CommandDeleteLayer, canvas.DeleteLayers, () => canvas.CanDeleteLayers),
+            new(CommandIds.DeleteLayer, TextKey.CommandDeleteLayer, canvas.DeleteLayers, () => canvas.CanDeleteLayers,
+                [new(VK_DELETE)]),
             new(CommandIds.MoveLayerUp, TextKey.CommandMoveLayerUp, () => canvas.MoveLayer(1), () => canvas.CanMoveLayer(1),
                 [new(VK_OEM_6, Control: true)]),
             new(CommandIds.MoveLayerDown, TextKey.CommandMoveLayerDown, () => canvas.MoveLayer(-1),
@@ -178,6 +242,10 @@ internal static class AppCommands
             new(TextKey.MenuEdit,
             [
                 Item(CommandIds.Undo), Item(CommandIds.Redo), MenuEntry.Line,
+                Item(CommandIds.Cut), Item(CommandIds.Copy), Item(CommandIds.CopyMerged), Item(CommandIds.Paste),
+                MenuEntry.Line,
+                Item(CommandIds.FillForeground), Item(CommandIds.FillBackground), Item(CommandIds.Clear),
+                Item(CommandIds.ContentAwareFill), MenuEntry.Line,
                 new MenuEntry.Submenu(TextKey.MenuPreferences,
                 [
                     new MenuEntry.Submenu(TextKey.MenuLanguage,
@@ -187,13 +255,20 @@ internal static class AppCommands
             new(TextKey.MenuImage,
             [
                 new MenuEntry.Submenu(TextKey.MenuAdjustments,
-                    [.. Adjustments.Select(adjustment => Item(CommandIds.AdjustFirst + (int)adjustment))]),
+                [
+                    .. Adjustments.Select(adjustment => Item(CommandIds.AdjustFirst + (int)adjustment)),
+                    MenuEntry.Line,
+                    Item(CommandIds.Invert),
+                ]),
                 MenuEntry.Line,
                 Item(CommandIds.FlipCanvasHorizontal), Item(CommandIds.FlipCanvasVertical),
             ]),
             new(TextKey.MenuLayer,
             [
-                Item(CommandIds.NewLayer), Item(CommandIds.DuplicateLayer), Item(CommandIds.DeleteLayer), MenuEntry.Line,
+                Item(CommandIds.NewLayer), Item(CommandIds.DuplicateLayer), Item(CommandIds.LayerViaCut),
+                Item(CommandIds.DeleteLayer), MenuEntry.Line,
+                new MenuEntry.Submenu(TextKey.MenuLayerMask,
+                    [Item(CommandIds.AddLayerMask), Item(CommandIds.DeleteLayerMask), Item(CommandIds.ToggleLayerMask)]),
                 new MenuEntry.Submenu(TextKey.MenuNewAdjustmentLayer,
                     [.. Adjustments.Select(adjustment => Item(CommandIds.AdjustmentLayerFirst + (int)adjustment))]),
                 MenuEntry.Line,
@@ -204,7 +279,12 @@ internal static class AppCommands
                 Item(CommandIds.Merge), MenuEntry.Line,
                 Item(CommandIds.FlipLayerHorizontal), Item(CommandIds.FlipLayerVertical),
             ]),
-            new(TextKey.MenuSelect, [Item(CommandIds.SelectAll), Item(CommandIds.Deselect)]),
+            new(TextKey.MenuSelect,
+            [
+                Item(CommandIds.SelectAll), Item(CommandIds.Deselect), Item(CommandIds.Inverse), MenuEntry.Line,
+                Item(CommandIds.SelectLayerPixels), MenuEntry.Line,
+                Item(CommandIds.ExpandSelection), Item(CommandIds.ContractSelection),
+            ]),
             new(TextKey.MenuFilter, [.. Filters.Select(filter => Item(CommandIds.FilterFirst + (int)filter))]),
             new(TextKey.MenuView,
             [

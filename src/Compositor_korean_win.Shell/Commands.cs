@@ -23,6 +23,8 @@ internal readonly record struct Shortcut(int Key, bool Control = false, bool Shi
                 Win32.VK_OEM_PLUS => "+",
                 Win32.VK_OEM_MINUS => "-",
                 Win32.VK_OEM_4 => "[",
+                Win32.VK_BACK => "Backspace",
+                Win32.VK_DELETE => "Del",
                 Win32.VK_OEM_6 => "]",
                 >= 0x30 and <= 0x39 or >= 0x41 and <= 0x5A => ((char)Key).ToString(),
                 _ => "?",
@@ -100,6 +102,26 @@ internal static class CommandIds
 
     public const int SelectAll = 400;
     public const int Deselect = 401;
+    public const int Inverse = 402;
+    public const int SelectLayerPixels = 403;
+    public const int ExpandSelection = 404;
+    public const int ContractSelection = 405;
+
+    public const int Cut = 220;
+    public const int Copy = 221;
+    public const int CopyMerged = 222;
+    public const int Paste = 223;
+    public const int FillForeground = 230;
+    public const int FillBackground = 231;
+    public const int Clear = 232;
+    public const int ContentAwareFill = 233;
+
+    public const int Invert = 306;
+
+    public const int LayerViaCut = 531;
+    public const int AddLayerMask = 540;
+    public const int DeleteLayerMask = 541;
+    public const int ToggleLayerMask = 542;
 
     public const int DuplicateLayer = 500;
     public const int NewLayer = 520;

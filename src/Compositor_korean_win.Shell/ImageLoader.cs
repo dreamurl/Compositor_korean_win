@@ -47,6 +47,22 @@ internal sealed class ImageLoader : IDisposable
         return buffer;
     }
 
+    /// <summary>Decodes an image held in memory — a PNG from the clipboard — into a new buffer.</summary>
+    public PixelBuffer Load(byte[] data, Guid pixelFormat)
+    {
+        using var stream = new MemoryStream(data, writable: false);
+        using IWICBitmapDecoder decoder = _factory.CreateDecoderFromStream(stream, DecodeOptions.CacheOnDemand);
+        using IWICBitmapFrameDecode frame = decoder.GetFrame(0);
+
+        using IWICFormatConverter converter = _factory.CreateFormatConverter();
+        converter.Initialize(frame, pixelFormat).CheckError();
+
+        var size = converter.Size;
+        PixelBuffer buffer = PixelBuffer.Allocate(size.Width, size.Height);
+        converter.CopyPixels((uint)buffer.Stride, (uint)buffer.ByteCount, buffer.Scan0);
+        return buffer;
+    }
+
     /// <summary>Uploads <paramref name="buffer"/> to the GPU as a Direct2D bitmap.</summary>
     public static ID2D1Bitmap1 Upload(ID2D1DeviceContext context, PixelBuffer buffer,
                                       Vortice.DXGI.Format format)

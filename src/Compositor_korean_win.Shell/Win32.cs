@@ -252,6 +252,58 @@ internal static unsafe partial class Win32
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool GetSaveFileNameW(ref OPENFILENAMEW dialog);
 
+    // The clipboard.
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool OpenClipboard(nint owner);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool CloseClipboard();
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool EmptyClipboard();
+
+    [LibraryImport("user32.dll")]
+    internal static partial nint SetClipboardData(uint format, nint memory);
+
+    [LibraryImport("user32.dll")]
+    internal static partial nint GetClipboardData(uint format);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool IsClipboardFormatAvailable(uint format);
+
+    [LibraryImport("user32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial uint RegisterClipboardFormatW(string name);
+
+    [LibraryImport("user32.dll")]
+    internal static partial uint GetClipboardSequenceNumber();
+
+    [LibraryImport("kernel32.dll")]
+    internal static partial nint GlobalAlloc(uint flags, nuint bytes);
+
+    [LibraryImport("kernel32.dll")]
+    internal static partial nint GlobalLock(nint memory);
+
+    [LibraryImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GlobalUnlock(nint memory);
+
+    [LibraryImport("kernel32.dll")]
+    internal static partial nuint GlobalSize(nint memory);
+
+    [LibraryImport("kernel32.dll")]
+    internal static partial nint GlobalFree(nint memory);
+
+    internal const int VK_BACK = 0x08;
+    internal const int VK_DELETE = 0x2E;
+    internal const int VK_C = 0x43;
+    internal const int VK_I = 0x49;
+    internal const int VK_X = 0x58;
+
     /// <summary>The language the user reads Windows in, as a LANGID.</summary>
     [LibraryImport("kernel32.dll")]
     internal static partial ushort GetUserDefaultUILanguage();
