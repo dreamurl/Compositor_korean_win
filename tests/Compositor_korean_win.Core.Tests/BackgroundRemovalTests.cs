@@ -134,17 +134,19 @@ public class BackgroundRemovalTests
     }
 
     [Fact]
-    public void TheGuidedFilterPullsAMaskOntoTheGuidesEdge()
+    public void TheGuidedFilterSharpensASoftMaskWhereTheGuideHasAnEdge()
     {
-        // The guide's edge is at 12; the mask's is at 8, where the guide is flat.
+        // The guide steps at 12; the model's mask only ramps there, from 8 to 16 — the soft edge a
+        // segmentation model leaves round hair.
         const int Width = 24, Height = 4;
         float[] guide = [.. Enumerable.Range(0, Width * Height).Select(i => i % Width < 12 ? 0f : 1f)];
-        float[] mask = [.. Enumerable.Range(0, Width * Height).Select(i => i % Width < 8 ? 0f : 1f)];
+        float[] mask = [.. Enumerable.Range(0, Width * Height).Select(i => Math.Clamp((i % Width - 8) / 8f, 0f, 1f))];
 
         float[] refined = BackgroundRemoval.GuidedFilter(mask, guide, Width, Height, 4, 1e-4f);
 
-        // Inside the guide's flat dark side the mask evens out; across its edge, it steps.
-        Assert.True(refined[Height / 2 * Width + 14] - refined[Height / 2 * Width + 10] > 0.3f);
+        int row = Height / 2 * Width;
+        float before = mask[row + 13] - mask[row + 11], after = refined[row + 13] - refined[row + 11];
+        Assert.True(after > before + 0.1f, $"a step of {after} across the guide's edge, from {before}");
     }
 
     [Fact]
