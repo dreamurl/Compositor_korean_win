@@ -439,6 +439,19 @@ internal static unsafe partial class Win32
     [LibraryImport("user32.dll", SetLastError = true)]
     internal static partial nint LoadCursorW(nint instance, nint cursorName);
 
+    /// <summary>The exe's own icon: the SDK writes ApplicationIcon as group 32512.</summary>
+    internal const nint ApplicationIconId = 32512;
+
+    internal const uint MB_YESNO = 0x0004;
+    internal const int SW_SHOWNORMAL = 1;
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    internal static partial nint LoadIconW(nint instance, nint iconName);
+
+    [LibraryImport("shell32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial nint ShellExecuteW(nint window, string? operation, string file, string? parameters,
+                                               string? directory, int show);
+
     [LibraryImport("user32.dll")]
     internal static partial uint GetDpiForWindow(nint hwnd);
 

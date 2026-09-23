@@ -7,6 +7,10 @@
     <!-- Upstream is MIT and its notice has to travel with anything shipped. -->
     <Company>Compositor_korean_win contributors</Company>
     <Copyright>Portions © Wonder Assembly LLC, MIT. See LICENSE and THIRD-PARTY-NOTICES.md.</Copyright>
+    <!-- M8: CI stamps the release tag's version (-p:Version=1.2.3); anything else is a development
+         build, older than every release. The commit is left off, so the app shows what the tag says. -->
+    <Version Condition="'$(Version)' == ''">0.0.0-dev</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
 </Project>

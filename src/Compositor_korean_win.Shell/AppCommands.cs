@@ -221,9 +221,10 @@ internal static class AppCommands
                 () => canvas.Tabs.Count > 1 && canvas.CanSwitchTab, [new(VK_TAB, Control: true, Shift: true)]),
 
             new(CommandIds.About, TextKey.CommandAbout,
-                () => MessageBoxW(owner, Localizer.Text(TextKey.AboutText), Localizer.Text(TextKey.AppTitle),
-                                  MB_OK | MB_ICONINFORMATION),
+                () => MessageBoxW(owner, Localizer.Text(TextKey.AboutText) + "\n\n" + Localizer.Format(TextKey.AboutVersion, Updates.Version),
+                                  Localizer.Text(TextKey.AppTitle), MB_OK | MB_ICONINFORMATION),
                 Interactive: true),
+            new(CommandIds.CheckUpdates, TextKey.CommandCheckUpdates, () => Updates.Check(owner), Interactive: true),
         };
 
         // Image › Adjustments: run over the chosen layer's pixels. Photoshop's keys for the three
@@ -340,7 +341,7 @@ internal static class AppCommands
                 Item(CommandIds.FitOnScreen), Item(CommandIds.ActualPixels), MenuEntry.Line,
                 Item(CommandIds.NextDocument), Item(CommandIds.PreviousDocument),
             ]),
-            new(TextKey.MenuHelp, [Item(CommandIds.About)]),
+            new(TextKey.MenuHelp, [Item(CommandIds.CheckUpdates), MenuEntry.Line, Item(CommandIds.About)]),
         };
 
         return (commands, layout);

@@ -12,6 +12,8 @@
     <!-- Warnings stay warnings here: this project's surface is other people's
          interop signatures. Core, which this port owns outright, treats them as errors. -->
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Upstream's own icon (MIT), packed from its asset catalogue's PNGs. -->
+    <ApplicationIcon>..\..\assets\app.ico</ApplicationIcon>
     <!-- Korean is the default; English is carried alongside it from M6 on. -->
     <NeutralLanguage>ko-KR</NeutralLanguage>
     <InvariantGlobalization>false</InvariantGlobalization>

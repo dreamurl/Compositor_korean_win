@@ -78,6 +78,8 @@ internal sealed unsafe class MainWindow : IDisposable
                 lpfnWndProc = (nint)(delegate* unmanaged[Stdcall]<nint, uint, nuint, nint, nint>)&WndProc,
                 hInstance = instance,
                 hCursor = LoadCursorW(0, IDC_ARROW),
+                // The exe's icon on the title bar and the taskbar too, not the generic window.
+                hIcon = LoadIconW(instance, ApplicationIconId),
                 lpszClassName = (nint)className,
             };
 

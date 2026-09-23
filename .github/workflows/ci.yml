@@ -22,9 +22,25 @@ jobs:
   build:
     name: Build, test and measure
     runs-on: windows-latest
+    # Writing is for the release a v* tag makes (M8); every other run only reads.
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
+
+      # M8: a v1.2.3 tag makes release 1.2.3; anything else builds as a development version.
+      - name: Version
+        id: version
+        shell: pwsh
+        run: |
+          if ("${{ github.ref_type }}" -eq "tag" -and "${{ github.ref_name }}" -match '^v(\d+\.\d+\.\d+)$') {
+            "version=$($Matches[1])" >> $env:GITHUB_OUTPUT
+            "release=true" >> $env:GITHUB_OUTPUT
+          } else {
+            "version=0.0.0-dev" >> $env:GITHUB_OUTPUT
+            "release=false" >> $env:GITHUB_OUTPUT
+          }
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -65,6 +81,7 @@ jobs:
           --configuration Release
           --runtime win-x64
           -p:KernelLibraryPath="${{ steps.kernels.outputs.static }}"
+          -p:Version=${{ steps.version.outputs.version }}
           --output build/publish
 
       # M7: the plain build — no ONNX Runtime referenced, no model, the exe the size it was. Built
@@ -76,6 +93,7 @@ jobs:
           --runtime win-x64
           -p:KernelLibraryPath="${{ steps.kernels.outputs.static }}"
           -p:WithAi=false
+          -p:Version=${{ steps.version.outputs.version }}
           --output build/publish-plain
 
       # M7: the background-removal model, which only the AI build carries. Fetched once and kept in
@@ -294,6 +312,65 @@ jobs:
           Get-ChildItem $packages | ForEach-Object { "- ``$($_.Name)`` {0:N1} MB" -f ($_.Length / 1MB) } |
             Out-File -Append $env:GITHUB_STEP_SUMMARY
 
+      # M8: the installers, per user and removable from Settings > Apps. Inno Setup is on the
+      # runner image; if a newer image drops it, Chocolatey puts it back.
+      - name: Build the installers
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress | Out-Null
+          }
+          $version = "${{ steps.version.outputs.version }}" -replace '-dev$', ''
+          & $iscc /Q "/DAppVersion=$version" "/DSource=..\build\package-plain" "/DWithAi=0" `
+                  "/DOutputName=Compositor_korean_win-setup" installer/Compositor_korean_win.iss
+          if ($LASTEXITCODE -ne 0) { throw "plain installer: $LASTEXITCODE" }
+          & $iscc /Q "/DAppVersion=$version" "/DSource=..\build\package-ai" "/DWithAi=1" `
+                  "/DOutputName=Compositor_korean_win-ai-setup" installer/Compositor_korean_win.iss
+          if ($LASTEXITCODE -ne 0) { throw "AI installer: $LASTEXITCODE" }
+          Get-ChildItem build/installers | ForEach-Object { "- ``$($_.Name)`` {0:N1} MB" -f ($_.Length / 1MB) } |
+            Out-File -Append $env:GITHUB_STEP_SUMMARY
+
+      # What the user asked of it: installs per user, shows in Settings > Apps, and uninstalling
+      # leaves nothing — not the program folder, not the settings, not the registry entry. Run for
+      # real on the runner: the AI build, the plain build over it, then the uninstaller.
+      - name: Install, switch and uninstall
+        shell: pwsh
+        run: |
+          $app = Join-Path $env:LOCALAPPDATA "Programs\Compositor_korean_win"
+          $settings = Join-Path $env:APPDATA "Compositor_korean_win"
+          $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{8F3C2A51-6D4B-4E7A-9C1E-2B5D7F0A9E34}_is1"
+          function Setup($file, $arguments) {
+            $process = Start-Process -FilePath $file -ArgumentList $arguments -Wait -PassThru
+            if ($process.ExitCode -ne 0) { throw "$file exited with $($process.ExitCode)" }
+          }
+          $quiet = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART")
+
+          Setup "build/installers/Compositor_korean_win-ai-setup.exe" $quiet
+          foreach ($file in "Compositor_korean_win.exe", "onnxruntime.dll", "DirectML.dll", "models\birefnet-lite-fp16.onnx") {
+            if (-not (Test-Path (Join-Path $app $file))) { throw "the AI build did not install $file" }
+          }
+          if (-not (Test-Path $key)) { throw "no entry under Settings > Apps" }
+          $entry = Get-ItemProperty $key
+          "- 설치 위치: ``$($entry.InstallLocation)``, 표시 이름: $($entry.DisplayName) $($entry.DisplayVersion)" |
+            Out-File -Append $env:GITHUB_STEP_SUMMARY
+
+          Setup "build/installers/Compositor_korean_win-setup.exe" $quiet
+          if (Test-Path (Join-Path $app "onnxruntime.dll")) { throw "the plain build left the AI runtime behind" }
+          if (Test-Path (Join-Path $app "models")) { throw "the plain build left the model behind" }
+
+          # Settings the app would have written, so the uninstaller has something to take.
+          New-Item -ItemType Directory -Force $settings | Out-Null
+          Set-Content (Join-Path $settings "settings.json") '{"language":"ko"}'
+
+          Setup (Join-Path $app "unins000.exe") $quiet
+          # The uninstaller hands off to a copy of itself in %TEMP% and returns first.
+          for ($i = 0; $i -lt 60 -and ((Test-Path $app) -or (Test-Path $key)); $i++) { Start-Sleep -Milliseconds 500 }
+          if (Test-Path $app) { throw "the program folder is still there: $(Get-ChildItem $app -Recurse | Select-Object -ExpandProperty FullName)" }
+          if (Test-Path $settings) { throw "the settings are still there" }
+          if (Test-Path $key) { throw "the Settings > Apps entry is still there" }
+          "- 설치 → 미포함판으로 교체 → 제거: 프로그램 폴더·설정·등록 정보 모두 사라짐" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+
       - uses: actions/upload-artifact@v4
         with:
           name: Compositor_korean_win
@@ -312,6 +389,29 @@ jobs:
         run: |
           if (Test-Path build/m0-report.json) { Get-Content build/m0-report.json -Raw | Write-Host }
           throw "self-test exited with $('${{ steps.selftest.outputs.exit }}')"
+
+      # M8: a v* tag publishes everything above as a GitHub release, with the update feed the app
+      # reads (Help > Check for Updates) and checksums. Only after both self-tests have passed.
+      - name: Release
+        if: steps.version.outputs.release == 'true' && steps.selftest.outputs.exit == '0' && steps.plaintest.outputs.exit == '0'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $tag = "v$version"
+          $out = New-Item -ItemType Directory -Force build/release
+          Copy-Item build/installers/Compositor_korean_win-setup.exe "$out/Compositor_korean_win-$version-setup.exe"
+          Copy-Item build/installers/Compositor_korean_win-ai-setup.exe "$out/Compositor_korean_win-ai-$version-setup.exe"
+          Copy-Item build/packages/Compositor_korean_win.zip "$out/Compositor_korean_win-$version.zip"
+          Copy-Item build/packages/Compositor_korean_win-ai.zip "$out/Compositor_korean_win-ai-$version.zip"
+          $page = "https://github.com/${{ github.repository }}/releases/tag/$tag"
+          @{ version = $version; page = $page } | ConvertTo-Json | Set-Content "$out/update.json" -Encoding utf8NoBOM
+          Get-ChildItem $out -File | Where-Object Name -ne "SHA256SUMS.txt" | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)"
+          } | Set-Content "$out/SHA256SUMS.txt" -Encoding utf8NoBOM
+          gh release create $tag (Get-ChildItem $out -File).FullName --title "Compositor 한국어판 $version" --notes-file installer/release-notes.md
+          if ($LASTEXITCODE -ne 0) { throw "gh release create: $LASTEXITCODE" }
 
       - name: Fail if the plain build's self-test did not pass
         if: steps.plaintest.outputs.exit != '0'

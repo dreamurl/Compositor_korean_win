@@ -158,4 +158,5 @@ internal static class CommandIds
     public const int PreviousDocument = 705;
 
     public const int About = 900;
+    public const int CheckUpdates = 901;
 }

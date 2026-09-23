@@ -357,6 +357,14 @@ public enum TextKey
     LabelRefine,
     LabelMatteContrast,
     LabelShiftEdge,
+
+    // The version, and Help > Check for Updates.
+    AboutVersion,
+    CommandCheckUpdates,
+    UpdateAvailable,
+    UpdateLatest,
+    UpdateFailed,
+    UpdateUnreadable,
 }
 
 /// <summary>
@@ -711,6 +719,12 @@ public static class TextTable
         (TextKey.LabelRefine, "Refine", "다듬기"),
         (TextKey.LabelMatteContrast, "Contrast", "대비"),
         (TextKey.LabelShiftEdge, "Shift Edge", "가장자리 이동"),
+        (TextKey.AboutVersion, "Version {0}", "버전 {0}"),
+        (TextKey.CommandCheckUpdates, "Check for &Updates…", "업데이트 확인(&U)…"),
+        (TextKey.UpdateAvailable, "Version {0} is available (you have {1}). Open the download page?", "새 버전 {0}이(가) 나왔습니다(현재 {1}). 다운로드 페이지를 열까요?"),
+        (TextKey.UpdateLatest, "You have the latest version ({0}).", "최신 버전입니다({0})."),
+        (TextKey.UpdateFailed, "Could not check for updates: {0}", "업데이트를 확인하지 못했습니다: {0}"),
+        (TextKey.UpdateUnreadable, "the update feed could not be read", "업데이트 정보를 읽을 수 없습니다"),
     ];
 
     /// <summary>Phrases that are the same in both languages on purpose — names, not words.</summary>
