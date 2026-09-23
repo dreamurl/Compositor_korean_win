@@ -35,6 +35,9 @@
   <ItemGroup>
     <PackageReference Include="Vortice.Direct2D1" Version="3.8.3" />
     <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
+    <!-- M7: background removal. The runtime's DLLs land beside the exe; only the AI build ships
+         them, with the model, and nothing binds to them until the feature is used. -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.24.4" />
   </ItemGroup>
 
   <!--

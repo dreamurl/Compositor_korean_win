@@ -175,6 +175,20 @@ internal static class SelfTest
             failures.Add("tools check failed: " + exception.Message);
         }
 
+        // M7: the model in the AI build finds an obvious subject; the plain build reports it absent.
+        AiCheck.Result? aiCheck = null;
+        try
+        {
+            aiCheck = AiCheck.Run();
+            if (!aiCheck.Passed)
+                failures.Add($"ai: {aiCheck.Error ?? "subject not found"} (inside {aiCheck.Inside:F2}, outside {aiCheck.Outside:F2})");
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine(exception);
+            failures.Add("ai check failed: " + exception.Message);
+        }
+
         // M2 closes on a pixel comparison: the same document through Direct2D and through the
         // reference rasteriser. Exact means 1:1 with Nearest, where nothing is resampled and the
         // two should agree on arithmetic alone.
@@ -345,6 +359,17 @@ internal static class SelfTest
             Line(report, "filesMaximumDifference", filesCheck.MaximumDifference);
             Line(report, "filesTabs", filesCheck.Tabs);
             Line(report, "filesPassed", filesCheck.Passed);
+        }
+
+        if (aiCheck is not null)
+        {
+            Line(report, "aiInstalled", aiCheck.Installed);
+            Line(report, "aiDevice", aiCheck.Device);
+            Line(report, "aiLoadMs", aiCheck.LoadMs);
+            Line(report, "aiRunMs", aiCheck.RunMs);
+            Line(report, "aiInside", aiCheck.Inside);
+            Line(report, "aiOutside", aiCheck.Outside);
+            Line(report, "aiPassed", aiCheck.Passed);
         }
 
         if (toolsCheck is not null)

@@ -67,6 +67,29 @@ jobs:
           -p:KernelLibraryPath="${{ steps.kernels.outputs.static }}"
           --output build/publish
 
+      # M7: the background-removal model, which only the AI build carries. Fetched once and kept in
+      # the cache — 115 MB is not worth downloading on every push — and pinned to its hash, so a
+      # changed upload cannot slip in under the same name.
+      - name: Cache the model
+        uses: actions/cache@v4
+        with:
+          path: build/models
+          key: birefnet-lite-fp16-d39b897c
+
+      - name: Fetch the model
+        shell: pwsh
+        run: |
+          $model = "build/models/birefnet-lite-fp16.onnx"
+          if (-not (Test-Path $model)) {
+            New-Item -ItemType Directory -Force build/models | Out-Null
+            Invoke-WebRequest "https://huggingface.co/onnx-community/BiRefNet_lite-ONNX/resolve/main/onnx/model_fp16.onnx" -OutFile $model
+          }
+          $hash = (Get-FileHash $model -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne "d39b897ceb16ae654c1731f3dba0cf9b368d9cae74b5a57459b455cc8bfec402") { throw "model hash $hash" }
+          New-Item -ItemType Directory -Force build/publish/models | Out-Null
+          Copy-Item $model build/publish/models/
+          Get-ChildItem build/publish -File | Select-Object Name, Length | Format-Table | Out-String | Write-Host
+
       # M0 closes on figures, not on a screenshot. The runner has no GPU and no display, so this
       # is WARP with the window hidden: a floor, not a target.
       - name: Self-test and measure
@@ -174,6 +197,8 @@ jobs:
               "| 저장·열기 왕복 (레이어 $($report.filesLayers)개) | 최대 픽셀 차이 $($report.filesMaximumDifference) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
               "| 탭·끌어다 놓기 | 최대 탭 $($report.filesTabs)개, 통과 $($report.filesPassed) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
               "| 마스크 칠하기·문지르기·픽셀 유동화 | 확인 $($report.toolsChecks)개, 통과 $($report.toolsPassed) |" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 배경 제거 모델 | $($report.aiDevice), 불러오기 {0:N0} ms, 추론 {1:N0} ms |" -f $report.aiLoadMs, $report.aiRunMs | Out-File -Append $env:GITHUB_STEP_SUMMARY
+              "| 피사체 판별 (안 / 밖) | {0:N2} / {1:N2}, 통과 $($report.aiPassed) |" -f $report.aiInside, $report.aiOutside | Out-File -Append $env:GITHUB_STEP_SUMMARY
               "" | Out-File -Append $env:GITHUB_STEP_SUMMARY
             }
 
