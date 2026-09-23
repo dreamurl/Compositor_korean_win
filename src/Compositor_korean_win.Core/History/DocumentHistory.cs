@@ -4,6 +4,32 @@ namespace Compositor_korean_win.Core;
 public sealed record HistorySnapshot(CanvasDocument? Document, Guid? ActiveLayerId, Guid Revision);
 
 /// <summary>
+/// What a history step is called: a phrase from the text table, or words given as they are.
+/// </summary>
+/// <remarks>
+/// A step keeps its key rather than its words, so switching the interface's language renames the
+/// whole history at once — the undo menu of a Korean session switched to English reads English.
+/// Arguments that are keys themselves are translated too ("New {0} Layer" with Levels in it).
+/// </remarks>
+public readonly record struct HistoryName(TextKey? Key, string? Literal = null, object?[]? Arguments = null)
+{
+    public static implicit operator HistoryName(string literal) => new(null, literal);
+
+    public static implicit operator HistoryName(TextKey key) => new(key);
+
+    public static HistoryName Of(TextKey key, params object?[] arguments) => new(key, null, arguments);
+
+    public override string ToString()
+    {
+        if (Key is not TextKey key) return Literal ?? string.Empty;
+        if (Arguments is not { Length: > 0 } arguments) return Localizer.Text(key);
+
+        object?[] words = [.. arguments.Select(argument => argument is TextKey inner ? Localizer.Text(inner) : argument)];
+        return Localizer.Format(key, words);
+    }
+}
+
+/// <summary>
 /// Undo and redo over whole-document value snapshots.
 /// </summary>
 /// <remarks>
@@ -22,7 +48,7 @@ public sealed record HistorySnapshot(CanvasDocument? Document, Guid? ActiveLayer
 /// </remarks>
 public sealed class DocumentHistory
 {
-    private sealed record Entry(string Name, HistorySnapshot Before, HistorySnapshot After);
+    private sealed record Entry(HistoryName Name, HistorySnapshot Before, HistorySnapshot After);
 
     private readonly List<Entry> _past = [];
     private readonly List<Entry> _future = [];
@@ -30,7 +56,7 @@ public sealed class DocumentHistory
     private Guid _revision = Guid.NewGuid();
     private Guid _savedRevision;
     private HistorySnapshot? _pending;
-    private string _pendingName = "Edit";
+    private HistoryName _pendingName = TextKey.HistoryEdit;
     private int _depth;
 
     public DocumentHistory(int entryLimit = 100, long retainedByteLimit = 256L * 1024 * 1024)
@@ -48,8 +74,8 @@ public sealed class DocumentHistory
 
     public bool CanRedo => _depth == 0 && _future.Count > 0;
 
-    public string UndoName => _past.Count > 0 ? _past[^1].Name : string.Empty;
-    public string RedoName => _future.Count > 0 ? _future[^1].Name : string.Empty;
+    public string UndoName => _past.Count > 0 ? _past[^1].Name.ToString() : string.Empty;
+    public string RedoName => _future.Count > 0 ? _future[^1].Name.ToString() : string.Empty;
 
     public bool IsModified => _revision != _savedRevision;
     public int UndoCount => _past.Count;
@@ -70,7 +96,7 @@ public sealed class DocumentHistory
     /// Opens an edit. Nested calls join the one already open, so a compound operation lands as a
     /// single undo step.
     /// </summary>
-    public void Begin(string name, CanvasDocument? document, Guid? selection)
+    public void Begin(HistoryName name, CanvasDocument? document, Guid? selection)
     {
         if (_depth == 0)
         {

@@ -365,12 +365,12 @@ internal sealed partial class CanvasView : IDisposable
         foreach (Guid id in chosen)
         {
             if (_document.Layer(id) is not ImageLayer layer) continue;
-            copies.Add(layer with { Id = Guid.NewGuid(), Name = layer.Name + " 복사" });
+            copies.Add(layer with { Id = Guid.NewGuid(), Name = Localizer.Format(TextKey.LayerCopyName, layer.Name) });
         }
 
         if (copies.Count == 0) return;
 
-        _history.Begin("레이어 복제", _document, copies[0].Id);
+        _history.Begin(TextKey.HistoryDuplicateLayer, _document, copies[0].Id);
         _document = _document with { Layers = _document.Layers.Concat(copies).ToEquatableList() };
         _history.End(_document, copies[0].Id);
 
@@ -746,7 +746,7 @@ internal sealed partial class CanvasView : IDisposable
         Point origin = LayerGeometry.ToPixels(layer.Transform, lifted, width, height);
         Point moved = LayerGeometry.ToPixels(layer.Transform, dropped, width, height);
 
-        _history.Begin(duplicates ? "선택 영역 복제" : "선택 영역 이동", _document, id);
+        _history.Begin(duplicates ? TextKey.HistoryDuplicateSelection : TextKey.HistoryMoveSelection, _document, id);
 
         PixelBuffer result = SelectionPixels.Move(pixels, inLayer,
                                                   new Point(moved.X - origin.X, moved.Y - origin.Y),
@@ -868,16 +868,23 @@ internal sealed partial class CanvasView : IDisposable
                                                                 _paintGrid.Width > 0 ? _paintGrid.Width : 1,
                                                                 _paintGrid.Height > 0 ? _paintGrid.Height : 1));
 
-    private static string Name(CanvasTool tool) => tool switch
+    /// <summary>What a tool is called, in menus and in the history its edits leave.</summary>
+    internal static TextKey Name(CanvasTool tool) => tool switch
     {
-        CanvasTool.Brush => "브러시",
-        CanvasTool.Eraser => "지우개",
-        CanvasTool.CloneStamp => "복제 도장",
-        CanvasTool.Blur => "흐리게",
-        CanvasTool.Heal => "스팟 힐링",
-        CanvasTool.Gradient => "그라디언트",
-        CanvasTool.Shape => "셰이프",
-        _ => "편집",
+        CanvasTool.Move => TextKey.ToolMove,
+        CanvasTool.RectangleMarquee => TextKey.ToolRectangleMarquee,
+        CanvasTool.EllipseMarquee => TextKey.ToolEllipseMarquee,
+        CanvasTool.Lasso => TextKey.ToolLasso,
+        CanvasTool.PolygonLasso => TextKey.ToolPolygonLasso,
+        CanvasTool.Brush => TextKey.ToolBrush,
+        CanvasTool.Eraser => TextKey.ToolEraser,
+        CanvasTool.CloneStamp => TextKey.ToolCloneStamp,
+        CanvasTool.Blur => TextKey.ToolBlur,
+        CanvasTool.Heal => TextKey.ToolHeal,
+        CanvasTool.MagicWand => TextKey.ToolMagicWand,
+        CanvasTool.Gradient => TextKey.ToolGradient,
+        CanvasTool.Shape => TextKey.ToolShape,
+        _ => TextKey.HistoryEdit,
     };
 
     /// <summary>
@@ -1063,7 +1070,7 @@ internal sealed partial class CanvasView : IDisposable
         double dx = key == Win32.VK_LEFT ? -step : key == Win32.VK_RIGHT ? step : 0;
         double dy = key == Win32.VK_UP ? -step : key == Win32.VK_DOWN ? step : 0;
 
-        _history.Begin("레이어 이동", _document, Primary);
+        _history.Begin(TextKey.HistoryMoveLayer, _document, Primary);
 
         foreach (Guid id in _chosen)
         {
@@ -1157,7 +1164,7 @@ internal sealed partial class CanvasView : IDisposable
             if (_document.Layer(id) is ImageLayer layer) _originals[id] = layer.Transform;
         }
 
-        _history.Begin("레이어 변형", _document, Primary);
+        _history.Begin(TextKey.HistoryTransformLayer, _document, Primary);
         _boxAtStart = box;
         _distorting = null;
         _drag = new TransformDrag

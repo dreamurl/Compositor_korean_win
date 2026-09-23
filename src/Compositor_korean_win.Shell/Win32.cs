@@ -132,6 +132,14 @@ internal static partial class Win32
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool DestroyWindow(nint hwnd);
 
+    [LibraryImport("user32.dll", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool SetWindowTextW(nint hwnd, string text);
+
+    /// <summary>The language the user reads Windows in, as a LANGID.</summary>
+    [LibraryImport("kernel32.dll")]
+    internal static partial ushort GetUserDefaultUILanguage();
+
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool ShowWindow(nint hwnd, int command);

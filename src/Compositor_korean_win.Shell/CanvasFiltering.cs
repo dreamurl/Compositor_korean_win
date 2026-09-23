@@ -78,19 +78,19 @@ internal sealed partial class CanvasView
 
     private static bool IsAdjustment(FilterCommand command) => command <= FilterCommand.Grain;
 
-    /// <summary>What history calls it.</summary>
-    private static string Title(FilterCommand command) => command switch
+    /// <summary>What menus and the history call it.</summary>
+    internal static TextKey Title(FilterCommand command) => command switch
     {
-        FilterCommand.Levels => "레벨",
-        FilterCommand.Curves => "곡선",
-        FilterCommand.HueSaturation => "색조/채도",
-        FilterCommand.Exposure => "노출",
-        FilterCommand.GradientMap => "그라디언트 맵",
-        FilterCommand.Grain => "그레인",
-        FilterCommand.GaussianBlur => "가우시안 흐림",
-        FilterCommand.MotionBlur => "동작 흐림",
-        FilterCommand.AddNoise => "노이즈 추가",
-        _ => "렌즈 보정",
+        FilterCommand.Levels => TextKey.AdjustLevels,
+        FilterCommand.Curves => TextKey.AdjustCurves,
+        FilterCommand.HueSaturation => TextKey.AdjustHueSaturation,
+        FilterCommand.Exposure => TextKey.AdjustExposure,
+        FilterCommand.GradientMap => TextKey.AdjustGradientMap,
+        FilterCommand.Grain => TextKey.AdjustGrain,
+        FilterCommand.GaussianBlur => TextKey.FilterGaussianBlur,
+        FilterCommand.MotionBlur => TextKey.FilterMotionBlur,
+        FilterCommand.AddNoise => TextKey.FilterAddNoise,
+        _ => TextKey.FilterLensCorrection,
     };
 
     /// <summary>Handles a key for the filters. Returns true when it was theirs.</summary>
@@ -141,14 +141,15 @@ internal sealed partial class CanvasView
             var layer = new ImageLayer
             {
                 Id = Guid.NewGuid(),
-                Name = Title(command),
+                // A layer's name is the user's from here on, so it is fixed in today's language.
+                Name = Localizer.Text(Title(command)),
                 Transform = new LayerTransform(Point.Zero, new Size(_document.Width, _document.Height)),
                 ParentId = chosen?.ParentId,
                 Adjustment = AdjustmentFor(command, _amount),
             };
 
             _beforeAdjusting = _document;
-            _history.Begin(Title(command) + " 조정 레이어", _document, layer.Id);
+            _history.Begin(HistoryName.Of(TextKey.HistoryAdjustmentLayer, Title(command)), _document, layer.Id);
 
             var layers = _document.Layers.ToList();
             layers.Insert(Math.Clamp(index, 0, layers.Count), layer);

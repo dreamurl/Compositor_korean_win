@@ -26,6 +26,8 @@ internal static class Program
 
     private static int RunWindow(string? imagePath)
     {
+        AppSettings.Apply();
+
         using GraphicsDevice device = GraphicsDevice.Create();
 
         Format format = FormatProbe.Choose(device);

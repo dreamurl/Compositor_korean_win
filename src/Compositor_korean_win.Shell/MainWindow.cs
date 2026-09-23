@@ -65,7 +65,7 @@ internal sealed unsafe class MainWindow : IDisposable
             }
         }
 
-        Handle = CreateWindowExW(0, ClassName, "Compositor 한국어판",
+        Handle = CreateWindowExW(0, ClassName, Localizer.Text(TextKey.AppTitle),
                                  WS_OVERLAPPEDWINDOW, int.MinValue, int.MinValue, width, height,
                                  0, 0, instance, 0);
 
@@ -73,6 +73,8 @@ internal sealed unsafe class MainWindow : IDisposable
             throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateWindowExW failed");
 
         ShowWindow(Handle, visible ? SW_SHOW : SW_HIDE);
+
+        Localizer.Changed += Retitle;
         if (visible) UpdateWindow(Handle);
 
         Resize();
@@ -275,8 +277,12 @@ internal sealed unsafe class MainWindow : IDisposable
         return DefWindowProcW(hwnd, message, wParam, lParam);
     }
 
+    /// <summary>Puts the title in the language just chosen.</summary>
+    private void Retitle() => SetWindowTextW(Handle, Localizer.Text(TextKey.AppTitle));
+
     public void Dispose()
     {
+        Localizer.Changed -= Retitle;
         _bitmap?.Dispose();
         _image?.Release();
         if (Handle != 0)
