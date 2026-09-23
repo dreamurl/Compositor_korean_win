@@ -448,9 +448,9 @@ internal sealed partial class CanvasView : IDisposable
             if (shift) at = Straightened(at);
 
             // The grid the stroke began in: the layer's, or its mask's.
-            Point pixel = LayerGeometry.ToPixels(_strokePlacement, at, _paintGrid.Width, _paintGrid.Height);
-            _stroke?.Append(pixel);
-            _warp?.Append(pixel);
+            Point inGrid = LayerGeometry.ToPixels(_strokePlacement, at, _paintGrid.Width, _paintGrid.Height);
+            _stroke?.Append(inGrid);
+            _warp?.Append(inGrid);
             if (_strokeOnMask) ShowMaskStroke();
             NeedsRedraw = true;
             return;
