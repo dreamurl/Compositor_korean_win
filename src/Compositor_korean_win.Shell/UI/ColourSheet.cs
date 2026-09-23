@@ -106,7 +106,7 @@ internal sealed class ColourSheet(
 
         ui.Drag(new Rect(strip.X - ui.P(6), strip.Y, strip.Width + ui.P(12), strip.Height), (point, _) =>
         {
-            (_, double fraction) = RectFractions.Of(strip, point);
+            double fraction = RectFractions.Of(strip, point).Y;
             Set(_hsb with { Hue = (1 - fraction) * 360 });
         });
     }
