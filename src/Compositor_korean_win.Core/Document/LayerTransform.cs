@@ -90,6 +90,14 @@ public sealed record LayerTransform
         return new Point(Center.X + x * cos - y * sin, Center.Y + x * sin + y * cos);
     }
 
+    /// <summary>Where a document point falls on the unit square — the inverse of <see cref="PointAt"/>.</summary>
+    public Point UnitAt(Point point)
+    {
+        double x = point.X - Center.X, y = point.Y - Center.Y;
+        double cos = Math.Cos(Radians), sin = Math.Sin(Radians);
+        return new Point((x * cos + y * sin) / Size.Width + 0.5, (-x * sin + y * cos) / Size.Height + 0.5);
+    }
+
     /// <summary>Whether <paramref name="point"/> falls inside this rotated rectangle.</summary>
     public bool Contains(Point point)
     {

@@ -156,4 +156,19 @@ public class LayerTransformTests
         ProjectManifest reparsed = ProjectStore.FromJson(ProjectStore.ToJson(manifest));
         Assert.Equal(LayerSampling.Nearest, reparsed.Layers[0].Transform.Sampling);
     }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(30.0)]
+    [InlineData(-135.0)]
+    public void UnitAtUndoesPointAt(double rotation)
+    {
+        var transform = new LayerTransform(new Point(40, -12), new Size(300, 120)) { Rotation = rotation };
+        foreach (Point unit in new[] { new Point(0, 0), new Point(1, 0.25), new Point(0.3, 0.9) })
+        {
+            Point back = transform.UnitAt(transform.PointAt(unit));
+            Assert.Equal(unit.X, back.X, 9);
+            Assert.Equal(unit.Y, back.Y, 9);
+        }
+    }
 }

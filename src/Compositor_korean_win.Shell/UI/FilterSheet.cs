@@ -10,8 +10,10 @@ namespace Compositor_korean_win.Shell;
 /// Holds nothing of its own: every control reads the canvas's open edit and writes a changed copy
 /// back (<see cref="CanvasView.FilterSettings"/>), which moves the preview.
 /// </remarks>
-internal sealed class FilterSheet(CanvasView canvas) : Sheet
+internal sealed partial class FilterSheet(CanvasView canvas) : Sheet
 {
+    private CanvasView Canvas => canvas;
+
     private FilterCommand Command => canvas.OpenFilter ?? FilterCommand.GaussianBlur;
 
     private FilterSettings Settings
@@ -28,7 +30,7 @@ internal sealed class FilterSheet(CanvasView canvas) : Sheet
 
     public override string Title => Localizer.Text(CanvasView.FilterTitle(Command));
 
-    public override double Width => Command is FilterCommand.HueSaturation ? 420 : 380;
+    public override double Width => Command is FilterCommand.HueSaturation or FilterCommand.Levels ? 440 : 380;
 
     public override bool UsesCanvas => canvas.FilterSampler is not null;
 
@@ -112,6 +114,10 @@ internal sealed class FilterSheet(CanvasView canvas) : Sheet
 
             case FilterCommand.HueSaturation:
                 HueSaturation(layout);
+                break;
+
+            case FilterCommand.Levels:
+                Levels(layout);
                 break;
         }
 

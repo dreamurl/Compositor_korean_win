@@ -222,6 +222,29 @@ public enum TextKey
     NoteLimitedToSelection,
     UnitPx,
     HistoryEditAdjustmentLayer,
+
+    // Levels.
+    ChannelRgb,
+    ChannelRed,
+    ChannelGreen,
+    ChannelBlue,
+    LabelInputBlack,
+    LabelInputWhite,
+    LabelOutputBlack,
+    LabelOutputWhite,
+    LabelSample,
+    SampleBlack,
+    SampleGray,
+    SampleWhite,
+    NoteSampleBlack,
+    NoteSampleGray,
+    NoteSampleWhite,
+    LabelAuto,
+    AutoContrast,
+    AutoColor,
+    AutoNeutral,
+    NoteHistogramOwn,
+    NoteHistogramBelow,
 }
 
 /// <summary>
@@ -455,11 +478,32 @@ public static class TextTable
         (TextKey.NoteLimitedToSelection, "Limited to the selection", "선택 영역에만 적용됩니다"),
         (TextKey.UnitPx, "px", "픽셀"),
         (TextKey.HistoryEditAdjustmentLayer, "Edit {0} Layer", "{0} 레이어 편집"),
+        (TextKey.ChannelRgb, "RGB", "RGB"),
+        (TextKey.ChannelRed, "Red", "빨강"),
+        (TextKey.ChannelGreen, "Green", "녹색"),
+        (TextKey.ChannelBlue, "Blue", "파랑"),
+        (TextKey.LabelInputBlack, "Input Black", "입력 검정"),
+        (TextKey.LabelInputWhite, "Input White", "입력 흰색"),
+        (TextKey.LabelOutputBlack, "Output Black", "출력 검정"),
+        (TextKey.LabelOutputWhite, "Output White", "출력 흰색"),
+        (TextKey.LabelSample, "Sample", "샘플"),
+        (TextKey.SampleBlack, "Black", "검정"),
+        (TextKey.SampleGray, "Gray", "회색"),
+        (TextKey.SampleWhite, "White", "흰색"),
+        (TextKey.NoteSampleBlack, "Click the image to set the black point. Click the eyedropper again to stop.", "이미지를 클릭해 검정 기준점을 정하세요. 스포이드를 다시 누르면 멈춥니다."),
+        (TextKey.NoteSampleGray, "Click the image to set the gray point. Click the eyedropper again to stop.", "이미지를 클릭해 회색 기준점을 정하세요. 스포이드를 다시 누르면 멈춥니다."),
+        (TextKey.NoteSampleWhite, "Click the image to set the white point. Click the eyedropper again to stop.", "이미지를 클릭해 흰색 기준점을 정하세요. 스포이드를 다시 누르면 멈춥니다."),
+        (TextKey.LabelAuto, "Auto", "자동"),
+        (TextKey.AutoContrast, "Contrast", "대비"),
+        (TextKey.AutoColor, "Color", "색상"),
+        (TextKey.AutoNeutral, "Color + Neutral Midtones", "색상 + 중간톤 중립"),
+        (TextKey.NoteHistogramOwn, "Histogram of the layer's own pixels, weighted by their opacity.", "레이어 자체 픽셀의 히스토그램입니다(불투명도로 가중)."),
+        (TextKey.NoteHistogramBelow, "Histogram of the layers below, which is what this adjustment layer changes.", "이 조정 레이어가 바꾸는 아래 레이어들의 히스토그램입니다."),
     ];
 
     /// <summary>Phrases that are the same in both languages on purpose — names, not words.</summary>
     public static readonly FrozenSet<TextKey> Untranslated =
-        new[] { TextKey.LanguageEnglish, TextKey.LanguageKorean, TextKey.UnitPercent }.ToFrozenSet();
+        new[] { TextKey.LanguageEnglish, TextKey.LanguageKorean, TextKey.UnitPercent, TextKey.ChannelRgb }.ToFrozenSet();
 
     private static readonly FrozenDictionary<TextKey, (string English, string Korean)> s_byKey =
         Entries.ToFrozenDictionary(entry => entry.Key, entry => (entry.English, entry.Korean));

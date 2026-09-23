@@ -423,6 +423,27 @@ internal sealed class Ui : IDisposable
         Block(area);
     }
 
+    /// <summary>
+    /// An area that follows a drag, for controls the caller draws — a histogram's handles, a curve.
+    /// The drag hears every position, and <c>true</c> with the last one.
+    /// </summary>
+    public void Drag(Rect area, Action<Point, bool> drag) => _hits.Add(new Hit(area, null, drag, null, null));
+
+    /// <summary>A filled triangle pointing up, its tip at <paramref name="tip"/> — a slider's handle.</summary>
+    public void Triangle(Point tip, double width, double height, Color4 colour, Color4 edge)
+    {
+        // Row by row, which needs no geometry object; the triangles are a dozen pixels tall.
+        int rows = Math.Max(1, (int)Math.Round(height));
+        for (int row = 0; row < rows; row++)
+        {
+            double half = width / 2 * (row + 1) / rows;
+            Fill(new Rect(tip.X - half, tip.Y + row, half * 2, 1), colour);
+        }
+        Rule(tip, new Point(tip.X - width / 2, tip.Y + rows), edge);
+        Rule(tip, new Point(tip.X + width / 2, tip.Y + rows), edge);
+        Rule(new Point(tip.X - width / 2, tip.Y + rows), new Point(tip.X + width / 2, tip.Y + rows), edge);
+    }
+
     /// <summary>A box to tick, with its label after it.</summary>
     public void Check(Rect area, string label, bool value, Action toggle)
     {

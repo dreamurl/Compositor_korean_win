@@ -76,6 +76,32 @@ internal static class UiCheck
                 }
             }
 
+            // Every adjustment's and filter's sheet, over the photo's pixels, and an adjustment layer's
+            // own sheet, whose histogram is of the layers under it.
+            foreach (Language language in Enum.GetValues<Language>())
+            {
+                Localizer.Current = language;
+
+                foreach (FilterCommand command in Enum.GetValues<FilterCommand>())
+                {
+                    canvas.ChooseTopImageLayer();
+                    canvas.StartFilter(command, asLayer: false);
+                    strings += Sheet(window, chrome, language, command.ToString(), untranslated);
+                    if (folder is not null && (language == Language.Korean || command == FilterCommand.Levels))
+                        screenshots.Add(Screenshot(device, folder, $"ui-{Localizer.Code(language)}-{command.ToString().ToLowerInvariant()}.png"));
+                    canvas.Key(Win32.VK_ESCAPE, control: false);
+                    device.Present();
+                }
+
+                if (canvas.Document?.Layers.FirstOrDefault(layer => layer.Adjustment is not null) is ImageLayer adjustment)
+                {
+                    canvas.EditAdjustmentLayer(adjustment.Id);
+                    strings += Sheet(window, chrome, language, "adjustment layer", untranslated);
+                    canvas.Key(Win32.VK_ESCAPE, control: false);
+                    device.Present();
+                }
+            }
+
             // The empty window, with its welcome.
             canvas.Close();
             foreach (Language language in Enum.GetValues<Language>())
@@ -94,6 +120,18 @@ internal static class UiCheck
         }
 
         return new Result(strings, [.. untranslated], screenshots);
+    }
+
+    /// <summary>Draws a frame with a sheet open, and checks it is there and says everything in the language.</summary>
+    private static int Sheet(MainWindow window, Chrome chrome, Language language, string what, ISet<string> untranslated)
+    {
+        if (!chrome.HasSheet)
+        {
+            untranslated.Add($"{Localizer.Code(language)}: no sheet opened for {what}");
+            return 0;
+        }
+        window.Render(present: false);
+        return Check(chrome.Ui, language, untranslated);
     }
 
     /// <summary>Checks everything the last frame drew and would show as a tooltip.</summary>
@@ -117,6 +155,7 @@ internal static class UiCheck
         string plain = text.Replace("&", string.Empty).Trim();
         if (plain.Length == 0 || !plain.Any(char.IsLetter)) return true;
         if (Enum.GetValues<Language>().Any(each => plain == Localizer.NativeName(each))) return true;
+        if (TextTable.Untranslated.Any(key => plain == TextTable.Lookup(key, language))) return true;
         if (Enum.GetNames<TextKey>().Contains(plain)) return false;
 
         bool korean = plain.Any(c => c is >= (char)0xAC00 and <= (char)0xD7A3);

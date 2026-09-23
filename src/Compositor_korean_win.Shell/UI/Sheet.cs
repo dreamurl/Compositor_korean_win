@@ -163,6 +163,47 @@ internal sealed class SheetLayout
             Ui.Text(unit, new Rect(field.MaxX + Ui.P(6), row.Y, Ui.P(60), row.Height), Ui.Dim, user: !unit.Any(char.IsLetter));
     }
 
+    /// <summary>Several labelled number boxes side by side, sharing the row equally.</summary>
+    public void Numbers(params (string Label, double Value, int Decimals, Action<double> Set)[] items)
+    {
+        Rect row = Take(RowPoints);
+        if (Measuring) return;
+
+        float fieldWidth = Ui.P(54);
+        double part = row.Width / items.Length;
+        for (int i = 0; i < items.Length; i++)
+        {
+            (string label, double value, int decimals, Action<double> set) = items[i];
+            double x = row.X + part * i;
+            var field = new Rect(x + part - fieldWidth - Ui.P(i == items.Length - 1 ? 0 : 12), row.Y + Ui.P(2),
+                                 fieldWidth, row.Height - Ui.P(4));
+            Ui.Text(label, new Rect(x, row.Y, field.X - x - Ui.P(4), row.Height), Ui.Dim, Ui.TextSize.Small);
+            Ui.Field(field, label, value, decimals, set);
+        }
+    }
+
+    /// <summary>A label and then buttons sized to their words — one of them lit when it is a mode that is on.</summary>
+    public void Buttons(string? label, params (string Text, bool Active, Action Press)[] buttons)
+    {
+        if (label is not null) Label(label);
+        Rect row = Take(26);
+        if (Measuring) return;
+
+        double x = row.X;
+        if (label is not null)
+        {
+            Ui.Text(label, new Rect(row.X, row.Y, LabelWidth, row.Height), Ui.Dim);
+            x += LabelWidth + Ui.P(6);
+        }
+        foreach ((string text, bool active, Action press) in buttons)
+        {
+            var button = new Rect(x, row.Y, Math.Min(row.MaxX - x, Ui.Measure(text) + Ui.P(18)), row.Height);
+            Ui.Fill(button, active ? Ui.Selected : Ui.Raised);
+            Ui.Button(button, press, null, active: active, label: text);
+            x = button.MaxX + Ui.P(4);
+        }
+    }
+
     public void Check(string label, bool value, Action toggle)
     {
         Rect row = Take(22);

@@ -232,6 +232,7 @@ internal sealed partial class CanvasView
     public void FinishFilter(bool keep)
     {
         FilterSampler = null;
+        ReleaseSource();
 
         if (_preview is FilterPreview preview)
         {
@@ -301,6 +302,101 @@ internal sealed partial class CanvasView
         if (FilterSampler is Action<Point> sample && _document is not null)
             sample(_viewport.DocumentPoint(view, _document.Size));
         return true;
+    }
+
+    // MARK: What Levels measures and samples
+
+    private PixelBuffer? _sourcePixels;
+    private LayerTransform? _sourcePlacement;
+    private Histogram? _histogram;
+
+    /// <summary>
+    /// The pixels the open command works from, measured: the layer's own when it runs over a layer,
+    /// the layers under it when it is an adjustment layer — which is what an adjustment layer sees.
+    /// </summary>
+    public Histogram? FilterHistogram
+    {
+        get
+        {
+            PrepareSource();
+            return _histogram;
+        }
+    }
+
+    /// <summary>The colour under a document point in the pixels the command works from, unpremultiplied, or null off them.</summary>
+    public (double Red, double Green, double Blue)? FilterSourceColour(Point document)
+    {
+        PrepareSource();
+        if (_sourcePixels is not PixelBuffer pixels) return null;
+
+        double x = document.X, y = document.Y;
+        if (_sourcePlacement is LayerTransform placement)
+        {
+            Point unit = placement.UnitAt(document);
+            if (unit.X is < 0 or >= 1 || unit.Y is < 0 or >= 1) return null;
+            x = (placement.FlipX ? 1 - unit.X : unit.X) * pixels.Width;
+            y = (placement.FlipY ? 1 - unit.Y : unit.Y) * pixels.Height;
+        }
+
+        int column = (int)Math.Floor(x), row = (int)Math.Floor(y);
+        if (column < 0 || row < 0 || column >= pixels.Width || row >= pixels.Height) return null;
+
+        ReadOnlySpan<byte> pixel = pixels.Row(row).Slice(column * 4, 4);
+        if (pixel[3] == 0) return null;
+        double alpha = pixel[3];
+        return (Math.Min(1, pixel[0] / alpha), Math.Min(1, pixel[1] / alpha), Math.Min(1, pixel[2] / alpha));
+    }
+
+    private void PrepareSource()
+    {
+        if (_sourcePixels is not null || _document is null) return;
+
+        if (_preview is FilterPreview preview)
+        {
+            _sourcePixels = preview.Layer.Image!.Retain();
+            _sourcePlacement = preview.Layer.Transform;
+        }
+        else if (_adjusting is Guid id)
+        {
+            _sourcePixels = Below(_document, id);
+            _sourcePlacement = null;
+        }
+        else
+        {
+            return;
+        }
+
+        // Halved to about a megapixel first: the histogram's shape does not need every pixel of a
+        // hundred-megapixel layer, and the sheet waits for it.
+        PixelBuffer reduced = _sourcePixels.Retain();
+        while (Math.Max(reduced.Width, reduced.Height) > 1024)
+        {
+            PixelBuffer next = DownsamplePyramid.Halve(reduced);
+            reduced.Release();
+            reduced = next;
+        }
+        _histogram = Histogram.Measure(reduced);
+        reduced.Release();
+    }
+
+    /// <summary>The document drawn with only the layers under <paramref name="id"/>.</summary>
+    private static PixelBuffer Below(CanvasDocument document, Guid id)
+    {
+        int index = document.IndexOf(id);
+        List<ImageLayer> below = [.. document.Layers.Take(Math.Max(0, index))];
+        var kept = below.Select(layer => layer.Id).ToHashSet();
+        below = [.. below.Select(layer => layer.ParentId is Guid parent && !kept.Contains(parent) ? layer with { ParentId = null } : layer)];
+
+        using var backend = new SoftwareRenderBackend();
+        return LayerCompositor.Render(document with { Layers = below.ToEquatableList() }, backend);
+    }
+
+    private void ReleaseSource()
+    {
+        _sourcePixels?.Release();
+        _sourcePixels = null;
+        _sourcePlacement = null;
+        _histogram = null;
     }
 
     /// <summary>The frame's stand-in for a layer being filtered, when one is.</summary>
