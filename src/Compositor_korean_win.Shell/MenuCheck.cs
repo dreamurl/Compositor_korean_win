@@ -127,7 +127,7 @@ internal static class MenuCheck
         if (Enum.GetValues<Language>().Any(each => plain == Localizer.NativeName(each))) return true;
         if (Enum.GetNames<TextKey>().Contains(plain)) return false;
 
-        bool korean = plain.Any(c => c is >= '가' and <= '힣');
+        bool korean = plain.Any(c => c is >= (char)0xAC00 and <= (char)0xD7A3);
         return language == Language.Korean ? korean : !korean;
     }
 }
