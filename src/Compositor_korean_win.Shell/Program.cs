@@ -15,6 +15,10 @@ internal static class Program
             if (args.Contains("--selftest"))
                 return SelfTest.Run(image, ValueOf(args, "--report"));
 
+            // A model's tools over standard input and output, with no window (docs/progress.md 15).
+            if (args.Contains("--mcp"))
+                return McpHost.Run();
+
             return RunWindow(image);
         }
         catch (Exception exception)

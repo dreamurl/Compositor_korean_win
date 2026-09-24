@@ -156,6 +156,36 @@ jobs:
                                    -ArgumentList $arguments -Wait -PassThru -NoNewWindow
           "exit=$($process.ExitCode)" >> $env:GITHUB_OUTPUT
 
+      # MCP from a model's side: a Python client starts the program with --mcp and builds a poster
+      # from the tools alone, then psd-tools reads the PSD it saved (docs/progress.md 15).
+      - name: Make a poster through MCP
+        id: poster
+        shell: pwsh
+        run: |
+          python scripts/mcp_poster.py build/publish/Compositor_korean_win.exe build/mcp-poster
+          if ($LASTEXITCODE -ne 0) { throw "the MCP poster run failed" }
+          python scripts/check_psd.py build/mcp-poster
+          if ($LASTEXITCODE -ne 0) { throw "psd-tools could not read the MCP poster" }
+
+      # A run started by hand also puts the poster on the mcp-results branch, where it can be looked
+      # at without downloading artifacts.
+      - name: Publish the poster for review
+        if: github.event_name == 'workflow_dispatch' && steps.poster.outcome == 'success'
+        shell: pwsh
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          $out = "build/mcp-results"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          Copy-Item build/mcp-poster/poster-render.png, build/mcp-poster/poster.png, build/mcp-poster/layers.json $out
+          Push-Location $out
+          git init -q
+          git checkout -q -b mcp-results
+          git add -A
+          git -c user.name="ci" -c user.email="ci@users.noreply.github.com" commit -qm "MCP poster from run $env:GITHUB_RUN_ID ($env:GITHUB_SHA)"
+          git push -q -f "https://x-access-token:$env:TOKEN@github.com/$env:GITHUB_REPOSITORY.git" HEAD:mcp-results
+          Pop-Location
+
       - name: Report
         shell: pwsh
         run: |
@@ -289,6 +319,7 @@ jobs:
             build/plain/report.json
             build/*.png
             build/test-results/**
+            build/mcp-poster/**
           if-no-files-found: warn
 
       # The two downloads: the plain build, the exe alone; and the AI build, the exe with ONNX
