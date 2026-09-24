@@ -514,7 +514,7 @@ internal static class ToolsCheck
             Action<Guid>? opened = canvas.TextEditRequested;
             Guid? requested = null;
             canvas.TextEditRequested = each => requested = each;
-            int layerCount = canvas.Document!.Layers.Count;
+            int textLayerCount = canvas.Document!.Layers.Count;
             canvas.PointerDown(Corner(0.2, 0.4), pan: false);
             canvas.PointerUp();
             Expect(requested is Guid && canvas.EditingText == requested, "a click with the Type tool did not open a text layer");
@@ -524,10 +524,10 @@ internal static class ToolsCheck
             Expect(typed.IsLiveText && typed.Name == "\uAC00\uB098\uB2E4 ABC", "typing did not set a live text layer named for its words");
             Expect(typed.Image is PixelBuffer typedPixels && Opaque(typedPixels) > 0, "the typed words drew nothing");
             canvas.EndTextEdit(commit: true);
-            Expect(canvas.Document!.Layers.Count == layerCount + 1 && canvas.UndoName == Localizer.Text(TextKey.HistoryAddText),
+            Expect(canvas.Document!.Layers.Count == textLayerCount + 1 && canvas.UndoName == Localizer.Text(TextKey.HistoryAddText),
                    "the typed text was not one Add Text step");
             canvas.Undo();
-            Expect(canvas.Document!.Layers.Count == layerCount, "one undo did not take the text layer away");
+            Expect(canvas.Document!.Layers.Count == textLayerCount, "one undo did not take the text layer away");
             canvas.Redo();
 
             // A bigger size sets the words again from the same anchor on the document.
@@ -550,16 +550,16 @@ internal static class ToolsCheck
             canvas.PointerDown(Corner(0.8, 0.8), pan: false);
             canvas.PointerUp();
             canvas.EndTextEdit(commit: true);
-            Expect(canvas.Document!.Layers.Count == layerCount + 1 && canvas.UndoName == undoBeforeEmpty,
+            Expect(canvas.Document!.Layers.Count == textLayerCount + 1 && canvas.UndoName == undoBeforeEmpty,
                    "an empty text layer was kept");
 
             // Escape puts edited words back.
             Guid textId = canvas.ActiveLayer!.Id;
-            PixelBuffer? before = canvas.ActiveLayer.Image;
+            PixelBuffer? wordsBefore = canvas.ActiveLayer.Image;
             Expect(canvas.BeginTextEdit(textId), "a live text layer would not open for editing");
             canvas.UpdateEditedText("XYZ");
             canvas.EndTextEdit(commit: false);
-            Expect(ReferenceEquals(canvas.Document!.Layer(textId)!.Image, before), "Escape did not put the words back");
+            Expect(ReferenceEquals(canvas.Document!.Layer(textId)!.Image, wordsBefore), "Escape did not put the words back");
             canvas.TextEditRequested = opened;
 
             // Layer Style: one step for a whole visit to the sheet, however many changes it makes.
