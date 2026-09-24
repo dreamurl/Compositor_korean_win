@@ -393,4 +393,42 @@ internal static class AppCommands
         // An entry that opens a window of its own ends in an ellipsis, in either language.
         static Func<string> Ellipsis(TextKey key) => () => Localizer.Text(key) + "…";
     }
+
+    /// <summary>
+    /// What a right click on the canvas offers — Photoshop's habit, which upstream (a Mac program,
+    /// where the menu bar is always a flick away) does not have. With a selection it is what is done
+    /// to one; without, the layer's everyday commands. Every entry is a menu bar command, so nothing
+    /// here can be reached only by right click, and each shows its shortcut to learn from.
+    /// </summary>
+    public static IReadOnlyList<MenuEntry> CanvasMenu(bool hasSelection)
+    {
+        MenuEntry[] undo = [Item(CommandIds.Undo), Item(CommandIds.Redo), MenuEntry.Line];
+        MenuEntry[] style = [MenuEntry.Line, Item(CommandIds.LayerStyle), Item(CommandIds.RasterizeType)];
+
+        if (hasSelection)
+        {
+            return
+            [
+                .. undo,
+                Item(CommandIds.Deselect), Item(CommandIds.Inverse), Item(CommandIds.Transform), MenuEntry.Line,
+                Item(CommandIds.DuplicateLayer), Item(CommandIds.LayerViaCut), MenuEntry.Line,
+                Item(CommandIds.Cut), Item(CommandIds.Copy), Item(CommandIds.Paste), MenuEntry.Line,
+                Item(CommandIds.FillForeground), Item(CommandIds.FillBackground), Item(CommandIds.ContentAwareFill),
+                Item(CommandIds.Clear),
+                .. style,
+            ];
+        }
+
+        return
+        [
+            .. undo,
+            Item(CommandIds.SelectAll), Item(CommandIds.SelectLayerPixels), MenuEntry.Line,
+            Item(CommandIds.Paste), MenuEntry.Line,
+            Item(CommandIds.NewLayer), Item(CommandIds.DuplicateLayer), Item(CommandIds.Transform),
+            Item(CommandIds.DeleteLayer),
+            .. style,
+        ];
+
+        static MenuEntry Item(int id) => new MenuEntry.Item(id);
+    }
 }

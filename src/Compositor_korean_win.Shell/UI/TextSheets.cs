@@ -68,7 +68,8 @@ internal sealed class TextWarpSheet : Sheet
         });
 
         if (_warp.Style == TextWarpStyle.None) return;
-        string percent = Localizer.Text(TextKey.UnitPercent);
+        // UnitPercent is a format ("{0}%") for a value written into it; beside a slider only the sign goes.
+        const string percent = "%";
         layout.Slider(Localizer.Text(TextKey.LabelBend), _warp.Bend, -100, 100, 0, value => Set(_warp with { Bend = value }), percent);
         layout.Slider(Localizer.Text(TextKey.LabelHorizontalDistortion), _warp.Horizontal, -100, 100, 0,
                       value => Set(_warp with { Horizontal = value }), percent);
@@ -115,7 +116,7 @@ internal sealed class LayerStyleSheet : Sheet
 
     public override void Content(SheetLayout layout)
     {
-        string px = "px", percent = Localizer.Text(TextKey.UnitPercent);
+        const string px = "px", percent = "%";
 
         // Drop Shadow.
         ShadowEffect? shadow = _effects.Shadow;

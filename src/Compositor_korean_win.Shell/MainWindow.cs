@@ -35,6 +35,16 @@ internal sealed unsafe class MainWindow : IDisposable
     private bool _brushAdjusting;
 
     /// <summary>
+    /// Where a right press on the canvas went down, while it may still be a click — let go there, it
+    /// opens the canvas menu. Moving further than <see cref="ClickSlop"/> makes it a drag (a brush
+    /// tool's sizing) and forgets it.
+    /// </summary>
+    private Point? _rightClickFrom;
+
+    /// <summary>How far, in pixels, a press may wander and still be a click — Windows' default drag threshold.</summary>
+    private const double ClickSlop = 4;
+
+    /// <summary>
     /// Alt was held for a pointer gesture — a clone source, a colour taken, a copy dragged. Letting
     /// it go then must not open the menu bar, as it does not in Photoshop for Windows; a plain tap
     /// of Alt still does.
@@ -303,6 +313,14 @@ internal sealed unsafe class MainWindow : IDisposable
     /// <summary>
     /// Keys meant for a panel's own text box, looked at before they are dispatched. True when taken.
     /// </summary>
+    /// <summary>The canvas's right-click menu, at the pointer, for the selection there is or is not.</summary>
+    private void ShowCanvasMenu()
+    {
+        if (Canvas is not CanvasView canvas || !canvas.HasDocument || Menu is not MenuBar menu) return;
+        GetCursorPos(out POINTSTRUCT at);
+        if (menu.Popup(AppCommands.CanvasMenu(canvas.HasSelection), at.X, at.Y)) Invalidate();
+    }
+
     public bool PreTranslate(in MSG message) => Chrome?.RenameKey(message) == true || Chrome?.TextBoxKey(message) == true;
 
     private void AfterInput()
@@ -380,6 +398,11 @@ internal sealed unsafe class MainWindow : IDisposable
                 if (canvas is not null && window is not null)
                 {
                     var at = new Point(PositionX(lParam), PositionY(lParam));
+                    if (window._rightClickFrom is Point pressed
+                        && Math.Max(Math.Abs(at.X - pressed.X), Math.Abs(at.Y - pressed.Y)) > ClickSlop)
+                    {
+                        window._rightClickFrom = null;
+                    }
                     window.Guarded(() =>
                     {
                         if (window._brushAdjusting)
@@ -419,9 +442,13 @@ internal sealed unsafe class MainWindow : IDisposable
 
             case WM_RBUTTONDOWN:
                 if (window is not null && IsKeyDown(VK_MENU)) window._altUsed = true;
+                if (window is not null) window._rightClickFrom = null;
                 if (canvas is not null && window is not null
                     && window.Chrome?.OverPanels(new Point(PositionX(lParam), PositionY(lParam))) != true)
                 {
+                    // Not while the left button is down: that is a stroke or a drag under way.
+                    if ((wParam & MK_LBUTTON) == 0)
+                        window._rightClickFrom = new Point(PositionX(lParam), PositionY(lParam));
                     window._brushAdjusting = canvas.BeginBrushAdjust(canvas.ToView(PositionX(lParam), PositionY(lParam)));
                     if (window._brushAdjusting) SetCapture(hwnd);
                 }
@@ -448,23 +475,34 @@ internal sealed unsafe class MainWindow : IDisposable
                 }
                 break;
 
-            // A right click on a layer's row opens its menu.
+            // A right click on a layer's row opens its menu; on the canvas, the canvas menu. A brush
+            // tool's right-drag sizes the tip, so there only a press let go where it went down counts.
             case WM_RBUTTONUP:
-                if (window?._brushAdjusting == true && canvas is not null)
+                if (window is not null)
                 {
-                    ReleaseCapture();
-                    window._brushAdjusting = false;
-                    canvas.EndBrushAdjust();
-                    window.AfterInput();
-                }
-                else if (window?.Chrome is Chrome menuChrome)
-                {
-                    var at = new Point(PositionX(lParam), PositionY(lParam));
-                    window.Guarded(() =>
+                    bool clicked = window._rightClickFrom is not null;
+                    window._rightClickFrom = null;
+
+                    if (window._brushAdjusting && canvas is not null)
                     {
-                        if (menuChrome.ContextMenu(at)) window.Invalidate();
-                    });
-                    window.AfterInput();
+                        // Cancel before letting go: WM_CAPTURECHANGED would otherwise keep the wobble.
+                        if (clicked) canvas.CancelBrushAdjust();
+                        ReleaseCapture();
+                        window._brushAdjusting = false;
+                        canvas.EndBrushAdjust();
+                        if (clicked) window.Guarded(window.ShowCanvasMenu);
+                        window.AfterInput();
+                    }
+                    else if (window.Chrome is Chrome menuChrome)
+                    {
+                        var at = new Point(PositionX(lParam), PositionY(lParam));
+                        window.Guarded(() =>
+                        {
+                            if (menuChrome.ContextMenu(at)) window.Invalidate();
+                            else if (clicked) window.ShowCanvasMenu();
+                        });
+                        window.AfterInput();
+                    }
                 }
                 break;
 

@@ -521,6 +521,12 @@ internal sealed class Ui : IDisposable
 
     // MARK: Input
 
+    /// <summary>
+    /// The control whose click is running, while it runs — so a list it opens can hang from it
+    /// rather than from wherever the pointer happens to be.
+    /// </summary>
+    public Rect? Clicked { get; private set; }
+
     /// <summary>A button went down at <paramref name="at"/>. True when a control took it.</summary>
     public bool PointerDown(Point at, bool doubleClick)
     {
@@ -544,7 +550,15 @@ internal sealed class Ui : IDisposable
         }
         else
         {
-            hit.Click?.Invoke();
+            Clicked = hit.Area;
+            try
+            {
+                hit.Click?.Invoke();
+            }
+            finally
+            {
+                Clicked = null;
+            }
         }
         return true;
     }

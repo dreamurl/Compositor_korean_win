@@ -110,6 +110,27 @@ internal sealed unsafe class MenuBar : IDisposable
         }
     }
 
+    /// <summary>
+    /// A right-click menu of commands at a screen point: the same labels, shortcuts and greyed-out
+    /// states as the menu bar, since it is built and refreshed the same way. True when one ran.
+    /// </summary>
+    public bool Popup(IReadOnlyList<MenuEntry> entries, int x, int y)
+    {
+        if (Blocked?.Invoke() == true) return false;
+
+        nint popup = Populate(entries);
+        try
+        {
+            Refresh(popup);
+            int chosen = TrackPopupMenuEx(popup, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON, x, y, _window, 0);
+            return chosen != 0 && Run(chosen);
+        }
+        finally
+        {
+            DestroyMenu(popup);
+        }
+    }
+
     /// <summary>Runs a command the menu chose. Answers WM_COMMAND.</summary>
     public bool Run(int id)
     {

@@ -1452,7 +1452,11 @@ internal sealed unsafe class Chrome : IDisposable
         if (picked >= 0) _canvas.StartFilter(AdjustmentKinds[picked], asLayer: true);
     }
 
-    /// <summary>A pop-up menu at the pointer. Returns the index chosen, or −1.</summary>
+    /// <summary>
+    /// A pop-up list. Opened by a control's click — a dropdown, the blend mode, the font — it hangs
+    /// from that control, as a Windows combo box's list does; otherwise, for a right click, it opens
+    /// at the pointer. Returns the index chosen, or −1.
+    /// </summary>
     internal int Popup((string Text, bool Checked)[] items, int[]? separatorsAfter = null)
     {
         nint menu = CreatePopupMenu();
@@ -1464,8 +1468,28 @@ internal sealed unsafe class Chrome : IDisposable
                 if (separatorsAfter?.Contains(i) == true) AppendMenuW(menu, MF_SEPARATOR, 0, null);
             }
 
-            GetCursorPos(out POINTSTRUCT at);
-            int chosen = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY, at.X, at.Y, _window, 0);
+            int chosen;
+            if (_ui.Clicked is Rect control)
+            {
+                // Below the control, left edges lined up. The control is the area to keep clear, and
+                // TPM_VERTICAL lets Windows flip the list above it when there is no room underneath.
+                var topLeft = new POINTSTRUCT { X = (int)control.X, Y = (int)control.Y };
+                var bottomRight = new POINTSTRUCT { X = (int)Math.Ceiling(control.MaxX), Y = (int)Math.Ceiling(control.MaxY) };
+                ClientToScreen(_window, ref topLeft);
+                ClientToScreen(_window, ref bottomRight);
+                var keepClear = new TPMPARAMS
+                {
+                    cbSize = (uint)sizeof(TPMPARAMS),
+                    rcExclude = new RECT { Left = topLeft.X, Top = topLeft.Y, Right = bottomRight.X, Bottom = bottomRight.Y },
+                };
+                chosen = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_VERTICAL, topLeft.X, bottomRight.Y,
+                                          _window, (nint)(&keepClear));
+            }
+            else
+            {
+                GetCursorPos(out POINTSTRUCT at);
+                chosen = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY, at.X, at.Y, _window, 0);
+            }
             return chosen - 1;
         }
         finally

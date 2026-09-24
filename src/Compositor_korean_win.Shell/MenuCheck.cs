@@ -74,6 +74,16 @@ internal static class MenuCheck
 
         try
         {
+            // The canvas's right-click menu shows these same commands, so each of its entries must be one.
+            foreach (bool selection in new[] { false, true })
+            {
+                foreach (MenuEntry.Item item in AppCommands.CanvasMenu(selection).OfType<MenuEntry.Item>())
+                {
+                    if (!commands.Any(command => command.Id == item.Command))
+                        errors.Add($"canvas menu: no command {item.Command}");
+                }
+            }
+
             foreach (Language language in Enum.GetValues<Language>())
             {
                 // Switched while the window is up, as the Preferences menu does it.

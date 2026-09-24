@@ -1761,6 +1761,17 @@ internal sealed partial class CanvasView : IDisposable
         _brushBeforeAdjust = null;
     }
 
+    /// <summary>
+    /// Ends the right-drag with the tip as it began: the press was a click, which opens the canvas
+    /// menu, and the pointer's few pixels of wobble on the way must not resize the brush.
+    /// </summary>
+    public void CancelBrushAdjust()
+    {
+        if (_brushBeforeAdjust is BrushSettings before) Brush = before;
+        EndBrushAdjust();
+        NeedsRedraw = true;
+    }
+
     /// <summary>Applies an exact percentage around the centre of the visible canvas.</summary>
     public void SetZoomPercent(double percent)
     {

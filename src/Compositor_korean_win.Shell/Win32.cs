@@ -30,6 +30,7 @@ internal static unsafe partial class Win32
     internal const uint WM_LBUTTONUP = 0x0202;
     internal const uint WM_RBUTTONDOWN = 0x0204;
     internal const uint WM_RBUTTONUP = 0x0205;
+    internal const nuint MK_LBUTTON = 0x0001;
     internal const uint WM_MBUTTONDOWN = 0x0207;
     internal const uint WM_MBUTTONUP = 0x0208;
     internal const uint WM_MOUSEWHEEL = 0x020A;
@@ -267,6 +268,16 @@ internal static unsafe partial class Win32
 
     internal const uint TPM_RETURNCMD = 0x0100;
     internal const uint TPM_NONOTIFY = 0x0080;
+    internal const uint TPM_RIGHTBUTTON = 0x0002;
+    internal const uint TPM_VERTICAL = 0x0040;
+
+    /// <summary>TrackPopupMenuEx's area to keep clear: the menu opens beside it, never over it.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct TPMPARAMS
+    {
+        public uint cbSize;
+        public RECT rcExclude;
+    }
     internal const uint WM_TIMER = 0x0113;
     internal const uint WM_SETFONT = 0x0030;
     internal const uint WM_LBUTTONDBLCLK = 0x0203;
