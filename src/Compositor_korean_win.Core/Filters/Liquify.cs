@@ -90,7 +90,30 @@ public sealed class LiquifyField
     }
 
     /// <summary>Whether any of the layer is frozen, for showing it.</summary>
-    public bool HasFrozen => Array.Exists(_frozen, level => level > 0);
+    public bool HasFrozen { get; private set; }
+
+    /// <summary>Counts every change, so a preview can tell whether it is still showing the field.</summary>
+    public int Revision { get; private set; }
+
+    private PixelRect _dirty;
+
+    /// <summary>
+    /// The part of the layer (its own pixels) changed since the last time this was asked, and a
+    /// clean start again — so a preview redraws only under the brush rather than the whole layer.
+    /// </summary>
+    public PixelRect TakeDirty()
+    {
+        PixelRect dirty = _dirty;
+        _dirty = default;
+        return dirty;
+    }
+
+    private void Changed(PixelRect area)
+    {
+        Revision++;
+        _dirty = _dirty.IsEmpty ? area : PixelRect.FromBounds(Math.Min(_dirty.X, area.X), Math.Min(_dirty.Y, area.Y),
+                                                               Math.Max(_dirty.Right, area.Right), Math.Max(_dirty.Bottom, area.Bottom));
+    }
 
     /// <summary>Everything back to how it began, frozen parts excepted — Photoshop's Restore All.</summary>
     public void Reset()
@@ -101,6 +124,7 @@ public sealed class LiquifyField
             _dx[i] *= keep;
             _dy[i] *= keep;
         }
+        Changed(new PixelRect(0, 0, Width, Height));
     }
 
     /// <summary>Where the original is read for layer point (<paramref name="x"/>, <paramref name="y"/>).</summary>
@@ -228,8 +252,14 @@ public sealed class LiquifyField
                 _dx[i] = nextX[k];
                 _dy[i] = nextY[k];
                 _frozen[i] = nextFrozen[k];
+                if (nextFrozen[k] > 0) HasFrozen = true;
             }
         }
+
+        // A point is read between it and its neighbours, so the pixels a grid step round the
+        // points that moved change too.
+        Changed(PixelRect.FromBounds((left - 1) * Step, (top - 1) * Step, (right + 1) * Step + 1, (bottom + 1) * Step + 1)
+                    .Intersect(new PixelRect(0, 0, Width, Height)));
     }
 
     /// <summary>
@@ -240,10 +270,23 @@ public sealed class LiquifyField
     public PixelBuffer Render(PixelBuffer source, int unit, PixelRect region, bool showFrozen = false)
     {
         PixelBuffer result = PixelBuffer.Allocate(region.Width, region.Height);
+        RenderInto(result, region, source, unit, region, showFrozen);
+        return result;
+    }
+
+    /// <summary>
+    /// Like <see cref="Render"/>, but into part of a buffer already made: <paramref name="target"/>
+    /// covers <paramref name="covers"/> of the grid, and only <paramref name="part"/> of it is drawn.
+    /// </summary>
+    public void RenderInto(PixelBuffer target, PixelRect covers, PixelBuffer source, int unit, PixelRect part,
+                           bool showFrozen = false)
+    {
+        PixelRect region = part.Intersect(covers);
+        if (region.IsEmpty) return;
         bool tint = showFrozen && HasFrozen;
         Parallel.For(0, region.Height, y =>
         {
-            Span<byte> row = result.Row(y);
+            Span<byte> row = target.Row(region.Y - covers.Y + y).Slice((region.X - covers.X) * 4);
             for (int x = 0; x < region.Width; x++)
             {
                 double lx = (region.X + x + 0.5) * unit, ly = (region.Y + y + 0.5) * unit;
@@ -262,7 +305,6 @@ public sealed class LiquifyField
                 }
             }
         });
-        return result;
     }
 
     /// <summary>
@@ -295,6 +337,8 @@ public sealed class LiquifyPreview(ImageLayer layer) : IDisposable
 {
     private readonly DownsamplePyramid _pyramid = new();
     private PixelBuffer? _last;
+    private (int Level, PixelRect Crop)? _shown;
+    private int _revision;
 
     public ImageLayer Layer { get; } = layer;
 
@@ -316,11 +360,35 @@ public sealed class LiquifyPreview(ImageLayer layer) : IDisposable
         PixelRect crop = LayerGeometry.SourceRegion(area, onSurface, grid.Width, grid.Height).Inflate(1).Intersect(grid);
         if (crop.IsEmpty) return null;
 
-        PixelBuffer pixels = field.Render(reduced, unit, crop, showFrozen: true);
-        _last?.Release();
-        _last = pixels;
+        // The frame before, where it still stands: nothing to do when the field has not changed —
+        // a pointer only hovering — and under the brush only when it has.
+        if (_last is PixelBuffer last && _shown == (applied, crop))
+        {
+            if (field.Revision != _revision)
+            {
+                PixelRect dirty = field.TakeDirty();
+                var inGrid = PixelRect.FromBounds(dirty.X / unit - 1, dirty.Y / unit - 1,
+                                                  (dirty.Right + unit - 1) / unit + 1, (dirty.Bottom + unit - 1) / unit + 1);
+                // A new buffer each change: buffers are never changed once drawn from.
+                PixelBuffer next = PixelRegion.Copy(last, new PixelRect(0, 0, last.Width, last.Height));
+                field.RenderInto(next, crop, reduced, unit, inGrid, showFrozen: true);
+                last.Release();
+                _last = next;
+                _revision = field.Revision;
+            }
+        }
+        else
+        {
+            PixelBuffer pixels = field.Render(reduced, unit, crop, showFrozen: true);
+            field.TakeDirty();
+            _last?.Release();
+            _last = pixels;
+            _shown = (applied, crop);
+            _revision = field.Revision;
+        }
+        PixelBuffer shownPixels = _last!;
 
-        return new LiveEdit(Layer.Id, new BufferSource(pixels) { Cacheable = false })
+        return new LiveEdit(Layer.Id, new BufferSource(shownPixels) { Cacheable = false })
         {
             Placement = LayerGeometry.Place(Layer.Transform, Scaled(crop, unit), w, h),
         };

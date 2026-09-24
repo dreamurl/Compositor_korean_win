@@ -34,6 +34,9 @@ internal sealed unsafe class MainWindow : IDisposable
     private bool _oleRegistered;
     private bool _brushAdjusting;
 
+    /// <summary>When the last canvas frame was drawn, for keeping frames coming while the pointer moves.</summary>
+    private long _lastFrame;
+
     /// <summary>
     /// Where a right press on the canvas went down, while it may still be a click — let go there, it
     /// opens the canvas menu. Moving further than <see cref="ClickSlop"/> makes it a drag (a brush
@@ -253,6 +256,7 @@ internal sealed unsafe class MainWindow : IDisposable
                 chrome.Draw(_device.D2DContext, Math.Max(1, client.Width), Math.Max(1, client.Height), BackingScale());
             }
             if (present) _device.Present();
+            _lastFrame = Environment.TickCount64;
             TimeToFirstFrame ??= ProcessUptime();
             return;
         }
@@ -444,6 +448,12 @@ internal sealed unsafe class MainWindow : IDisposable
                         if (canvas.WantsAutoScroll) SetTimer(hwnd, AutoScrollTimer, 16, 0);
                     });
                     window.AfterInput();
+
+                    // Windows hands out WM_PAINT only when no input is waiting, and a moving mouse
+                    // always has a move waiting once a frame takes longer than the mouse's report
+                    // rate — a document of many layers — so the canvas froze until the pointer
+                    // stopped. Past a frame's time the frame is drawn now instead.
+                    if (Environment.TickCount64 - window._lastFrame >= 16) UpdateWindow(hwnd);
                 }
                 break;
 
