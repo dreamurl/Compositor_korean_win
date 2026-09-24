@@ -126,6 +126,8 @@ internal sealed unsafe class MainWindow : IDisposable
         if (Handle == 0)
             throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateWindowExW failed");
 
+        DarkFrame.Apply(Handle);
+
         // No input method on the window itself. With the Korean IME in Hangul mode every key reaches
         // the window as VK_PROCESSKEY, so B, V, [ and the rest did nothing — and Korean Windows users
         // are in Hangul mode as often as not. Photoshop for Windows reads its single-key shortcuts
@@ -333,6 +335,8 @@ internal sealed unsafe class MainWindow : IDisposable
     {
         MainWindow? window = s_instance;
         CanvasView? canvas = window?.Canvas;
+
+        if (DarkFrame.Handle(hwnd, message, wParam, lParam, out nint framed)) return framed;
 
         switch (message)
         {

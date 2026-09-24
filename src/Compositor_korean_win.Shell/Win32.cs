@@ -421,6 +421,120 @@ internal static unsafe partial class Win32
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool DeleteObject(nint handle);
 
+    // The frame round the window, darkened to match the panels (DarkFrame).
+
+    internal const uint WM_NCPAINT = 0x0085;
+    internal const uint WM_NCACTIVATE = 0x0086;
+    internal const uint WM_THEMECHANGED = 0x031A;
+
+    /// <summary>Undocumented, sent to a window whose menu bar is about to be drawn; uxtheme's own names.</summary>
+    internal const uint WM_UAHDRAWMENU = 0x0091;
+    internal const uint WM_UAHDRAWMENUITEM = 0x0092;
+
+    internal const int OBJID_MENU = unchecked((int)0xFFFFFFFD);
+
+    internal const uint ODS_SELECTED = 0x0001;
+    internal const uint ODS_GRAYED = 0x0002;
+    internal const uint ODS_DISABLED = 0x0004;
+    internal const uint ODS_HOTLIGHT = 0x0040;
+    internal const uint ODS_INACTIVE = 0x0080;
+    internal const uint ODS_NOACCEL = 0x0100;
+
+    internal const uint DT_CENTER = 0x0001;
+    internal const uint DT_VCENTER = 0x0004;
+    internal const uint DT_SINGLELINE = 0x0020;
+    internal const uint DT_HIDEPREFIX = 0x00100000;
+    internal const uint DTT_TEXTCOLOR = 0x0001;
+
+    internal const int MENU_BARITEM = 8;
+    internal const int MBI_NORMAL = 1;
+
+    internal const uint DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+    /// <summary>The same attribute's number before Windows 10 20H1.</summary>
+    internal const uint DWMWA_USE_IMMERSIVE_DARK_MODE_OLD = 19;
+    internal const uint DWMWA_CAPTION_COLOR = 35;
+    internal const uint DWMWA_TEXT_COLOR = 36;
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct DRAWITEMSTRUCT
+    {
+        public uint CtlType, CtlID, itemID, itemAction, itemState;
+        public nint hwndItem, hDC;
+        public RECT rcItem;
+        public nuint itemData;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct UAHMENU
+    {
+        public nint hmenu, hdc;
+        public uint dwFlags;
+    }
+
+    /// <summary>
+    /// What WM_UAHDRAWMENUITEM points at. The item's metrics follow its position in the real
+    /// structure; nothing here reads them, so they are left off the end.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct UAHDRAWMENUITEM
+    {
+        public DRAWITEMSTRUCT dis;
+        public UAHMENU um;
+        public int iPosition;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct MENUBARINFO
+    {
+        public uint cbSize;
+        public RECT rcBar;
+        public nint hMenu, hwndMenu;
+        public int focusFlags;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct DTTOPTS
+    {
+        public uint dwSize, dwFlags, crText, crBorder, crShadow;
+        public int iTextShadowType;
+        public POINTSTRUCT ptShadowOffset;
+        public int iBorderSize, iFontPropId, iColorPropId, iStateId, fApplyOverlay, iGlowSize;
+        public nint pfnDrawTextCallback, lParam;
+    }
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetMenuBarInfo(nint hwnd, int idObject, int idItem, ref MENUBARINFO info);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetWindowRect(nint hwnd, out RECT rect);
+
+    [LibraryImport("user32.dll")]
+    internal static partial nint GetWindowDC(nint hwnd);
+
+    [LibraryImport("user32.dll")]
+    internal static partial int ReleaseDC(nint hwnd, nint hdc);
+
+    [LibraryImport("user32.dll")]
+    internal static partial int FillRect(nint hdc, in RECT rect, nint brush);
+
+    [LibraryImport("gdi32.dll")]
+    internal static partial nint CreateSolidBrush(uint colour);
+
+    [LibraryImport("uxtheme.dll", StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial nint OpenThemeData(nint hwnd, string classList);
+
+    [LibraryImport("uxtheme.dll")]
+    internal static partial int CloseThemeData(nint theme);
+
+    [LibraryImport("uxtheme.dll")]
+    internal static partial int DrawThemeTextEx(nint theme, nint hdc, int part, int state, char* text, int length,
+                                                uint flags, ref RECT rect, in DTTOPTS options);
+
+    [LibraryImport("dwmapi.dll")]
+    internal static partial int DwmSetWindowAttribute(nint hwnd, uint attribute, void* value, uint size);
+
     internal const uint CC_RGBINIT = 0x0001;
     internal const uint CC_FULLOPEN = 0x0002;
 
