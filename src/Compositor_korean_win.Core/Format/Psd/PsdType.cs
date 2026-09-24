@@ -147,10 +147,24 @@ internal static class PsdType
             simplified |= turned;
         }
 
-        // Four doubles follow the warp descriptor. Reading them is deliberately strict: a short
-        // TySh block may look acceptable to tolerant third-party readers but Photoshop rejects it.
-        if (block.Remaining < 4 * sizeof(double)) return null;
-        double left = block.F64(), top = block.F64(), right = block.F64(), bottom = block.F64();
+        // Adobe specifies four doubles. Some older third-party writers followed psd-tools' four
+        // integer interpretation instead, so imports accept that legacy 16-byte tail as well.
+        double left, top, right, bottom;
+        if (block.Remaining >= 4 * sizeof(double))
+        {
+            left = block.F64();
+            top = block.F64();
+            right = block.F64();
+            bottom = block.F64();
+        }
+        else if (block.Remaining >= 4 * sizeof(int))
+        {
+            left = block.I32();
+            top = block.I32();
+            right = block.I32();
+            bottom = block.I32();
+        }
+        else return null;
         if (!double.IsFinite(left) || !double.IsFinite(top)
             || !double.IsFinite(right) || !double.IsFinite(bottom)) return null;
 

@@ -9,6 +9,7 @@ Usage: python scripts/check_psd.py build/psd-out
 """
 
 import logging
+import struct
 import sys
 import warnings
 from pathlib import Path
@@ -119,12 +120,29 @@ def main(folder: str):
 
     editable = results.get("editable-text.psd")
     if editable:
-        _, layers = editable
+        psd, layers = editable
         type_layers = [layer for _, layer in layers if layer.kind == "type"]
         if len(type_layers) != 1:
             failures.append(f"editable-text.psd: expected one editable type layer, found {len(type_layers)}")
         elif type_layers[0].text.rstrip("\r") != "편집 가능한 글자":
             failures.append(f"editable-text.psd: type text was {type_layers[0].text!r}")
+        else:
+            # Adobe specifies four 8-byte bounds at the end of TySh. psd-tools models them as
+            # four integers, so merely opening the file did not catch our former 16-byte tail.
+            raw = (Path(folder) / "editable-text.psd").read_bytes()
+            marker = raw.find(b"8BIMTySh")
+            if marker < 0:
+                failures.append("editable-text.psd: no TySh block")
+            else:
+                length = struct.unpack(">I", raw[marker + 8 : marker + 12])[0]
+                block = raw[marker + 12 : marker + 12 + length]
+                if len(block) != length or len(block) < 32 or block[-32:] != bytes(32):
+                    failures.append("editable-text.psd: TySh does not end in four 8-byte bounds")
+
+            setting = type_layers[0]._record.tagged_blocks.get_data(b"TySh")
+            descriptor_text = setting.text_data[b"Txt "].value
+            if descriptor_text != "편집 가능한 글자\x00":
+                failures.append(f"editable-text.psd: descriptor text was {descriptor_text!r}")
 
     if failures:
         print("\n".join(["", "FAILED:"] + failures))
