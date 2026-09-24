@@ -69,6 +69,19 @@ internal sealed partial class CanvasView
         }
     }
 
+    /// <summary>
+    /// Photoshop for Windows' temporary Zoom, whatever the tool: a click zooms in (Ctrl+Space) or out
+    /// (Alt+Space), a sideways drag zooms continuously, as the Zoom tool's own press does.
+    /// </summary>
+    public void BeginZoomClick(Point view, bool zoomOut)
+    {
+        if (_document is null) return;
+        _zoomFrom = view;
+        _zoomAtStart = _viewport.Zoom;
+        _zoomMoved = false;
+        _zoomOut = zoomOut;
+    }
+
     /// <summary>Carries a press with one of the three on; true when it was theirs.</summary>
     private bool DragNavigation(Point view, Point pixel)
     {

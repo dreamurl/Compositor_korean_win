@@ -1354,6 +1354,40 @@ internal sealed partial class CanvasView : IDisposable
         NeedsRedraw = true;
     }
 
+    /// <summary>
+    /// Keys that belong to something under way, taken before the menus see them. True when taken.
+    /// </summary>
+    /// <remarks>
+    /// Mid-stroke, Escape drops the stroke and every other key waits, as upstream's canvas does: a
+    /// tool key or an undo half-way through would change what the stroke is committed onto. A
+    /// polygonal outline takes Backspace and Delete — upstream's delete keys — to take back a
+    /// corner, and Escape to drop it.
+    /// </remarks>
+    public bool DraftKey(int key)
+    {
+        if (_stroke is not null || _warp is not null)
+        {
+            if (key == Win32.VK_ESCAPE) CancelStroke();
+            return true;
+        }
+
+        if (_polygon is null) return false;
+        switch (key)
+        {
+            case Win32.VK_ESCAPE:
+                _polygon = null;
+                break;
+            case Win32.VK_BACK or Win32.VK_DELETE:
+                _polygon.RemoveAt(_polygon.Count - 1);
+                if (_polygon.Count == 0) _polygon = null;
+                break;
+            default:
+                return false;
+        }
+        NeedsRedraw = true;
+        return true;
+    }
+
     /// <summary>A key went down. Returns true when the canvas took it.</summary>
     public bool Key(int key, bool control, bool shift = false, bool alt = false)
     {
@@ -1365,13 +1399,7 @@ internal sealed partial class CanvasView : IDisposable
             return true;
         }
 
-        // Mid-stroke, Escape drops the stroke and every other key waits, as upstream's canvas does:
-        // a tool key taken half-way through would change what the stroke is committed as.
-        if (_stroke is not null || _warp is not null)
-        {
-            if (key == Win32.VK_ESCAPE) CancelStroke();
-            return true;
-        }
+        if (DraftKey(key)) return true;
 
         if (key == Win32.VK_ESCAPE && _tool == CanvasTool.Shape && _shapeFrom is not null)
         {
@@ -1463,15 +1491,6 @@ internal sealed partial class CanvasView : IDisposable
                 ClosePolygon();
                 break;
 
-            case Win32.VK_ESCAPE when _polygon is not null:
-                _polygon = null;
-                break;
-
-            // Backspace takes back the last corner; taking back the only one drops the outline.
-            case Win32.VK_BACK when _polygon is not null:
-                _polygon.RemoveAt(_polygon.Count - 1);
-                if (_polygon.Count == 0) _polygon = null;
-                break;
 
             case Win32.VK_RETURN when _tool == CanvasTool.Crop:
                 ApplyCrop();

@@ -34,6 +34,13 @@ internal sealed unsafe class MainWindow : IDisposable
     private bool _oleRegistered;
     private bool _brushAdjusting;
 
+    /// <summary>
+    /// Alt was held for a pointer gesture — a clone source, a colour taken, a copy dragged. Letting
+    /// it go then must not open the menu bar, as it does not in Photoshop for Windows; a plain tap
+    /// of Alt still does.
+    /// </summary>
+    private bool _altUsed;
+
     public nint Handle { get; private set; }
 
     /// <summary>The canvas this window shows, once one has been opened.</summary>
@@ -318,6 +325,7 @@ internal sealed unsafe class MainWindow : IDisposable
             case WM_LBUTTONDOWN or WM_MBUTTONDOWN or WM_LBUTTONDBLCLK:
                 if (canvas is not null && window is not null)
                 {
+                    if (IsKeyDown(VK_MENU)) window._altUsed = true;
                     SetCapture(hwnd);
                     var at = new Point(PositionX(lParam), PositionY(lParam));
                     window.Guarded(() =>
@@ -332,8 +340,16 @@ internal sealed unsafe class MainWindow : IDisposable
                             return;
                         }
 
-                        canvas.PointerDown(canvas.ToView(PositionX(lParam), PositionY(lParam)),
-                                           IsPanning(message == WM_MBUTTONDOWN),
+                        Point view = canvas.ToView(PositionX(lParam), PositionY(lParam));
+                        // Photoshop for Windows' temporary Zoom: Ctrl+Space zooms in, Alt+Space out,
+                        // where the Mac has Command+Space.
+                        if (message != WM_MBUTTONDOWN && IsKeyDown(VK_SPACE)
+                            && (IsKeyDown(VK_CONTROL) || IsKeyDown(VK_MENU)))
+                        {
+                            canvas.BeginZoomClick(view, zoomOut: IsKeyDown(VK_MENU));
+                            return;
+                        }
+                        canvas.PointerDown(view, IsPanning(message == WM_MBUTTONDOWN),
                                            doubleClick: message == WM_LBUTTONDBLCLK);
                     });
                     window.AfterInput();
@@ -370,6 +386,7 @@ internal sealed unsafe class MainWindow : IDisposable
                 break;
 
             case WM_RBUTTONDOWN:
+                if (window is not null && IsKeyDown(VK_MENU)) window._altUsed = true;
                 if (canvas is not null && window is not null
                     && window.Chrome?.OverPanels(new Point(PositionX(lParam), PositionY(lParam))) != true)
                 {
@@ -452,6 +469,20 @@ internal sealed unsafe class MainWindow : IDisposable
                     window.AfterInput();
                 }
                 break;
+
+            // Alt+Space is the window's system menu to Windows, but Photoshop's zoom-out key. While a
+            // document is open it is the canvas's.
+            case WM_SYSKEYDOWN when (int)wParam == VK_SPACE && canvas?.Document is not null:
+                return 0;
+
+            // A fresh Alt press starts clean; the auto-repeat of a held one does not.
+            case WM_SYSKEYDOWN when (int)wParam == VK_MENU && (lParam & (1 << 30)) == 0 && window is not null:
+                window._altUsed = false;
+                break;
+
+            case WM_SYSKEYUP when (int)wParam == VK_MENU && window?._altUsed == true:
+                window._altUsed = false;
+                return 0;
 
             case WM_KEYDOWN or WM_SYSKEYDOWN:
                 if (canvas is not null && window is not null && window.KeyDown((int)wParam, canvas))
@@ -536,12 +567,15 @@ internal sealed unsafe class MainWindow : IDisposable
 
         Guarded(() =>
         {
-            if (Chrome?.SheetKey(key, control, shift) == true || Chrome?.FieldKey(key, shift) == true)
+            if (Chrome?.SheetKey(key, control, shift, alt) == true || Chrome?.FieldKey(key, shift) == true)
             {
                 taken = true;
                 Invalidate();
             }
             else if (canvas.IsFiltering && canvas.Key(key, control, shift, alt)) taken = true;
+            // A stroke or a polygonal outline under way takes its keys before the menus do:
+            // Backspace takes back a corner rather than clearing the selection, and Ctrl+Z waits.
+            else if (canvas.DraftKey(key)) taken = true;
             else if (Menu?.TryShortcut(new Shortcut(key, control, shift, alt)) == true) taken = true;
             else if (!alt) taken = canvas.Key(key, control, shift, alt);
         });

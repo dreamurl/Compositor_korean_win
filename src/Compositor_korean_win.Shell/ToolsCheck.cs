@@ -408,6 +408,15 @@ internal static class ToolsCheck
             canvas.SetZoomPercent(125);
             Expect(Math.Abs(canvas.Viewport.Zoom - 1.25) < 0.001, "the exact zoom field did not apply its percentage");
 
+            // Photoshop for Windows' temporary Zoom (Ctrl+Space in, Alt+Space out) in any tool.
+            Point zoomAt = new(canvas.Viewport.ViewSize.Width / 2, canvas.Viewport.ViewSize.Height / 2);
+            canvas.BeginZoomClick(zoomAt, zoomOut: false);
+            canvas.PointerUp();
+            Expect(Math.Abs(canvas.Viewport.Zoom - 2.5) < 0.001, "Ctrl+Space click did not zoom in");
+            canvas.BeginZoomClick(zoomAt, zoomOut: true);
+            canvas.PointerUp();
+            Expect(Math.Abs(canvas.Viewport.Zoom - 1.25) < 0.001, "Alt+Space click did not zoom out");
+
             // The edge scroll: nothing well inside the view, and a pointer past the right edge slides
             // the document left, faster the further out it is.
             var view = canvas.Viewport.ViewSize;

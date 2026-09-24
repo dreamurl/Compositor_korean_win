@@ -126,11 +126,14 @@ internal static class AppCommands
                     if (clipboard.Take() is var (pixels, placement)) canvas.Paste(pixels, placement);
                 }, Editable, [new(VK_V, Control: true)]),
 
+            // Upstream's Delete is the Mac key above Return — Backspace on a Windows keyboard. Photoshop
+            // for Windows takes Backspace and Delete alike for all three, so both are bound here.
             new(CommandIds.FillForeground, TextKey.CommandFillForeground, () => canvas.Fill(foreground: true),
-                () => canvas.CanFill, [new(VK_BACK, Alt: true)]),
+                () => canvas.CanFill, [new(VK_BACK, Alt: true), new(VK_DELETE, Alt: true)]),
             new(CommandIds.FillBackground, TextKey.CommandFillBackground, () => canvas.Fill(foreground: false),
-                () => canvas.CanFill, [new(VK_BACK, Control: true)]),
-            new(CommandIds.Clear, TextKey.CommandClear, canvas.Clear, () => canvas.CanClear, [new(VK_DELETE)]),
+                () => canvas.CanFill, [new(VK_BACK, Control: true), new(VK_DELETE, Control: true)]),
+            new(CommandIds.Clear, TextKey.CommandClear, canvas.Clear, () => canvas.CanClear,
+                [new(VK_DELETE), new(VK_BACK)]),
             new(CommandIds.ContentAwareFill, TextKey.CommandContentAwareFill, canvas.ContentAwareFill,
                 () => canvas.CanEditSelectedPixels, [new(VK_BACK, Shift: true)]),
 
@@ -178,7 +181,7 @@ internal static class AppCommands
                                                                                   : TextKey.CommandTransformLayer),
             },
             new(CommandIds.DeleteLayer, TextKey.CommandDeleteLayer, canvas.DeleteLayers, () => canvas.CanDeleteLayers,
-                [new(VK_DELETE)])
+                [new(VK_DELETE), new(VK_BACK)])
             {
                 DynamicLabel = () => Localizer.Text(canvas.EditingMask ? TextKey.CommandDeleteLayerMask : TextKey.CommandDeleteLayer),
             },

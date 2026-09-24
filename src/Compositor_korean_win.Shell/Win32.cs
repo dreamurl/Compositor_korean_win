@@ -144,6 +144,7 @@ internal static unsafe partial class Win32
     internal const uint WM_COMMAND = 0x0111;
     internal const uint WM_INITMENUPOPUP = 0x0117;
     internal const uint WM_SYSKEYDOWN = 0x0104;
+    internal const uint WM_SYSKEYUP = 0x0105;
 
     internal const uint MF_STRING = 0x0000;
     internal const uint MF_GRAYED = 0x0001;

@@ -508,13 +508,17 @@ internal sealed unsafe class Chrome : IDisposable
     /// rest, and nothing else in the window gets a key until the sheet closes — bar zooming, since
     /// looking closer at a preview is half of what a preview is for.
     /// </summary>
-    public bool SheetKey(int key, bool control, bool shift)
+    public bool SheetKey(int key, bool control, bool shift, bool alt = false)
     {
         if (!HasSheet) return false;
         Sheet top = _sheets[^1];
 
         switch (key)
         {
+            // Upstream's Option-P, which is Alt+P on Windows as it is in Photoshop's dialogs.
+            case VK_P when alt && !control && top.Preview is bool previewing:
+                top.Preview = !previewing;
+                return true;
             case VK_RETURN:
                 Accept(top);
                 return true;
