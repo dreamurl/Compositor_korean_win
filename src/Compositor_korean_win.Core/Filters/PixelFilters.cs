@@ -10,6 +10,13 @@ public enum FilterKind
     MotionBlur,
     AddNoise,
     LensCorrection,
+
+    // Filter › Distort (DistortFilters).
+    Pinch,
+    Spherize,
+    Twirl,
+    Wave,
+    PolarCoordinates,
 }
 
 /// <summary>
@@ -41,6 +48,21 @@ public sealed record FilterSettings
     /// </summary>
     public double Distortion { get; init; }
 
+    /// <summary>Pinch's and Spherize's amount, −100–100: positive pinches in or swells out.</summary>
+    public double Strength { get; init; } = 50;
+
+    /// <summary>Twirl's angle at the centre in degrees, −999–999; positive turns clockwise.</summary>
+    public double TwirlAngle { get; init; } = 50;
+
+    /// <summary>Wave's distance from crest to crest in layer pixels, 2–999.</summary>
+    public double Wavelength { get; init; } = 120;
+
+    /// <summary>Wave's height in layer pixels, 0–999.</summary>
+    public double Amplitude { get; init; } = 10;
+
+    /// <summary>Polar Coordinates: rectangular to polar, rather than back.</summary>
+    public bool ToPolar { get; init; } = true;
+
     /// <summary>The adjustment to run, for <see cref="FilterKind.Adjustment"/>.</summary>
     public LayerAdjustment? Adjustment { get; init; }
 
@@ -60,6 +82,10 @@ public sealed record FilterSettings
         Distance = AdjustmentMath.Clamp(Distance, 1, 2000, 10),
         Amount = AdjustmentMath.Clamp(Amount, 0.1, 400, 10),
         Distortion = AdjustmentMath.Clamp(Distortion, -100, 100, 0),
+        Strength = AdjustmentMath.Clamp(Strength, -100, 100, 50),
+        TwirlAngle = AdjustmentMath.Clamp(TwirlAngle, -999, 999, 50),
+        Wavelength = AdjustmentMath.Clamp(Wavelength, 2, 999, 120),
+        Amplitude = AdjustmentMath.Clamp(Amplitude, 0, 999, 10),
     };
 }
 
@@ -111,13 +137,15 @@ public static class PixelFilters
         {
             FilterKind.GaussianBlur => (int)Math.Ceiling(s.Radius * 3 + 2),
             FilterKind.MotionBlur => (int)Math.Ceiling(s.Distance / 2 + 2),
+            // A wave carries the edge out by its height.
+            FilterKind.Wave => (int)Math.Ceiling(s.Amplitude + 1),
             _ => 0,
         };
     }
 
     /// <summary>Whether the filter changes a pixel by what is around it rather than by itself.</summary>
     public static bool IsSpatial(FilterKind kind) =>
-        kind is FilterKind.GaussianBlur or FilterKind.MotionBlur or FilterKind.LensCorrection;
+        kind is FilterKind.GaussianBlur or FilterKind.MotionBlur || DistortFilters.IsGeometric(kind);
 
     /// <summary>
     /// Runs a filter over <paramref name="source"/>, returning a new buffer of the same size.
@@ -146,6 +174,10 @@ public static class PixelFilters
 
             case FilterKind.LensCorrection:
                 return Lens(source, s.Distortion / 100 * LensStrength);
+
+            case FilterKind.Pinch or FilterKind.Spherize or FilterKind.Twirl or FilterKind.Wave
+                or FilterKind.PolarCoordinates:
+                return DistortFilters.Run(source, kind, s, scale);
 
             case FilterKind.AddNoise:
             {

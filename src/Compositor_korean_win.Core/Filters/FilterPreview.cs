@@ -67,7 +67,8 @@ public sealed class FilterPreview : IDisposable
         LayerTransform gridPlacement = LayerGeometry.Place(Layer.Transform, Scaled(grid, unit), w, h);
 
         PixelRect crop = grid;
-        if (Kind != FilterKind.LensCorrection)
+        // A distortion reads from anywhere in the layer, so it is run over all of it.
+        if (!DistortFilters.IsGeometric(Kind))
         {
             LayerTransform onSurface = projection.Apply(gridPlacement);
             PixelRect area = LayerGeometry.Bounds(onSurface).Intersect(new PixelRect(0, 0, width, height));

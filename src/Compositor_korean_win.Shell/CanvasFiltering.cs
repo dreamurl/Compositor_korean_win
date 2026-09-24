@@ -20,6 +20,13 @@ internal enum FilterCommand
 
     /// <summary>Hides the background behind a layer mask — the one command that needs the AI build.</summary>
     RemoveBackground,
+
+    // Filter › Distort. After Remove Background so the menu's command numbers stay as they were.
+    Pinch,
+    Spherize,
+    Twirl,
+    Wave,
+    PolarCoordinates,
 }
 
 /// <summary>
@@ -83,6 +90,11 @@ internal sealed partial class CanvasView
         FilterCommand.MotionBlur => TextKey.FilterMotionBlur,
         FilterCommand.AddNoise => TextKey.FilterAddNoise,
         FilterCommand.RemoveBackground => TextKey.FilterRemoveBackground,
+        FilterCommand.Pinch => TextKey.FilterPinch,
+        FilterCommand.Spherize => TextKey.FilterSpherize,
+        FilterCommand.Twirl => TextKey.FilterTwirl,
+        FilterCommand.Wave => TextKey.FilterWave,
+        FilterCommand.PolarCoordinates => TextKey.FilterPolarCoordinates,
         _ => TextKey.FilterLensCorrection,
     };
 
@@ -454,6 +466,11 @@ internal sealed partial class CanvasView
         FilterCommand.MotionBlur => FilterKind.MotionBlur,
         FilterCommand.AddNoise => FilterKind.AddNoise,
         FilterCommand.LensCorrection => FilterKind.LensCorrection,
+        FilterCommand.Pinch => FilterKind.Pinch,
+        FilterCommand.Spherize => FilterKind.Spherize,
+        FilterCommand.Twirl => FilterKind.Twirl,
+        FilterCommand.Wave => FilterKind.Wave,
+        FilterCommand.PolarCoordinates => FilterKind.PolarCoordinates,
         _ => FilterKind.Adjustment,
     };
 

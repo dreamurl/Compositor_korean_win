@@ -31,6 +31,13 @@ internal static class AppCommands
         FilterCommand.GaussianBlur, FilterCommand.MotionBlur, FilterCommand.AddNoise, FilterCommand.LensCorrection,
     ];
 
+    /// <summary>Filter › Distort, Photoshop's submenu.</summary>
+    private static readonly FilterCommand[] Distortions =
+    [
+        FilterCommand.Pinch, FilterCommand.Spherize, FilterCommand.Twirl, FilterCommand.Wave,
+        FilterCommand.PolarCoordinates,
+    ];
+
     public static (List<Command> Commands, List<MenuEntry.Submenu> Layout) Create(
         CanvasView canvas, DocumentFiles files, nint owner)
     {
@@ -289,7 +296,7 @@ internal static class AppCommands
             });
         }
 
-        foreach (FilterCommand filter in Filters)
+        foreach (FilterCommand filter in Filters.Concat(Distortions))
         {
             commands.Add(new Command(CommandIds.FilterFirst + (int)filter, CanvasView.FilterTitle(filter),
                                      () => canvas.StartFilter(filter, asLayer: false), () => canvas.CanFilter)
@@ -373,7 +380,10 @@ internal static class AppCommands
             ]),
             new(TextKey.MenuFilter,
             [
-                .. Filters.Select(filter => Item(CommandIds.FilterFirst + (int)filter)), MenuEntry.Line,
+                .. Filters.Select(filter => Item(CommandIds.FilterFirst + (int)filter)),
+                new MenuEntry.Submenu(TextKey.MenuDistort,
+                    [.. Distortions.Select(filter => Item(CommandIds.FilterFirst + (int)filter))]),
+                MenuEntry.Line,
                 Item(CommandIds.FilterFirst + (int)FilterCommand.RemoveBackground),
             ]),
             new(TextKey.MenuView,

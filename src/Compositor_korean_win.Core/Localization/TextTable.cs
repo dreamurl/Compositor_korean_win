@@ -494,6 +494,18 @@ public enum TextKey
     PsdNoteGrainDropped,
     PsdNoteClippingBaked,
     PsdNoteAdjustmentSimplified,
+
+    // Filter › Distort.
+    MenuDistort,
+    FilterPinch,
+    FilterSpherize,
+    FilterTwirl,
+    FilterWave,
+    FilterPolarCoordinates,
+    LabelWavelength,
+    LabelAmplitude,
+    PolarFromRectangular,
+    PolarToRectangular,
 }
 
 /// <summary>
@@ -967,6 +979,17 @@ public static class TextTable
         (TextKey.PsdNoteGrainDropped, "Grain adjustments, which a PSD has no layer for, left out: {0}", "PSD에 해당 레이어가 없어 뺀 그레인 조정: {0}개"),
         (TextKey.PsdNoteClippingBaked, "Clipping saved into the layer pixels: {0}", "레이어 픽셀에 적용해 저장한 클리핑: {0}개"),
         (TextKey.PsdNoteAdjustmentSimplified, "Adjustment options a PSD cannot hold, left out: {0}", "PSD에 담을 수 없어 뺀 조정 옵션: {0}개"),
+
+        (TextKey.MenuDistort, "&Distort", "왜곡(&D)"),
+        (TextKey.FilterPinch, "Pinch", "핀치"),
+        (TextKey.FilterSpherize, "Spherize", "구형화"),
+        (TextKey.FilterTwirl, "Twirl", "돌리기"),
+        (TextKey.FilterWave, "Wave", "파형"),
+        (TextKey.FilterPolarCoordinates, "Polar Coordinates", "극좌표"),
+        (TextKey.LabelWavelength, "Wavelength", "파장"),
+        (TextKey.LabelAmplitude, "Amplitude", "진폭"),
+        (TextKey.PolarFromRectangular, "Rectangular to Polar", "직교 좌표를 극좌표로"),
+        (TextKey.PolarToRectangular, "Polar to Rectangular", "극좌표를 직교 좌표로"),
     ];
 
     /// <summary>Phrases that are the same in both languages on purpose — names, not words.</summary>

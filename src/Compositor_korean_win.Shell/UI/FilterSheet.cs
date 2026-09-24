@@ -109,6 +109,31 @@ internal sealed partial class FilterSheet(CanvasView canvas, Chrome host) : Shee
                              () => Settings = Settings with { Monochromatic = !Settings.Monochromatic });
                 break;
 
+            case FilterCommand.Pinch or FilterCommand.Spherize:
+                layout.Slider(Localizer.Text(TextKey.LabelAmount), Settings.Strength, -100, 100, 0,
+                              value => Settings = Settings with { Strength = value }, "%");
+                break;
+
+            case FilterCommand.Twirl:
+                layout.Slider(Localizer.Text(TextKey.LabelAngle), Settings.TwirlAngle, -999, 999, 0,
+                              value => Settings = Settings with { TwirlAngle = value }, "°");
+                break;
+
+            case FilterCommand.Wave:
+                layout.Slider(Localizer.Text(TextKey.LabelWavelength), Settings.Wavelength, 2, 999, 0,
+                              value => Settings = Settings with { Wavelength = value }, Px, logarithmic: true);
+                layout.Slider(Localizer.Text(TextKey.LabelAmplitude), Settings.Amplitude, 0, 999, 0,
+                              value => Settings = Settings with { Amplitude = value }, Px);
+                break;
+
+            case FilterCommand.PolarCoordinates:
+                layout.Choice(null,
+                [
+                    (Localizer.Text(TextKey.PolarFromRectangular), Settings.ToPolar, () => Settings = Settings with { ToPolar = true }),
+                    (Localizer.Text(TextKey.PolarToRectangular), !Settings.ToPolar, () => Settings = Settings with { ToPolar = false }),
+                ]);
+                break;
+
             case FilterCommand.LensCorrection:
                 layout.Slider(Localizer.Text(TextKey.LabelRemoveDistortion), Settings.Distortion, -100, 100, 0,
                               value => Settings = Settings with { Distortion = value });

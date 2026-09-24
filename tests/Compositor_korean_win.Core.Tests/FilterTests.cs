@@ -126,6 +126,88 @@ public class FilterTests
         Assert.Equal(255, At(corrected, 0, 0).A);
     }
 
+    // MARK: Distort
+
+    [Theory]
+    [InlineData(FilterKind.Pinch)]
+    [InlineData(FilterKind.Spherize)]
+    [InlineData(FilterKind.Twirl)]
+    [InlineData(FilterKind.Wave)]
+    public void ADistortionOfNothingIsACopy(FilterKind kind)
+    {
+        using PixelBuffer image = Gradient(24, 17);
+        var none = new FilterSettings { Strength = 0, TwirlAngle = 0, Amplitude = 0 };
+        using PixelBuffer result = PixelFilters.Run(image, kind, none);
+
+        for (int y = 0; y < 17; y++)
+            Assert.True(image.Row(y)[..(24 * 4)].SequenceEqual(result.Row(y)[..(24 * 4)]), $"row {y}");
+    }
+
+    /// <summary>The centre of the brightest pixels, which is where a dot has gone.</summary>
+    private static (double X, double Y) Centroid(PixelBuffer buffer)
+    {
+        double sx = 0, sy = 0, total = 0;
+        for (int y = 0; y < buffer.Height; y++)
+            for (int x = 0; x < buffer.Width; x++)
+            {
+                int a = buffer.Row(y)[x * 4 + 3];
+                sx += a * (x + 0.5);
+                sy += a * (y + 0.5);
+                total += a;
+            }
+        return (sx / total, sy / total);
+    }
+
+    [Fact]
+    public void APinchDrawsASpotTowardsTheCentreAndABulgePushesItOut()
+    {
+        using PixelBuffer white = Solid(3, 3, 255, 255, 255);
+        using PixelBuffer spot = PixelRegion.Copy(white, new PixelRect(-44, -31, 64, 64));
+
+        using PixelBuffer pinched = PixelFilters.Run(spot, FilterKind.Pinch, new FilterSettings { Strength = 80 });
+        using PixelBuffer bulged = PixelFilters.Run(spot, FilterKind.Spherize, new FilterSettings { Strength = 80 });
+
+        Assert.True(Centroid(pinched).X < 45.5 - 1, $"a pinch left the spot at {Centroid(pinched).X}");
+        Assert.True(Centroid(bulged).X > 45.5 + 1, $"a bulge left the spot at {Centroid(bulged).X}");
+    }
+
+    [Fact]
+    public void APositiveTwirlTurnsClockwise()
+    {
+        // A spot right of the centre; clockwise on screen, where y runs down, carries it downwards.
+        using PixelBuffer white = Solid(3, 3, 255, 255, 255);
+        using PixelBuffer spot = PixelRegion.Copy(white, new PixelRect(-42, -31, 64, 64));
+        using PixelBuffer twirled = PixelFilters.Run(spot, FilterKind.Twirl, new FilterSettings { TwirlAngle = 90 });
+
+        Assert.True(Centroid(twirled).Y > 32.5 + 1, $"the spot went to {Centroid(twirled)}");
+    }
+
+    [Fact]
+    public void AWaveNeedsRoomForItsHeight()
+    {
+        var settings = new FilterSettings { Amplitude = 25 };
+        Assert.True(PixelFilters.Reach(FilterKind.Wave, settings) >= 25);
+        Assert.Equal(0, PixelFilters.Reach(FilterKind.Twirl, settings));
+    }
+
+    [Fact]
+    public void RectangularToPolarGathersTheTopRowAtTheCentre()
+    {
+        using PixelBuffer red = Solid(40, 4, 255, 0, 0);
+        using PixelBuffer blue = Solid(40, 40, 0, 0, 255);
+
+        // Red along the top, blue under it.
+        using PixelBuffer both = PixelRegion.Copy(blue, new PixelRect(0, 0, 40, 40));
+        for (int y = 0; y < 4; y++) red.Row(y)[..(40 * 4)].CopyTo(both.Row(y));
+
+        using PixelBuffer polar = PixelFilters.Run(both, FilterKind.PolarCoordinates, new FilterSettings { ToPolar = true });
+        Assert.True(At(polar, 20, 20).R > 200, $"the centre is {At(polar, 20, 20)}");
+        Assert.True(At(polar, 20, 36).B > 200, $"near the rim is {At(polar, 20, 36)}");
+
+        // Beyond the ellipse there is nothing to read.
+        Assert.Equal(0, At(polar, 0, 0).A);
+    }
+
     [Fact]
     public void AddNoiseIsFixedByItsSeed()
     {
@@ -234,6 +316,11 @@ public class FilterTests
     [InlineData(FilterKind.MotionBlur)]
     [InlineData(FilterKind.LensCorrection)]
     [InlineData(FilterKind.AddNoise)]
+    [InlineData(FilterKind.Pinch)]
+    [InlineData(FilterKind.Spherize)]
+    [InlineData(FilterKind.Twirl)]
+    [InlineData(FilterKind.Wave)]
+    [InlineData(FilterKind.PolarCoordinates)]
     public void AtFullSizeThePreviewShowsExactlyWhatCommittingWould(FilterKind kind)
     {
         using PixelBuffer pixels = Gradient(32, 24);
