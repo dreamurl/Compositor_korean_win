@@ -157,7 +157,7 @@ internal sealed unsafe class Clipboard(nint owner)
     /// A 24- or 32-bit uncompressed DIB, as premultiplied RGBA. A 32-bit one whose alpha is all
     /// zero is opaque: most programs leave the fourth byte unused.
     /// </summary>
-    private static PixelBuffer? FromDib(byte[] data)
+    internal static PixelBuffer? FromDib(byte[] data)
     {
         if (data.Length < 40) return null;
 

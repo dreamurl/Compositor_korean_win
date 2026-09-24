@@ -651,6 +651,13 @@ internal sealed unsafe class Chrome : IDisposable
     private readonly List<(Rect Area, int Index)> _tabAreas = [];
     private Rect _newTabDrop;
 
+    public DropDestination DropDestinationAt(Point point)
+    {
+        foreach ((Rect area, int index) in _tabAreas)
+            if (area.Contains(point)) return new DropDestination(index, false);
+        return new DropDestination(null, _newTabDrop.Contains(point));
+    }
+
     /// <summary>
     /// A tab for each open document above the canvas — upstream's <c>ProjectTabs</c>: its name, a star
     /// while it has unsaved changes, and a button to close it.

@@ -49,6 +49,9 @@ internal static class Program
         files.Chrome = chrome;
         chrome.CloseTab = files.CloseTab;
         menu.Blocked = () => chrome.HasSheet;
+        window.OleFilesDropped = (paths, destination) => files.Drop(paths, destination);
+        window.ImageDataDropped = (data, png, destination) => files.DropImage(data, png, destination);
+        window.EnableOleDrops();
 
         window.Render();
 

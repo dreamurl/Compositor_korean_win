@@ -29,6 +29,9 @@ internal sealed unsafe class MainWindow : IDisposable
     private PixelBuffer? _image;
     private ID2D1Bitmap1? _bitmap;
     private bool _sized;
+    private OleImageDropTarget? _dropTarget;
+    private bool _oleInitialized;
+    private bool _oleRegistered;
 
     public nint Handle { get; private set; }
 
@@ -43,6 +46,10 @@ internal sealed unsafe class MainWindow : IDisposable
 
     /// <summary>Files dropped on the window from Explorer, in the order they came.</summary>
     public Action<IReadOnlyList<string>>? FilesDropped { get; set; }
+
+    public Action<IReadOnlyList<string>, DropDestination>? OleFilesDropped { get; set; }
+
+    public Action<byte[], bool, DropDestination>? ImageDataDropped { get; set; }
 
     /// <summary>The paths a WM_DROPFILES carries.</summary>
     private static unsafe List<string> DroppedFiles(nint drop)
@@ -132,6 +139,26 @@ internal sealed unsafe class MainWindow : IDisposable
     {
         Chrome = chrome;
         LayOut();
+    }
+
+    /// <summary>Accepts both file paths and in-memory images from OLE drag sources.</summary>
+    public void EnableOleDrops()
+    {
+        if (_oleInitialized) return;
+        int initialized = OleInitialize(0);
+        if (initialized < 0) return;
+        _oleInitialized = true;
+        _dropTarget = new OleImageDropTarget(
+            (paths, point) => Guarded(() => OleFilesDropped?.Invoke(paths, DropDestinationFor(point))),
+            (data, png, point) => Guarded(() => ImageDataDropped?.Invoke(data, png, DropDestinationFor(point))));
+        _oleRegistered = RegisterDragDrop(Handle, _dropTarget) >= 0;
+    }
+
+    private DropDestination DropDestinationFor(PointL screen)
+    {
+        POINT client = new() { X = screen.X, Y = screen.Y };
+        ScreenToClient(Handle, ref client);
+        return Chrome?.DropDestinationAt(new Point(client.X, client.Y)) ?? new DropDestination(null, false);
     }
 
     /// <summary>Tells the canvas which part of the window is its own.</summary>
@@ -495,6 +522,17 @@ internal sealed unsafe class MainWindow : IDisposable
         Localizer.Changed -= Retitle;
         _bitmap?.Dispose();
         _image?.Release();
+        if (_oleRegistered)
+        {
+            RevokeDragDrop(Handle);
+            _oleRegistered = false;
+        }
+        _dropTarget = null;
+        if (_oleInitialized)
+        {
+            OleUninitialize();
+            _oleInitialized = false;
+        }
         if (Handle != 0)
         {
             DestroyWindow(Handle);

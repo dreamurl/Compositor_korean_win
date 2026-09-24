@@ -395,6 +395,21 @@ internal static unsafe partial class Win32
 
     [LibraryImport("shell32.dll")]
     internal static partial void DragFinish(nint drop);
+
+    [LibraryImport("ole32.dll")]
+    internal static partial int OleInitialize(nint reserved);
+
+    [LibraryImport("ole32.dll")]
+    internal static partial void OleUninitialize();
+
+    [LibraryImport("ole32.dll")]
+    internal static partial int RegisterDragDrop(nint window, IOleDropTarget target);
+
+    [LibraryImport("ole32.dll")]
+    internal static partial int RevokeDragDrop(nint window);
+
+    [LibraryImport("ole32.dll")]
+    internal static partial void ReleaseStgMedium(in StorageMedium medium);
     internal const uint WM_CHAR = 0x0102;
     internal const int VK_DELETE = 0x2E;
     internal const int VK_C = 0x43;

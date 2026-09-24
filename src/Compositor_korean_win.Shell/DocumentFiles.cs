@@ -165,6 +165,66 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
         AddImages(images);
     }
 
+    /// <summary>Files from an OLE drop, optionally aimed at a tab or the new-project part of the strip.</summary>
+    public void Drop(IReadOnlyList<string> paths, DropDestination destination)
+    {
+        if (destination.Tab is int tab) canvas.SwitchTo(tab);
+        if (!destination.NewTab)
+        {
+            Drop(paths);
+            return;
+        }
+
+        foreach (string path in paths)
+        {
+            if (IsProject(path)) OpenPath(path);
+            else
+            {
+                try
+                {
+                    using var loader = new ImageLoader();
+                    PixelBuffer pixels = loader.Load(path, FormatProbe.WicFormatFor(format));
+                    string name = Path.GetFileNameWithoutExtension(path);
+                    canvas.Open(FromImage(pixels, name), path: null, name);
+                }
+                catch (Exception exception)
+                {
+                    Console.Error.WriteLine(exception);
+                    Report(TextKey.ErrorCannotOpen, path, exception);
+                }
+            }
+        }
+    }
+
+    /// <summary>An encoded PNG or DIB supplied directly by another application, without a file.</summary>
+    public void DropImage(byte[] data, bool png, DropDestination destination)
+    {
+        PixelBuffer? pixels = null;
+        string name = Localizer.Plain(Localizer.Text(TextKey.CommandPaste));
+        try
+        {
+            if (png)
+            {
+                using var loader = new ImageLoader();
+                pixels = loader.Load(data, FormatProbe.WicFormatFor(format));
+            }
+            else pixels = Clipboard.FromDib(data);
+            if (pixels is null) return;
+
+            if (destination.Tab is int tab) canvas.SwitchTo(tab);
+            if (destination.NewTab || !canvas.HasDocument)
+                canvas.Open(FromImage(pixels, name), path: null, name);
+            else
+                canvas.AddImages([(pixels, name)]);
+            pixels = null;
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine("dropped image unreadable: " + exception);
+        }
+        finally { pixels?.Release(); }
+    }
+
     /// <summary>Saves to a path without asking — for the self-test's round trip.</summary>
     internal void SaveTo(string path) => Write(path);
 

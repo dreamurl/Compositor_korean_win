@@ -328,6 +328,15 @@ internal static class ToolsCheck
                    "a layer drop could not create a new project tab");
             Expect(canvas.Tabs.Count == tabsBeforeNew + 1 && canvas.Document!.Layers.Count > 0,
                    "the new project tab did not receive the dropped layer");
+
+            // Browsers and Office can supply image bytes without a file path. The same path the
+            // OLE target uses must decode those bytes and honour the empty part of the tab strip.
+            int tabsBeforeImageDrop = canvas.Tabs.Count;
+            files.DropImage(Png.Encode(image), png: true, new DropDestination(null, NewTab: true));
+            Expect(canvas.Tabs.Count == tabsBeforeImageDrop + 1,
+                   "an in-memory image drop did not create a project tab");
+            Expect(canvas.Document!.Width == image.Width && canvas.Document.Height == image.Height,
+                   "an in-memory image drop did not preserve its dimensions");
         }
         catch (Exception exception)
         {
