@@ -893,9 +893,12 @@ internal sealed unsafe class Chrome : IDisposable
         string ok = Localizer.Text(sheet.AcceptLabel), cancel = Localizer.Text(TextKey.DialogCancel);
         double okWidth = Math.Max(_ui.Measure(ok) + 28 * s, 76 * s), cancelWidth = Math.Max(_ui.Measure(cancel) + 28 * s, 76 * s);
         var accept = new Rect(area.MaxX - pad - okWidth, footY, okWidth, foot);
-        var dismiss = new Rect(accept.X - 8 * s - cancelWidth, footY, cancelWidth, foot);
-        _ui.Fill(dismiss, Ui.Raised);
-        _ui.Button(dismiss, () => Cancel(sheet), null, label: cancel);
+        if (sheet.ShowsCancel)
+        {
+            var dismiss = new Rect(accept.X - 8 * s - cancelWidth, footY, cancelWidth, foot);
+            _ui.Fill(dismiss, Ui.Raised);
+            _ui.Button(dismiss, () => Cancel(sheet), null, label: cancel);
+        }
         _ui.Button(accept, () => Accept(sheet), null, enabled: sheet.CanAccept, label: ok, primary: true);
 
         return area;

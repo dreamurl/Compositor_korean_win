@@ -53,10 +53,13 @@ internal static class PsdType
 
             writer.U16(50);
             writer.U32(16);
-            string words = text.Text.Replace("\r\n", "\r", StringComparison.Ordinal)
-                                    .Replace('\n', '\r') + "\r";
+            string body = text.Text.Replace("\r\n", "\r", StringComparison.Ordinal)
+                                   .Replace('\n', '\r');
+            string words = body + "\r";
             new PsdDescriptor { ClassId = "TxLr" }
-                .Add("Txt ", words)
+                // The descriptor is null-terminated by its TEXT writer. EngineData alone carries
+                // the extra carriage return that closes Photoshop's final paragraph.
+                .Add("Txt ", body)
                 .Add("textGridding", new PsdEnum("textGridding", "None"))
                 .Add("Ornt", new PsdEnum("Ornt", "Hrzn"))
                 .Add("AntA", new PsdEnum("Annt", "AnSm"))
@@ -75,10 +78,13 @@ internal static class PsdType
                 .Add("warpRotate", new PsdEnum("Ornt", "Hrzn"))
                 .Write(writer);
 
-            writer.I32(0);
-            writer.I32(0);
-            writer.I32(image.Width);
-            writer.I32(image.Height);
+            // Adobe's TySh specification calls these four bounds 8-byte doubles. psd-tools reads
+            // them as 4-byte integers and therefore did not catch the old, truncated 16-byte tail;
+            // Photoshop did, rasterising the layer and then disabling its text engine.
+            writer.F64(0);
+            writer.F64(0);
+            writer.F64(0);
+            writer.F64(0);
         });
     }
 
@@ -140,6 +146,13 @@ internal static class PsdType
             (warp, bool turned) = Warp(warping);
             simplified |= turned;
         }
+
+        // Four doubles follow the warp descriptor. Reading them is deliberately strict: a short
+        // TySh block may look acceptable to tolerant third-party readers but Photoshop rejects it.
+        if (block.Remaining < 4 * sizeof(double)) return null;
+        double left = block.F64(), top = block.F64(), right = block.F64(), bottom = block.F64();
+        if (!double.IsFinite(left) || !double.IsFinite(top)
+            || !double.IsFinite(right) || !double.IsFinite(bottom)) return null;
 
         // Only an upright, evenly scaled transform can be carried: this editor's text has a size,
         // not a matrix. The scale goes into the size, as Photoshop shows it in the Character panel.

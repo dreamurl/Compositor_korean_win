@@ -67,8 +67,24 @@ internal abstract class Sheet
     /// <summary>The label on the accepting button: OK unless the sheet says otherwise.</summary>
     public virtual TextKey AcceptLabel => TextKey.DialogOk;
 
+    /// <summary>Whether the foot includes Cancel as well as the accepting button.</summary>
+    public virtual bool ShowsCancel => true;
+
     /// <summary>Set by the host when the sheet has gone, so a sheet can close itself.</summary>
     public bool IsClosed { get; set; }
+}
+
+/// <summary>A message that stays inside the application window until it is acknowledged.</summary>
+internal sealed class NoticeSheet(string title, string message, bool warning = false) : Sheet
+{
+    public override string Title => title;
+    public override double Width => 500;
+    public override bool ShowsCancel => false;
+
+    public override void Content(SheetLayout layout) => layout.Note(message, warning);
+
+    public override void Accept() { }
+    public override void Cancel() { }
 }
 
 /// <summary>

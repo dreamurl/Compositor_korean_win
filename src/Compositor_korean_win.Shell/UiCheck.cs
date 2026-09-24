@@ -176,6 +176,16 @@ internal static class UiCheck
                 chrome.SheetKey(Win32.VK_ESCAPE, control: false, shift: false);
                 device.Present();
 
+                // PSD compatibility notes use the application's own modal sheet rather than a
+                // system message box, and need only one acknowledgement button.
+                chrome.Open(new NoticeSheet(
+                    Localizer.Format(TextKey.PsdNotesOpened, "sample.psd"),
+                    "• " + Localizer.Format(TextKey.PsdNoteTypeSimplified, 1)));
+                strings += Sheet(window, chrome, language, "PSD notice", untranslated);
+                chrome.SheetKey(Win32.VK_RETURN, control: false, shift: false);
+                if (chrome.HasSheet) untranslated.Add($"{Localizer.Code(language)}: PSD notice did not close");
+                device.Present();
+
                 if (canvas.Document?.Layers.FirstOrDefault(layer => layer.Adjustment is not null) is ImageLayer adjustment)
                 {
                     canvas.EditAdjustmentLayer(adjustment.Id);

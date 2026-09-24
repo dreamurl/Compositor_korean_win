@@ -352,15 +352,19 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
     {
         if (notes.Count == 0) return;
 
-        var lines = new List<string> { Localizer.Format(header, Path.GetFileName(path)), string.Empty };
+        string title = Localizer.Format(header, Path.GetFileName(path));
+        var lines = new List<string>();
         foreach ((PsdNote note, int count) in notes.OrderBy(pair => pair.Key))
             lines.Add("• " + Localizer.Format(NoteText(note), count));
         if (missingFonts is { Count: > 0 })
             lines.Add("   " + Localizer.Format(TextKey.PsdMissingFontNames, string.Join(", ", missingFonts)));
-        string message = string.Join("\n", lines);
+        string details = string.Join("\n", lines);
+        string message = title + "\n\n" + details;
 
         Console.Error.WriteLine(message);
-        if (!Quiet) MessageBoxW(owner, message, Localizer.Text(TextKey.AppTitle), MB_OK | MB_ICONINFORMATION);
+        if (Quiet) return;
+        if (Chrome is Chrome chrome) chrome.Open(new NoticeSheet(title, details));
+        else MessageBoxW(owner, message, Localizer.Text(TextKey.AppTitle), MB_OK | MB_ICONINFORMATION);
     }
 
     private static TextKey NoteText(PsdNote note) => note switch
