@@ -636,10 +636,11 @@ internal static class ToolsCheck
             canvas.StartLiquify();
             Expect(canvas.Liquifying && !canvas.CanEdit, "Liquify did not open over the layer");
             canvas.LiquifyBrush = LiquifyTool.Forward;
-            canvas.LiquifySize = 400;
+            // Small against the check image, so the drag is many dab spacings long, and across the line.
+            canvas.LiquifySize = 24;
             canvas.LiquifyPressure = 1;
-            canvas.PointerDown(Corner(0.45, 0.45), pan: false);
-            canvas.PointerMoved(Corner(0.5, 0.6), shift: false, alt: false, control: false);
+            canvas.PointerDown(Corner(0.5, 0.3), pan: false);
+            canvas.PointerMoved(Corner(0.5, 0.7), shift: false, alt: false, control: false);
             canvas.PointerUp();
             canvas.Key(Win32.VK_RETURN, control: false);
             Expect(!canvas.Liquifying && !ReferenceEquals(canvas.ActiveLayer!.Image, shaped)
