@@ -273,6 +273,12 @@ internal sealed unsafe class MainWindow : IDisposable
 
     private const nuint TooltipTimer = 1;
 
+    /// <summary>
+    /// Keeps a drag scrolling while the pointer rests past the canvas's edge. Mouse moves alone
+    /// would stop the view the moment the hand stops, which is not how upstream's marquee behaves.
+    /// </summary>
+    private const nuint AutoScrollTimer = 2;
+
     /// <summary>A button went down on a panel, so the drag that follows is the panel's.</summary>
     private bool _uiHasPointer;
 
@@ -341,7 +347,8 @@ internal sealed unsafe class MainWindow : IDisposable
                     {
                         if (window._brushAdjusting)
                         {
-                            canvas.DragBrushAdjust(canvas.ToView(PositionX(lParam), PositionY(lParam)));
+                            canvas.DragBrushAdjust(canvas.ToView(PositionX(lParam), PositionY(lParam)),
+                                                   IsKeyDown(VK_SHIFT));
                             return;
                         }
                         if (window.Chrome?.Ui is Ui ui && ui.PointerMoved(at))
@@ -353,6 +360,9 @@ internal sealed unsafe class MainWindow : IDisposable
 
                         canvas.PointerMoved(canvas.ToView(PositionX(lParam), PositionY(lParam)),
                                             IsKeyDown(VK_SHIFT), IsKeyDown(VK_MENU), IsKeyDown(VK_CONTROL));
+                        // About sixty ticks a second, as upstream's; the tick stops itself once the
+                        // pointer is back inside or the drag is over.
+                        if (canvas.WantsAutoScroll) SetTimer(hwnd, AutoScrollTimer, 16, 0);
                     });
                     window.AfterInput();
                 }
@@ -368,6 +378,7 @@ internal sealed unsafe class MainWindow : IDisposable
                 break;
 
             case WM_LBUTTONUP or WM_MBUTTONUP:
+                KillTimer(hwnd, AutoScrollTimer);
                 if (canvas is not null && window is not null)
                 {
                     ReleaseCapture();
@@ -405,6 +416,20 @@ internal sealed unsafe class MainWindow : IDisposable
                     });
                     window.AfterInput();
                 }
+                break;
+
+            case WM_TIMER when (nuint)wParam == AutoScrollTimer:
+                if (canvas is null || window is null)
+                {
+                    KillTimer(hwnd, AutoScrollTimer);
+                    break;
+                }
+                window.Guarded(() =>
+                {
+                    if (!canvas.AutoScrollTick(IsKeyDown(VK_SHIFT), IsKeyDown(VK_MENU), IsKeyDown(VK_CONTROL)))
+                        KillTimer(hwnd, AutoScrollTimer);
+                });
+                window.AfterInput();
                 break;
 
             case WM_TIMER when (nuint)wParam == TooltipTimer:
@@ -473,6 +498,7 @@ internal sealed unsafe class MainWindow : IDisposable
                 break;
 
             case WM_CAPTURECHANGED:
+                KillTimer(hwnd, AutoScrollTimer);
                 if (window?._brushAdjusting == true && canvas is not null)
                 {
                     window._brushAdjusting = false;
@@ -509,7 +535,7 @@ internal sealed unsafe class MainWindow : IDisposable
 
         Guarded(() =>
         {
-            if (Chrome?.SheetKey(key, control, shift) == true)
+            if (Chrome?.SheetKey(key, control, shift) == true || Chrome?.FieldKey(key, shift) == true)
             {
                 taken = true;
                 Invalidate();

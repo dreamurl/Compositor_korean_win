@@ -343,26 +343,80 @@ internal static class ToolsCheck
             canvas.SetTool(CanvasTool.Brush);
             canvas.Key(Win32.VK_1 + 4, control: false);
             Expect(Math.Abs(canvas.Brush.Opacity - 0.5) < 0.001, "the numeric opacity shortcut did not set 50%");
-            canvas.Brush = canvas.Brush with { Diameter = 40, Hardness = 0.5 };
-            canvas.Key(Win32.VK_OEM_6, control: false, shift: true);
-            Expect(canvas.Brush.Diameter == 40 && canvas.Brush.Hardness > 0.5,
-                   "Shift+] did not change hardness without changing diameter");
-            Expect(canvas.BeginBrushAdjust(new Point(10, 10)), "a brush right-drag could not begin");
-            canvas.DragBrushAdjust(new Point(30, -5));
-            canvas.EndBrushAdjust();
-            Expect(canvas.Brush.Diameter > 40 && canvas.Brush.Hardness > 0.5,
-                   "a brush right-drag did not change size and hardness");
 
+            // Two digits inside 600 ms are one exact value; a digit after a pause starts again.
+            // The clock is passed in, well clear of the key press above.
+            long clock = Environment.TickCount64 + 60_000;
+            canvas.TypeOpacityDigit(4, clock);
+            canvas.TypeOpacityDigit(5, clock + 100);
+            Expect(Math.Abs(canvas.Brush.Opacity - 0.45) < 0.001, "two quick digits did not set 45%");
+            canvas.TypeOpacityDigit(0, clock + 2_000);
+            Expect(Math.Abs(canvas.Brush.Opacity - 1) < 0.001, "0 after a pause did not set 100%");
+
+            // Upstream's hardness keys step in quarters and the size keys by a fifth, never by less
+            // than a pixel.
+            canvas.Brush = canvas.Brush with { Diameter = 40, Hardness = 0.8 };
+            canvas.Key(Win32.VK_OEM_6, control: false, shift: true);
+            Expect(canvas.Brush.Diameter == 40 && canvas.Brush.Hardness == 1,
+                   "Shift+] did not step hardness from 80% to 100% without changing diameter");
+            canvas.Key(Win32.VK_OEM_4, control: false, shift: true);
+            Expect(canvas.Brush.Hardness == 0.75, "Shift+[ did not step hardness down to 75%");
+            canvas.Key(Win32.VK_OEM_6, control: false);
+            Expect(canvas.Brush.Diameter == 48 && canvas.Brush.Hardness == 0.75, "] did not grow the brush by a fifth");
+            Expect(CanvasView.SteppedDiameter(2, increase: false) == 1, "[ could not reach a one-pixel brush");
+
+            // The right-drag reads only the horizontal distance: plain sizes the tip so its edge
+            // follows the pointer at any zoom, Shift sets hardness and leaves the size alone.
+            canvas.Brush = canvas.Brush with { Diameter = 40, Hardness = 0.5 };
+            Expect(canvas.BeginBrushAdjust(new Point(10, 10)), "a brush right-drag could not begin");
+            canvas.DragBrushAdjust(new Point(30, -50), shift: false);
+            double grown = Math.Round(40 + 2 * 20 / canvas.Viewport.PointsPerPixel);
+            Expect(canvas.Brush.Diameter == Math.Clamp(grown, 1, 2000) && canvas.Brush.Hardness == 0.5,
+                   "a plain brush right-drag did not size the tip alone");
+            canvas.DragBrushAdjust(new Point(60, 10), shift: true);
+            Expect(canvas.Brush.Diameter == 40 && Math.Abs(canvas.Brush.Hardness - 0.75) < 0.001,
+                   "a Shift brush right-drag did not set hardness alone");
+            canvas.EndBrushAdjust();
+
+            // Move's digits set the chosen layers' opacity as one undoable step.
+            canvas.SetTool(CanvasTool.Move);
+            double layerOpacity = canvas.ActiveLayer!.Opacity;
+            canvas.TypeOpacityDigit(3, clock + 10_000);
+            Expect(Math.Abs(canvas.ActiveLayer.Opacity - 0.3) < 0.001, "a digit with Move did not set the layer's opacity");
+            canvas.Undo();
+            Expect(Math.Abs(canvas.ActiveLayer!.Opacity - layerOpacity) < 0.001,
+                   "one undo did not restore the layer opacity a digit set");
+
+            // Tools upstream gives no opacity keys leave the digits alone.
             canvas.SetTool(CanvasTool.Shape);
+            double shapeOpacity = canvas.Shape.Opacity;
+            Expect(!canvas.Key(Win32.VK_1 + 2, control: false) && canvas.Shape.Opacity == shapeOpacity,
+                   "a digit with the Shape tool changed an opacity");
+
             ShapeKind shapeBefore = canvas.Shape.Kind;
             canvas.Key(Win32.VK_U, control: false, shift: true);
             Expect(canvas.Shape.Kind != shapeBefore, "Shift+U did not cycle the shape kind");
+            canvas.SetTool(CanvasTool.Brush);
+            ShapeKind shapeKept = canvas.Shape.Kind;
+            canvas.Key(Win32.VK_U, control: false, shift: true);
+            Expect(canvas.Tool == CanvasTool.Shape && canvas.Shape.Kind == shapeKept,
+                   "Shift+U from another tool did not simply pick the Shape tool");
             LayerBlendMode blendBefore = canvas.ActiveLayer!.BlendMode;
             canvas.Key(Win32.VK_OEM_PLUS, control: false, shift: true);
             Expect(canvas.ActiveLayer.BlendMode != blendBefore, "Shift+Plus did not cycle the layer blend mode");
 
             canvas.SetZoomPercent(125);
             Expect(Math.Abs(canvas.Viewport.Zoom - 1.25) < 0.001, "the exact zoom field did not apply its percentage");
+
+            // The edge scroll: nothing well inside the view, and a pointer past the right edge slides
+            // the document left, faster the further out it is.
+            var view = canvas.Viewport.ViewSize;
+            Point inside = canvas.AutoScrollDelta(new Point(view.Width / 2, view.Height / 2));
+            Point past = canvas.AutoScrollDelta(new Point(view.Width + 20, view.Height / 2));
+            Point farther = canvas.AutoScrollDelta(new Point(view.Width + 60, view.Height / 2));
+            Expect(inside.X == 0 && inside.Y == 0, "the edge scroll moved the view with the pointer well inside");
+            Expect(past.X < 0 && past.Y == 0 && farther.X < past.X, "the edge scroll did not follow the pointer past the right edge");
+            Expect(!canvas.WantsAutoScroll, "the edge scroll wanted to run with no drag under way");
             canvas.Key(Win32.VK_A, control: false);
             Expect(canvas.Tool == CanvasTool.Idle, "A did not select the inert inspection tool");
         }

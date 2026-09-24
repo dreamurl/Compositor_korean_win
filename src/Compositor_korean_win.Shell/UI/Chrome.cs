@@ -229,6 +229,11 @@ internal sealed unsafe class Chrome : IDisposable
                 break;
             }
 
+            case CanvasTool.Eyedropper:
+                _ui.Check(Next(110), Localizer.Text(TextKey.LabelSampleRing), _canvas.ShowSampleRing,
+                          () => _canvas.ShowSampleRing = !_canvas.ShowSampleRing);
+                break;
+
             case CanvasTool.Crop:
             {
                 // Upstream's CropControls: the proportion, the frame's size, Cancel and Apply.
@@ -525,8 +530,15 @@ internal sealed unsafe class Chrome : IDisposable
         return !(control && key is VK_0 or VK_1 or VK_OEM_PLUS or VK_OEM_MINUS or VK_ADD or VK_SUBTRACT);
     }
 
-    /// <summary>A character typed while a sheet is open, for its number boxes.</summary>
-    public bool SheetChar(char character) => HasSheet && _ui.Char(character);
+    /// <summary>
+    /// A key while a number box outside any sheet has the keyboard — the status bar's zoom, the
+    /// Move tool's inspector. It takes every key until Enter, Escape or a click lets it go, so a
+    /// digit typed there is a digit and not an opacity shortcut.
+    /// </summary>
+    public bool FieldKey(int key, bool shift) => !HasSheet && _ui.Key(key, shift);
+
+    /// <summary>A character typed into whichever number box has the keyboard, in a sheet or not.</summary>
+    public bool SheetChar(char character) => _ui.Char(character);
 
     private void Sheets(Rect canvas, int width, int height)
     {

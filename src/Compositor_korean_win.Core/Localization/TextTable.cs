@@ -407,6 +407,10 @@ public enum TextKey
     ToolEyedropper,
     ToolHand,
     ToolZoom,
+
+    // No tool (A), and the Eyedropper's one option.
+    ToolIdle,
+    LabelSampleRing,
 }
 
 /// <summary>
@@ -799,6 +803,8 @@ public static class TextTable
         (TextKey.Sample5By5, "5 × 5", "5 × 5"),
         (TextKey.LabelAllLayers, "All Layers", "모든 레이어"),
         (TextKey.LabelAutoSelect, "Auto Select", "자동 선택"),
+        (TextKey.ToolIdle, "Select a tool", "도구를 선택하세요"),
+        (TextKey.LabelSampleRing, "Sample Ring", "샘플 링"),
     ];
 
     /// <summary>Phrases that are the same in both languages on purpose — names, not words.</summary>

@@ -24,8 +24,17 @@ internal sealed partial class CanvasView
     private double _zoomAtStart;
     private bool _zoomMoved;
     private bool _zoomOut;
-    private Point? _sampledPoint;
-    private Rgba _sampledColour;
+    /// <summary>Where the pointer is while sampling, in view points: the sample ring's centre.</summary>
+    private Point? _sampleRingAt;
+
+    /// <summary>The colour the press started from, shown in the ring's lower half.</summary>
+    private Rgba _samplingOriginal;
+
+    /// <summary>
+    /// Whether sampling shows upstream's ring: the colour just taken over the one the press started
+    /// with, so the change can be judged before letting go.
+    /// </summary>
+    public bool ShowSampleRing { get; set; } = true;
 
     /// <summary>Whether a press with this tool and Alt takes a colour instead of doing the tool's own thing.</summary>
     private bool PicksWithAlt => _tool is CanvasTool.Brush or CanvasTool.Heal or CanvasTool.Gradient;
@@ -51,7 +60,8 @@ internal sealed partial class CanvasView
             case var _ when alt && PicksWithAlt:
                 _sampling = true;
                 _samplingBackground = alt && _tool == CanvasTool.Eyedropper;
-                Sample(pixel);
+                _samplingOriginal = _samplingBackground ? BackgroundColor : ForegroundColor;
+                Sample(pixel, view);
                 return true;
 
             default:
@@ -64,7 +74,7 @@ internal sealed partial class CanvasView
     {
         if (_sampling)
         {
-            Sample(pixel);
+            Sample(pixel, view);
             return true;
         }
 
@@ -86,7 +96,7 @@ internal sealed partial class CanvasView
         if (_sampling)
         {
             _sampling = false;
-            _sampledPoint = null;
+            _sampleRingAt = null;
             NeedsRedraw = true;
             return true;
         }
@@ -104,14 +114,13 @@ internal sealed partial class CanvasView
     }
 
     /// <summary>The colour the document shows at a point, into the foreground or background.</summary>
-    private void Sample(Point pixel)
+    private void Sample(Point pixel, Point view)
     {
         // A mask's colours are its black and white, not something to pick.
         if (EditingMask || CompositeColour(pixel) is not (double red, double green, double blue)) return;
 
         var colour = new Rgba((byte)Math.Round(red * 255), (byte)Math.Round(green * 255), (byte)Math.Round(blue * 255));
-        _sampledPoint = pixel;
-        _sampledColour = colour;
+        _sampleRingAt = view;
         if (_samplingBackground) BackgroundColor = colour;
         else ForegroundColor = colour;
         NeedsRedraw = true;

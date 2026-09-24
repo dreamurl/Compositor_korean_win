@@ -47,6 +47,8 @@ internal static unsafe partial class Win32
     internal const int VK_DOWN = 0x28;
     internal const int VK_0 = 0x30;
     internal const int VK_1 = 0x31;
+    internal const int VK_NUMPAD0 = 0x60;
+    internal const int VK_NUMPAD9 = 0x69;
     internal const int VK_A = 0x41;
     internal const int VK_B = 0x42;
     internal const int VK_D = 0x44;

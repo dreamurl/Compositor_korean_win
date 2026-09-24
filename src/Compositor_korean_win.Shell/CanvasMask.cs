@@ -120,7 +120,7 @@ internal sealed partial class CanvasView
     /// is a copy the stroke's tiles are laid into as they change; the mask it started from stays
     /// as it was, for the stroke to paint from.
     /// </summary>
-    private void BeginMaskStroke(ImageLayer layer, Point document)
+    private void BeginMaskStroke(ImageLayer layer, Point document, bool shift)
     {
         if (_document is null) return;
         if (_tool is not (CanvasTool.Brush or CanvasTool.Eraser or CanvasTool.Blur)) return;
@@ -146,6 +146,8 @@ internal sealed partial class CanvasView
 
         _stroke = new BrushStroke(working, working.Width, working.Height, settings, Restricted(placement));
         _strokeStart = document;
+        _strokeEnd = document;
+        ContinueLastStroke(_stroke, shift, layer.Id, onMask: true, placement);
         _stroke.Append(start);
         ShowMaskStroke();
         NeedsRedraw = true;

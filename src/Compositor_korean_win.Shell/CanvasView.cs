@@ -150,7 +150,7 @@ internal sealed partial class CanvasView : IDisposable
     private Point? _strokeEnd;
     private Point? _lastStrokeEnd;
     private Guid? _lastStrokeLayer;
-    private CanvasTool _lastStrokeTool;
+    private bool _lastStrokeOnMask;
     private Guid _painting;
     private PixelRect _paintGrid;
     private Point? _cloneAnchor;
@@ -533,7 +533,6 @@ internal sealed partial class CanvasView : IDisposable
         }
 
         _pointer = view;
-        AutoScroll(view);
 
         if (DragNavigation(view, _viewport.DocumentPoint(view, _document.Size))) return;
 
@@ -785,7 +784,7 @@ internal sealed partial class CanvasView : IDisposable
         // A folder has no pixels of its own, but it can have a mask to paint.
         if (EditingMask)
         {
-            BeginMaskStroke(layer, document);
+            BeginMaskStroke(layer, document, shift);
             return;
         }
 
@@ -854,10 +853,24 @@ internal sealed partial class CanvasView : IDisposable
                                   Restricted(placement));
         _strokeStart = document;
         _strokeEnd = document;
-        if (shift && _lastStrokeEnd is Point previous && _lastStrokeLayer == id && _lastStrokeTool == _tool)
-            _stroke.Append(LayerGeometry.ToPixels(placement, previous, _paintGrid.Width, _paintGrid.Height));
+        ContinueLastStroke(_stroke, shift, id, onMask: false, placement);
         _stroke.Append(start);
         NeedsRedraw = true;
+    }
+
+    /// <summary>
+    /// Shift paints a straight line on from where the last stroke ended, while the same layer — and
+    /// the same one of its pixels or its mask — is the target.
+    /// </summary>
+    /// <remarks>
+    /// Upstream does not ask which brush tool made the last stroke, so neither does this: a line can
+    /// be erased on from where the brush stopped.
+    /// </remarks>
+    private void ContinueLastStroke(BrushStroke stroke, bool shift, Guid layer, bool onMask, LayerTransform placement)
+    {
+        if (!shift || _lastStrokeEnd is not Point previous || _lastStrokeLayer != layer || _lastStrokeOnMask != onMask)
+            return;
+        stroke.Append(LayerGeometry.ToPixels(placement, previous, _paintGrid.Width, _paintGrid.Height));
     }
 
     /// <summary>
@@ -967,6 +980,11 @@ internal sealed partial class CanvasView : IDisposable
 
         try
         {
+            // Where a Shift-click carries on from, on pixels or mask alike.
+            _lastStrokeEnd = _strokeEnd;
+            _lastStrokeLayer = _painting;
+            _lastStrokeOnMask = _strokeOnMask;
+
             if (_strokeOnMask)
             {
                 EndMaskStroke(stroke);
@@ -988,9 +1006,6 @@ internal sealed partial class CanvasView : IDisposable
             });
 
             _history.End(_document, _painting);
-            _lastStrokeEnd = _strokeEnd;
-            _lastStrokeLayer = _painting;
-            _lastStrokeTool = _tool;
             NeedsRedraw = true;
         }
         finally
@@ -1119,6 +1134,7 @@ internal sealed partial class CanvasView : IDisposable
         CanvasTool.Eyedropper => TextKey.ToolEyedropper,
         CanvasTool.Hand => TextKey.ToolHand,
         CanvasTool.Zoom => TextKey.ToolZoom,
+        CanvasTool.Idle => TextKey.ToolIdle,
         _ => TextKey.HistoryEdit,
     };
 
@@ -1226,8 +1242,13 @@ internal sealed partial class CanvasView : IDisposable
 
         switch (key)
         {
-            case >= Win32.VK_0 and <= 0x39 when !control && !alt:
-                SetToolOpacity(key == Win32.VK_0 ? 1 : (key - Win32.VK_0) / 10.0);
+            // Upstream's opacity keys: 1 is 10% ... 9 is 90%, 0 is 100%, two quick digits an exact
+            // value. Only where upstream has them — the brushes, the gradient, and Move, where they
+            // set the chosen layers' opacity. Shift turns the row into symbols, so it is not a digit.
+            case (>= Win32.VK_0 and <= 0x39) or (>= Win32.VK_NUMPAD0 and <= Win32.VK_NUMPAD9)
+                when !control && !alt && !shift && UsesOpacityKeys:
+                TypeOpacityDigit(key >= Win32.VK_NUMPAD0 ? key - Win32.VK_NUMPAD0 : key - Win32.VK_0,
+                                 Environment.TickCount64);
                 break;
 
             case Win32.VK_OEM_PLUS or Win32.VK_ADD when shift && !control:
@@ -1323,21 +1344,20 @@ internal sealed partial class CanvasView : IDisposable
                 _tool = CanvasTool.Gradient;
                 break;
 
+            // Shift+U switches Rectangle and Ellipse only once the Shape tool is up; from any other
+            // tool it picks the Shape tool, as plain U does.
             case Win32.VK_U when !control:
-                if (shift)
+                if (shift && _tool == CanvasTool.Shape)
                     Shape = Shape with { Kind = Shape.Kind == ShapeKind.Rectangle ? ShapeKind.Ellipse : ShapeKind.Rectangle };
                 else _tool = CanvasTool.Shape;
                 break;
 
-            // The bracket keys size the brush, as they do everywhere else.
-            case Win32.VK_OEM_4 or Win32.VK_OEM_6:
-                Brush = Brush with
-                {
-                    Diameter = shift ? Brush.Diameter : Math.Clamp(key == Win32.VK_OEM_4 ? Brush.Diameter / 1.25
-                                                                                         : Brush.Diameter * 1.25, 1, 2000),
-                    Hardness = !shift ? Brush.Hardness : Math.Clamp(Brush.Hardness
-                                 + (key == Win32.VK_OEM_4 ? -0.1 : 0.1), 0, 1),
-                };
+            // The bracket keys size the brush tools and, with Shift, step their hardness. Other
+            // tools leave them alone, as upstream's do.
+            case Win32.VK_OEM_4 or Win32.VK_OEM_6 when _tool.Paints() && _stroke is null && _warp is null:
+                Brush = shift
+                    ? Brush with { Hardness = SteppedHardness(Brush.Hardness, key == Win32.VK_OEM_6) }
+                    : Brush with { Diameter = SteppedDiameter(Brush.Diameter, key == Win32.VK_OEM_6) };
                 break;
 
             case Win32.VK_LEFT or Win32.VK_RIGHT or Win32.VK_UP or Win32.VK_DOWN:
@@ -1354,12 +1374,60 @@ internal sealed partial class CanvasView : IDisposable
         return true;
     }
 
-    private void SetToolOpacity(double opacity)
+    /// <summary>The first of two quickly typed opacity digits, and when it was typed.</summary>
+    private (int Digit, long At)? _pendingOpacityDigit;
+
+    /// <summary>Tools whose number keys set an opacity: upstream's <c>usesOpacityKeys</c>.</summary>
+    private bool UsesOpacityKeys => _tool.Paints() || _tool is CanvasTool.Gradient or CanvasTool.Move;
+
+    /// <summary>
+    /// One opacity digit. A second digit within 600 ms makes an exact value — 4 then 5 is 45%,
+    /// 0 then 5 is 5% — as upstream and Photoshop read them.
+    /// </summary>
+    internal void TypeOpacityDigit(int digit, long milliseconds)
     {
-        opacity = Math.Clamp(opacity, 0, 1);
+        if (!UsesOpacityKeys || _stroke is not null || _warp is not null || digit is < 0 or > 9) return;
+
+        int percent = digit == 0 ? 100 : digit * 10;
+        if (_pendingOpacityDigit is (int first, long at) && milliseconds - at < 600)
+        {
+            percent = Math.Max(1, first * 10 + digit);
+            _pendingOpacityDigit = null;
+        }
+        else
+        {
+            _pendingOpacityDigit = (digit, milliseconds);
+        }
+
+        double opacity = percent / 100.0;
         if (_tool == CanvasTool.Gradient) Gradient = Gradient with { Opacity = opacity };
-        else if (_tool == CanvasTool.Shape) Shape = Shape with { Opacity = opacity };
+        else if (_tool == CanvasTool.Move) SetChosenOpacity(opacity);
         else Brush = Brush with { Opacity = opacity };
+    }
+
+    /// <summary>The chosen layers' opacity, as one history step — and none when nothing changes.</summary>
+    private void SetChosenOpacity(double opacity)
+    {
+        if (_document is not CanvasDocument document) return;
+        bool changes = _chosen.Any(id => document.Layer(id) is ImageLayer layer && layer.Opacity != opacity);
+        if (!changes) return;
+
+        BeginOpacity();
+        SetOpacity(opacity);
+        EndOpacity();
+    }
+
+    /// <summary>A fifth bigger or smaller, but always at least a pixel, so the smallest sizes stay in reach.</summary>
+    internal static double SteppedDiameter(double diameter, bool increase) => Math.Clamp(
+        increase ? Math.Max(diameter + 1, Math.Round(diameter * 1.2))
+                 : Math.Min(diameter - 1, Math.Round(diameter / 1.2)), 1, 2000);
+
+    /// <summary>Photoshop's 25% hardness steps; 80% goes to 100% or 75%, not 90% or 70%.</summary>
+    internal static double SteppedHardness(double hardness, bool increase)
+    {
+        double quarter = hardness * 4;
+        double step = increase ? Math.Floor(quarter + 0.001) + 1 : Math.Ceiling(quarter - 0.001) - 1;
+        return Math.Clamp(step, 0, 4) / 4;
     }
 
     private void CycleBlendMode(int direction)
@@ -1370,41 +1438,84 @@ internal sealed partial class CanvasView : IDisposable
         SetBlendMode(modes[(current + direction + modes.Length) % modes.Length]);
     }
 
-    /// <summary>Starts Photoshop-style right-drag brush size and hardness adjustment.</summary>
+    /// <summary>
+    /// Starts upstream's right-drag on a brush tool: sideways sizes the tip, and with Shift sets its
+    /// hardness instead. Not mid-stroke, where the settings are already in the stroke.
+    /// </summary>
     public bool BeginBrushAdjust(Point view)
     {
-        if (!_tool.Paints() || IsFiltering) return false;
+        if (!_tool.Paints() || IsFiltering || _stroke is not null || _warp is not null) return false;
         _brushAdjustFrom = view;
         _brushBeforeAdjust = Brush;
         return true;
     }
 
-    public void DragBrushAdjust(Point view)
+    /// <remarks>
+    /// Only the horizontal distance counts, as upstream's. Without Shift the circle's edge follows the
+    /// pointer — each point moved widens the radius by a point on screen, whatever the zoom. With
+    /// Shift the full hardness range is two hundred points. The other value stays as the drag found it.
+    /// </remarks>
+    public void DragBrushAdjust(Point view, bool shift)
     {
         if (_brushAdjustFrom is not Point from || _brushBeforeAdjust is not BrushSettings before) return;
-        Brush = before with
-        {
-            Diameter = Math.Clamp(before.Diameter + (view.X - from.X) * 2, 1, 2000),
-            Hardness = Math.Clamp(before.Hardness - (view.Y - from.Y) / 150, 0, 1),
-        };
+        double dx = view.X - from.X;
+        double perPixel = Math.Max(0.0001, _viewport.PointsPerPixel);
+        Brush = shift
+            ? before with { Hardness = Math.Clamp(before.Hardness + dx / 200, 0, 1) }
+            : before with { Diameter = Math.Clamp(Math.Round(before.Diameter + 2 * dx / perPixel), 1, 2000) };
         NeedsRedraw = true;
     }
 
-    /// <summary>Keeps a canvas drag moving when the pointer reaches the visible edge.</summary>
-    private void AutoScroll(Point view)
-    {
-        bool dragging = _cropDragging || _stroke is not null || _warp is not null || _movingFrom is not null
-                        || _shapeFrom is not null || _marqueeFrom is not null || _drag is not null;
-        if (!dragging) return;
+    /// <summary>
+    /// Whether a drag is on that the view should follow past its edge: the marquee, a moving
+    /// selection, the crop frame and the transform handles.
+    /// </summary>
+    /// <remarks>
+    /// Upstream scrolls for the marquee and a moving selection. Crop and transform are added here
+    /// because their frames are as often dragged past the edge. Strokes, shapes and the freehand
+    /// lasso are left out, as upstream leaves them: a stroke that ran into the edge would keep
+    /// painting as the document slid under a still pointer.
+    /// </remarks>
+    private bool AutoScrolls => _cropDragging || _movingFrom is not null || _drag is not null
+                                || _marqueeFrom is not null && _lasso is null;
 
-        const double edge = 24;
-        double dx = view.X < edge ? edge - view.X
-                  : view.X > _viewport.ViewSize.Width - edge ? _viewport.ViewSize.Width - edge - view.X : 0;
-        double dy = view.Y < edge ? edge - view.Y
-                  : view.Y > _viewport.ViewSize.Height - edge ? _viewport.ViewSize.Height - edge - view.Y : 0;
-        if (dx == 0 && dy == 0) return;
-        _viewport = _viewport.Translated(new Point(dx * 0.35, dy * 0.35));
+    /// <summary>
+    /// How far the view pans this tick for a pointer at <paramref name="view"/>: nothing well inside,
+    /// then from two points a tick at the edge margin up to forty for a pointer far past it.
+    /// </summary>
+    internal Point AutoScrollDelta(Point view)
+    {
+        const double margin = 12;
+        static double Speed(double past) => past <= 0 ? 0 : Math.Min(40, 2 + past * 0.4);
+        Size size = _viewport.ViewSize;
+        double left = Speed(margin - view.X), right = Speed(view.X - (size.Width - margin));
+        double top = Speed(margin - view.Y), bottom = Speed(view.Y - (size.Height - margin));
+        // Pointer past the right edge: the document slides left to bring what is beyond into view.
+        return new Point(left - right, top - bottom);
+    }
+
+    /// <summary>Whether the window should keep a scroll timer running for the drag under way.</summary>
+    public bool WantsAutoScroll
+    {
+        get
+        {
+            if (_document is null || !AutoScrolls) return false;
+            Point delta = AutoScrollDelta(_pointer);
+            return delta.X != 0 || delta.Y != 0;
+        }
+    }
+
+    /// <summary>
+    /// One tick of the edge scroll: the view moves, and the drag is replayed at the same pointer so
+    /// the corner or frame it holds follows the document. False when there is nothing left to do.
+    /// </summary>
+    public bool AutoScrollTick(bool shift, bool alt, bool control)
+    {
+        if (!WantsAutoScroll) return false;
+        _viewport = _viewport.Translated(AutoScrollDelta(_pointer));
+        PointerMoved(_pointer, shift, alt, control);
         NeedsRedraw = true;
+        return true;
     }
 
     public void EndBrushAdjust()
@@ -1580,7 +1691,7 @@ internal sealed partial class CanvasView : IDisposable
         DrawPixelGrid(context, projection);
         DrawSelection(context, projection, fill, shadow, thickness);
         DrawCrop(context, projection, fill, outline, thickness, half);
-        DrawSampleRing(context, projection, fill, shadow, thickness);
+        DrawSampleRing(context);
 
         // Floating pixels always show their handles: they are there to be transformed.
         if (_tool != CanvasTool.Move || Box() is not LayerTransform box || !ShowTransformControls && !IsFloating)
@@ -1616,18 +1727,38 @@ internal sealed partial class CanvasView : IDisposable
             context.EndDraw().CheckError();
     }
 
-    private void DrawSampleRing(ID2D1DeviceContext context, CanvasProjection projection,
-                                ID2D1SolidColorBrush light, ID2D1SolidColorBrush dark, float thickness)
+    /// <summary>
+    /// Upstream's sample ring round the pointer: a grey band, the colour just taken in its upper half
+    /// and the one the press started from in its lower half.
+    /// </summary>
+    /// <remarks>
+    /// Sized in points as upstream's overlay is — a 116-point frame, the band's centre line 43 points
+    /// out, 24 wide in grey with the two colours 16 wide inside it — so it reads the same at any zoom.
+    /// It is drawn over the frame only and never reaches the document or its history.
+    /// </remarks>
+    private void DrawSampleRing(ID2D1DeviceContext context)
     {
-        if (!_sampling || _sampledPoint is not Point sampled) return;
-        Point centre = projection.Apply(sampled);
-        var outer = new Ellipse(Vector(centre), (float)(14 * _scale), (float)(14 * _scale));
-        var inner = new Ellipse(Vector(centre), (float)(9 * _scale), (float)(9 * _scale));
-        context.FillEllipse(outer, dark);
-        using ID2D1SolidColorBrush colour = context.CreateSolidColorBrush(new Color4(
-            _sampledColour.R / 255f, _sampledColour.G / 255f, _sampledColour.B / 255f, 1));
-        context.FillEllipse(inner, colour);
-        context.DrawEllipse(outer, light, thickness);
+        if (!_sampling || !ShowSampleRing || _sampleRingAt is not Point at) return;
+
+        var centre = new Vector2((float)(_origin.X + at.X * _scale), (float)(_origin.Y + at.Y * _scale));
+        float radius = (float)(43 * _scale);
+        var ring = new Ellipse(centre, radius, radius);
+
+        using ID2D1SolidColorBrush grey = context.CreateSolidColorBrush(new Color4(0.45f, 0.45f, 0.45f, 1));
+        context.DrawEllipse(ring, grey, (float)(24 * _scale));
+
+        Rgba taken = _samplingBackground ? BackgroundColor : ForegroundColor;
+        float reach = (float)(58 * _scale);
+        foreach ((Rgba colour, bool upper) in new[] { (taken, true), (_samplingOriginal, false) })
+        {
+            using ID2D1SolidColorBrush brush = context.CreateSolidColorBrush(
+                new Color4(colour.R / 255f, colour.G / 255f, colour.B / 255f, 1));
+            context.PushAxisAlignedClip(new Vortice.RawRectF(centre.X - reach, upper ? centre.Y - reach : centre.Y,
+                                                             centre.X + reach, upper ? centre.Y : centre.Y + reach),
+                                        AntialiasMode.Aliased);
+            context.DrawEllipse(ring, brush, (float)(16 * _scale));
+            context.PopAxisAlignedClip();
+        }
     }
 
     /// <summary>
