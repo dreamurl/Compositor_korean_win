@@ -648,6 +648,9 @@ internal sealed unsafe class Chrome : IDisposable
 
     // MARK: Tabs
 
+    private readonly List<(Rect Area, int Index)> _tabAreas = [];
+    private Rect _newTabDrop;
+
     /// <summary>
     /// A tab for each open document above the canvas — upstream's <c>ProjectTabs</c>: its name, a star
     /// while it has unsaved changes, and a button to close it.
@@ -659,6 +662,7 @@ internal sealed unsafe class Chrome : IDisposable
         _ui.Rule(new Point(strip.X, strip.MaxY - 0.5), new Point(strip.MaxX, strip.MaxY - 0.5), Ui.Line);
 
         IReadOnlyList<DocumentTab> tabs = _canvas.Tabs;
+        _tabAreas.Clear();
         double x = strip.X;
         for (int i = 0; i < tabs.Count; i++)
         {
@@ -669,6 +673,7 @@ internal sealed unsafe class Chrome : IDisposable
             if (x + width > strip.MaxX) break;
 
             var area = new Rect(x, strip.Y, width, strip.Height - 1);
+            _tabAreas.Add((area, i));
             bool active = i == _canvas.ActiveTab;
             int index = i;
 
@@ -691,6 +696,13 @@ internal sealed unsafe class Chrome : IDisposable
 
             _ui.Rule(new Point(area.MaxX - 0.5, area.Y + _ui.P(6)), new Point(area.MaxX - 0.5, area.MaxY - _ui.P(6)), Ui.Line);
             x += width;
+        }
+        _newTabDrop = new Rect(x, strip.Y, Math.Max(0, strip.MaxX - x), strip.Height - 1);
+        if (_rowDragFrom is not null && _rowDragMoved)
+        {
+            foreach ((Rect area, int index) in _tabAreas)
+                if (index != _canvas.ActiveTab && area.Contains(_rowDragAt)) _ui.Frame(area, Ui.Accent, _ui.P(2));
+            if (_newTabDrop.Contains(_rowDragAt)) _ui.Frame(_newTabDrop, Ui.Accent, _ui.P(2));
         }
     }
 
@@ -992,6 +1004,18 @@ internal sealed unsafe class Chrome : IDisposable
                 _canvas.LoadLayerSelection(layer.Id, add: shift, subtract: alt);
             else
                 _canvas.ClickLayer(layer.Id, control, shift, order);
+            return;
+        }
+
+        foreach ((Rect area, int index) in _tabAreas)
+        {
+            if (index == _canvas.ActiveTab || !area.Contains(point)) continue;
+            _canvas.CopyLayersToTab(layer.Id, index);
+            return;
+        }
+        if (_newTabDrop.Contains(point))
+        {
+            _canvas.CopyLayersToNewTab(layer.Id);
             return;
         }
 

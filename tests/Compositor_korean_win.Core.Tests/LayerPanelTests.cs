@@ -82,6 +82,32 @@ public class LayerPanelTests
     }
 
     [Fact]
+    public void CopyingAcrossProjectsCarriesAFolderAndRemapsItsReferences()
+    {
+        using PixelBuffer image = RenderFixture.Solid(10, 10, 20, 40, 60);
+        ImageLayer folder = Layer("folder", folder: true);
+        ImageLayer baseLayer = RenderFixture.Layer("base", image) with { ParentId = folder.Id };
+        ImageLayer clipped = Layer("clipped", folder.Id) with { MaskSourceId = baseLayer.Id };
+        CanvasDocument source = ProjectFixture.Document(folder, baseLayer, clipped);
+        CanvasDocument destination = ProjectFixture.Document(Layer("existing"));
+
+        (CanvasDocument copied, IReadOnlyList<Guid> roots) = LayerCommands.CopyAcross(
+            source, [folder.Id], destination)!.Value;
+
+        Assert.Single(roots);
+        ImageLayer copiedFolder = copied.Layer(roots[0])!;
+        ImageLayer copiedBase = copied.Layers.Single(layer => layer.Name == "base");
+        ImageLayer copiedClipped = copied.Layers.Single(layer => layer.Name == "clipped");
+        Assert.True(copiedFolder.IsGroup);
+        Assert.Equal(copiedFolder.Id, copiedBase.ParentId);
+        Assert.Equal(copiedFolder.Id, copiedClipped.ParentId);
+        Assert.Equal(copiedBase.Id, copiedClipped.MaskSourceId);
+        Assert.NotEqual(baseLayer.Id, copiedBase.Id);
+
+        copiedBase.Image!.Release();
+    }
+
+    [Fact]
     public void AHideAllMaskHidesTheSelectionOrEverything()
     {
         using PixelBuffer image = RenderFixture.Solid(20, 20, 1, 2, 3);

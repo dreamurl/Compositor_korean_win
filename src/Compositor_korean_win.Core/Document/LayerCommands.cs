@@ -298,6 +298,56 @@ public static class LayerCommands
             : null;
     }
 
+    /// <summary>Copies selected branches from one project into another, assigning every layer a new id.</summary>
+    /// <remarks>
+    /// Folder descendants and references inside the copied set are preserved. A clipping reference
+    /// to a layer outside the set is released because that layer does not exist in the destination.
+    /// Pixel buffers are retained: source and destination histories own their documents separately.
+    /// </remarks>
+    public static (CanvasDocument Document, IReadOnlyList<Guid> Copies)? CopyAcross(
+        CanvasDocument source, IReadOnlyCollection<Guid> ids, CanvasDocument destination, Point? centre = null)
+    {
+        var picked = ids.Where(id => source.Layer(id) is not null).ToHashSet();
+        var roots = picked.Where(id => !AncestorsOf(source, id).Any(picked.Contains)).ToHashSet();
+        if (roots.Count == 0) return null;
+
+        bool Included(ImageLayer layer) => roots.Contains(layer.Id)
+            || AncestorsOf(source, layer.Id).Any(roots.Contains);
+
+        List<ImageLayer> originals = [.. source.Layers.Where(Included)];
+        long used = destination.Layers.Sum(layer => layer.Image is PixelBuffer image ? (long)image.Width * image.Height : 0);
+        long added = originals.Sum(layer => layer.Image is PixelBuffer image ? (long)image.Width * image.Height : 0);
+        if (destination.Layers.Count + originals.Count > ProjectLimits.MaximumLayers
+            || used + added > ProjectLimits.MaximumPixels) return null;
+
+        var map = originals.ToDictionary(layer => layer.Id, _ => Guid.NewGuid());
+        ImageLayer anchor = originals.FirstOrDefault(layer => roots.Contains(layer.Id)) ?? originals[0];
+        Point target = centre ?? new Point(destination.Width / 2.0, destination.Height / 2.0);
+        Point offset = new(target.X - anchor.Transform.Center.X, target.Y - anchor.Transform.Center.Y);
+
+        LayerTransform Moved(LayerTransform transform) => transform with
+        {
+            Origin = new Point(transform.Origin.X + offset.X, transform.Origin.Y + offset.Y),
+        };
+
+        List<ImageLayer> copies = [.. originals.Select(layer => layer with
+        {
+            Id = map[layer.Id],
+            Transform = Moved(layer.Transform),
+            ParentId = layer.ParentId is Guid parent && map.TryGetValue(parent, out Guid mappedParent) ? mappedParent : null,
+            MaskSourceId = layer.MaskSourceId is Guid sourceId && map.TryGetValue(sourceId, out Guid mappedSource) ? mappedSource : null,
+            Image = layer.Image?.Retain(),
+            Mask = layer.Mask is LayerMask mask ? mask with
+            {
+                Coverage = mask.Coverage.Retain(),
+                Placement = mask.Placement is LayerTransform placement ? Moved(placement) : null,
+            } : null,
+        })];
+
+        CanvasDocument result = destination with { Layers = destination.Layers.Concat(copies).ToEquatableList() };
+        return (result, [.. roots.Select(id => map[id])]);
+    }
+
     /// <summary>A layer taken out of its folder and put just above it.</summary>
     public static CanvasDocument? MoveOutOfFolder(CanvasDocument document, Guid id)
     {

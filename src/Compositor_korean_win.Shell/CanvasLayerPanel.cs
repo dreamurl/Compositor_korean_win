@@ -9,6 +9,60 @@ namespace Compositor_korean_win.Shell;
 /// </summary>
 internal sealed partial class CanvasView
 {
+    /// <summary>Copies the dragged selection into another open project and shows that project.</summary>
+    public bool CopyLayersToTab(Guid dragged, int destination)
+    {
+        if (_document is null || destination < 0 || destination >= _tabs.Count || destination == _active) return false;
+        CommitGradient();
+        Stash();
+
+        IReadOnlyCollection<Guid> ids = _chosen.Contains(dragged) ? [.. _chosen] : [dragged];
+        DocumentTab target = _tabs[destination];
+        if (target.Document is not CanvasDocument into
+            || LayerCommands.CopyAcross(_document, ids, into) is not (CanvasDocument copied, IReadOnlyList<Guid> copies))
+            return false;
+
+        target.History.Begin(TextKey.CommandDuplicateLayer, into, copies.LastOrDefault());
+        target.Document = copied;
+        target.Chosen = [.. copies];
+        target.MaskOf = null;
+        target.History.End(copied, copies.LastOrDefault());
+        Bring(destination);
+        return true;
+    }
+
+    /// <summary>Copies the dragged selection into a new project with the source canvas size.</summary>
+    public bool CopyLayersToNewTab(Guid dragged)
+    {
+        if (_document is not CanvasDocument source) return false;
+        CommitGradient();
+        IReadOnlyCollection<Guid> ids = _chosen.Contains(dragged) ? [.. _chosen] : [dragged];
+        var empty = new CanvasDocument
+        {
+            Id = Guid.NewGuid(),
+            Width = source.Width,
+            Height = source.Height,
+            Resolution = source.Resolution,
+        };
+        if (LayerCommands.CopyAcross(source, ids, empty) is not (CanvasDocument copied, IReadOnlyList<Guid> copies))
+            return false;
+
+        Stash();
+        var history = new DocumentHistory(ownsPixels: true);
+        history.Begin(TextKey.CommandDuplicateLayer, empty, copies.LastOrDefault());
+        history.End(copied, copies.LastOrDefault());
+        _tabs.Add(new DocumentTab
+        {
+            Document = copied,
+            History = history,
+            Name = Localizer.Text(TextKey.DocumentUntitled),
+            Chosen = [.. copies],
+        });
+        Bring(_tabs.Count - 1);
+        _viewport = _viewport.Fit(copied.Size);
+        return true;
+    }
+
     /// <summary>
     /// Dragged rows dropped against <paramref name="target"/>: the chosen layers when the drag
     /// began on one of them, else the row alone; copies of them with <paramref name="copy"/>.

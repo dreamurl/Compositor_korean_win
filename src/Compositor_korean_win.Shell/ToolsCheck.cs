@@ -309,6 +309,25 @@ internal static class ToolsCheck
             {
                 Expect(false, "the Eyedropper check had no visible pixel to sample");
             }
+
+            // A layer row can leave its project: dropping on another tab copies it there and a
+            // drop on the empty tab strip makes a new project, with independent layer ids.
+            int sourceTab = canvas.ActiveTab;
+            Guid sourceLayer = canvas.ActiveLayer!.Id;
+            using PixelBuffer targetPixels = PixelRegion.Copy(image, new PixelRect(0, 0, image.Width, image.Height));
+            canvas.Open(DocumentFiles.FromImage(targetPixels.Retain(), "target"), path: null, "target");
+            int targetTab = canvas.ActiveTab;
+            int targetLayers = canvas.Document!.Layers.Count;
+            canvas.SwitchTo(sourceTab);
+            Expect(canvas.CopyLayersToTab(sourceLayer, targetTab), "a layer could not be copied to another project tab");
+            Expect(canvas.ActiveTab == targetTab && canvas.Document!.Layers.Count > targetLayers,
+                   "a cross-project layer drop did not select and update its target tab");
+            Guid copiedLayer = canvas.ActiveLayer!.Id;
+            int tabsBeforeNew = canvas.Tabs.Count;
+            Expect(copiedLayer != sourceLayer && canvas.CopyLayersToNewTab(copiedLayer),
+                   "a layer drop could not create a new project tab");
+            Expect(canvas.Tabs.Count == tabsBeforeNew + 1 && canvas.Document!.Layers.Count > 0,
+                   "the new project tab did not receive the dropped layer");
         }
         catch (Exception exception)
         {
