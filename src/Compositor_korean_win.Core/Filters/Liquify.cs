@@ -180,7 +180,8 @@ public sealed class LiquifyField
             _nextFrozen = new float[needed];
         }
 
-        for (int row = top; row <= bottom; row++)
+        double radiusSquared = radius * radius;
+        Parallel.For(top, bottom + 1, row =>
         {
             for (int column = left; column <= right; column++)
             {
@@ -190,11 +191,12 @@ public sealed class LiquifyField
                 _nextFrozen[k] = _frozen[i];
 
                 double px = column * Step, py = row * Step;
-                double distance = Math.Sqrt((px - centre.X) * (px - centre.X) + (py - centre.Y) * (py - centre.Y)) / radius;
-                if (distance >= 1) continue;
+                double ox = px - centre.X, oy = py - centre.Y;
+                double distanceSquared = (ox * ox + oy * oy) / radiusSquared;
+                if (distanceSquared >= 1) continue;
 
                 // A soft round brush: full at the centre, easing to nothing at the rim.
-                double falloff = (1 - distance * distance) * (1 - distance * distance);
+                double falloff = (1 - distanceSquared) * (1 - distanceSquared);
                 double weight = falloff * pressure;
 
                 if (tool is LiquifyTool.Freeze or LiquifyTool.Thaw)
@@ -249,7 +251,7 @@ public sealed class LiquifyField
                 _nextX[k] = (float)(fromX + dx - px);
                 _nextY[k] = (float)(fromY + dy - py);
             }
-        }
+        });
 
         for (int row = top; row <= bottom; row++)
         {

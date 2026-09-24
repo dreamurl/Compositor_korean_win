@@ -279,6 +279,18 @@ internal static class ToolsCheck
             canvas.PointerUp();
             Expect(Math.Abs(canvas.Viewport.Zoom - fitted * 2) < 1e-6, $"a Zoom click went from {fitted} to {canvas.Viewport.Zoom}");
 
+            Point panBeforeWheel = canvas.Viewport.Pan;
+            canvas.Wheel(Middle(), 1, shift: true);
+            Expect(canvas.Viewport.Pan.X == panBeforeWheel.X && canvas.Viewport.Pan.Y > panBeforeWheel.Y,
+                   "Shift-wheel did not move the canvas vertically");
+            Point afterVerticalWheel = canvas.Viewport.Pan;
+            canvas.Wheel(Middle(), 1, control: true);
+            Expect(canvas.Viewport.Pan.X > afterVerticalWheel.X && canvas.Viewport.Pan.Y == afterVerticalWheel.Y,
+                   "Control-wheel did not move the canvas horizontally");
+            double beforePlainWheel = canvas.Viewport.Zoom;
+            canvas.Wheel(Middle(), 1);
+            Expect(canvas.Viewport.Zoom > beforePlainWheel, "an unmodified wheel no longer zoomed the canvas");
+
             canvas.SetTool(CanvasTool.Hand);
             Point startView = Middle();
             canvas.PointerDown(startView, pan: false);

@@ -552,7 +552,8 @@ internal sealed unsafe class MainWindow : IDisposable
 
                     if (window.Chrome?.Scroll(new Point(where.X, where.Y), notches) == true) window.Invalidate();
                     else if (window.Chrome?.OverPanels(new Point(where.X, where.Y)) != true)
-                        canvas.Wheel(canvas.ToView(where.X, where.Y), notches);
+                        canvas.Wheel(canvas.ToView(where.X, where.Y), notches,
+                                     shift: IsKeyDown(VK_SHIFT), control: IsKeyDown(VK_CONTROL));
                     window.AfterInput();
                 }
                 break;

@@ -1382,10 +1382,23 @@ internal sealed partial class CanvasView : IDisposable
         return (SelectionMode == SelectionModeChoice.Add, SelectionMode == SelectionModeChoice.Subtract);
     }
 
-    /// <summary>The wheel turned by <paramref name="notches"/> of its own unit at a point.</summary>
-    public void Wheel(Point view, double notches)
+    /// <summary>
+    /// The wheel turned by <paramref name="notches"/> of its own unit at a point: zoom normally,
+    /// move vertically with Shift, or horizontally with Control.
+    /// </summary>
+    public void Wheel(Point view, double notches, bool shift = false, bool control = false)
     {
         if (_document is null) return;
+
+        if (shift || control)
+        {
+            const double pointsPerNotch = 64;
+            _viewport = _viewport.Translated(control
+                ? new Point(notches * pointsPerNotch, 0)
+                : new Point(0, notches * pointsPerNotch));
+            NeedsRedraw = true;
+            return;
+        }
 
         // A fifth either way per notch, which is close enough to upstream's feel and lands on whole
         // sizes often enough not to look arbitrary.

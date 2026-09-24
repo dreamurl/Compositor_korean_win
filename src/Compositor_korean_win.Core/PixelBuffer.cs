@@ -230,6 +230,12 @@ public sealed unsafe class PixelBuffer : IDisposable
 
     private void EnsureMaterialized()
     {
+        // Sampling a filter calls Row several times per output pixel. Once a buffer is already
+        // materialized there is nothing to protect, and taking this monitor millions of times
+        // makes parallel Liquify workers serialize behind one lock. The slow path still owns all
+        // allocation and deferred-patch state transitions.
+        if (Volatile.Read(ref _scan0) != 0) return;
+
         lock (_materializeGate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
