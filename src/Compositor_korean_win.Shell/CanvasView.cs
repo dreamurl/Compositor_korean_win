@@ -1937,7 +1937,10 @@ internal sealed partial class CanvasView : IDisposable
         using ID2D1SolidColorBrush shadow = context.CreateSolidColorBrush(new Color4(0f, 0f, 0f, 0.65f));
 
         DrawPixelGrid(context, projection);
+        CloneSourceView? clone = CloneSourceUnderPointer();
+        if (clone is CloneSourceView under) DrawClonePreview(context, projection, under);
         DrawSelection(context, projection, fill, shadow, thickness);
+        if (clone is CloneSourceView source) DrawCloneCrosshair(context, projection, source, fill, shadow, thickness);
         DrawCrop(context, projection, fill, outline, thickness, half);
         DrawSampleRing(context);
 
@@ -1973,6 +1976,139 @@ internal sealed partial class CanvasView : IDisposable
 
         context.PopAxisAlignedClip();
             context.EndDraw().CheckError();
+    }
+
+    /// <summary>Clone Stamp's brush and source, in the active layer's pixels, as the overlay draws them.</summary>
+    private readonly record struct CloneSourceView(
+        ImageLayer Layer, LayerTransform Placement, int Width, int Height, Point Centre, Point Sample);
+
+    private ID2D1Bitmap1? _clonePreview;
+    private (PixelBuffer Source, PixelRect Region)? _clonePreviewKey;
+    private (CanvasDocument Document, Guid Layer, PixelBuffer Sample)? _cloneComposite;
+
+    /// <summary>
+    /// Where Clone Stamp reads from for the brush under the pointer — upstream's
+    /// <c>cloneSamplePoint</c>: the source itself until a stroke fixes the offset, then the brush
+    /// plus that offset. Null without a source, or with the pointer off the picture.
+    /// </summary>
+    private CloneSourceView? CloneSourceUnderPointer()
+    {
+        if (_tool != CanvasTool.CloneStamp || _cloneAnchor is not Point anchor) return null;
+        if (!_pointerOverCanvas && _stroke is null) return null;
+        if (_document is null || Primary is not Guid id || _document.Layer(id) is not ImageLayer target) return null;
+
+        // The same grid the stroke paints and the ring is drawn in.
+        int width = target.Image?.Width ?? _document.Width;
+        int height = target.Image?.Height ?? _document.Height;
+        LayerTransform placement = target.Image is null
+            ? new LayerTransform(Point.Zero, new Size(_document.Width, _document.Height))
+            : target.Transform;
+        Point centre = LayerGeometry.ToPixels(placement, _viewport.DocumentPoint(_pointer, _document.Size), width, height);
+
+        Point sample = _cloneOffset is Point offset && (CloneAligned || _stroke is not null)
+            ? new Point(centre.X + offset.X, centre.Y + offset.Y)
+            : anchor;
+        return new CloneSourceView(target, placement, width, height, centre, sample);
+    }
+
+    /// <summary>
+    /// Upstream's crosshair on the spot being copied from, so an Alt-click visibly sets a source and
+    /// a stroke shows what it is copying. Drawn dark under light, as the outlines are.
+    /// </summary>
+    private void DrawCloneCrosshair(ID2D1DeviceContext context, CanvasProjection projection, CloneSourceView clone,
+                                    ID2D1Brush light, ID2D1Brush dark, float thickness)
+    {
+        Point at = projection.Apply(LayerGeometry.ToDocument(clone.Placement, clone.Sample, clone.Width, clone.Height));
+        float reach = (float)(7 * _scale);
+        var centre = new Vector2((float)at.X, (float)at.Y);
+
+        for (int pass = 0; pass < 2; pass++)
+        {
+            ID2D1Brush brush = pass == 0 ? dark : light;
+            float width = pass == 0 ? thickness * 3 : thickness;
+            context.DrawLine(centre - new Vector2(reach, 0), centre + new Vector2(reach, 0), brush, width);
+            context.DrawLine(centre - new Vector2(0, reach), centre + new Vector2(0, reach), brush, width);
+        }
+    }
+
+    /// <summary>
+    /// Upstream's preview between strokes: inside the brush circle, what a click there would stamp —
+    /// the source round the sample point, at the brush's opacity. Not during a stroke, which shows
+    /// the real thing, nor while Alt is held to pick a new source.
+    /// </summary>
+    /// <remarks>
+    /// The source is what the stroke itself would copy from: the layer's own pixels, or with "Sample
+    /// all layers" the composite, made once per document state rather than on every pointer move.
+    /// Only the square under the circle is uploaded, and again only when it moves. The edge is the
+    /// circle's; upstream also softens it to the brush hardness, which is left out here.
+    /// </remarks>
+    private void DrawClonePreview(ID2D1DeviceContext context, CanvasProjection projection, CloneSourceView clone)
+    {
+        if (_stroke is not null || Win32.IsKeyDown(Win32.VK_MENU)) return;
+        double radius = Brush.Radius;
+        if (radius < 0.5 || ClonePreviewSource(clone) is not PixelBuffer source) return;
+
+        int side = (int)Math.Ceiling(2 * radius) + 2;
+        // A brush this wide previews nothing useful and would upload megapixels on every move.
+        if ((long)side * side > 4_000_000) return;
+        var region = new PixelRect((int)Math.Floor(clone.Sample.X - radius) - 1, (int)Math.Floor(clone.Sample.Y - radius) - 1,
+                                   side, side);
+
+        if (_clonePreview is null || _clonePreviewKey is not { } uploaded
+            || !ReferenceEquals(uploaded.Source, source) || uploaded.Region != region)
+        {
+            _clonePreview?.Dispose();
+            using PixelBuffer square = PixelRegion.Copy(source, region);
+            _clonePreview = ImageLoader.Upload(context, square, Vortice.DXGI.Format.R8G8B8A8_UNorm);
+            _clonePreviewKey = (source, region);
+        }
+
+        // Layer pixels to device pixels: the placement onto the document, then the view. Both are
+        // affine, so three points give the whole transform.
+        Point Device(double x, double y) =>
+            projection.Apply(LayerGeometry.ToDocument(clone.Placement, new Point(x, y), clone.Width, clone.Height));
+        Point origin = Device(0, 0), across = Device(1, 0), down = Device(0, 1);
+        var toDevice = new Matrix3x2(
+            (float)(across.X - origin.X), (float)(across.Y - origin.Y),
+            (float)(down.X - origin.X), (float)(down.Y - origin.Y),
+            (float)origin.X, (float)origin.Y);
+
+        // The source square, moved from round the sample point to round the brush.
+        double dx = clone.Sample.X - clone.Centre.X, dy = clone.Sample.Y - clone.Centre.Y;
+        using ID2D1BitmapBrush fill = context.CreateBitmapBrush(_clonePreview,
+            new BitmapBrushProperties(ExtendMode.Clamp, ExtendMode.Clamp, BitmapInterpolationMode.Linear));
+        fill.Transform = Matrix3x2.CreateTranslation((float)(region.X - dx), (float)(region.Y - dy));
+        fill.Opacity = (float)Brush.Opacity;
+
+        Matrix3x2 before = context.Transform;
+        context.Transform = toDevice * before;
+        context.FillEllipse(new Ellipse(new Vector2((float)clone.Centre.X, (float)clone.Centre.Y), (float)radius, (float)radius), fill);
+        context.Transform = before;
+    }
+
+    private PixelBuffer? ClonePreviewSource(CloneSourceView clone)
+    {
+        if (!CloneSampleAll) return clone.Layer.Image;
+        if (_document is null) return null;
+        if (_cloneComposite is { } composite && ReferenceEquals(composite.Document, _document)
+            && composite.Layer == clone.Layer.Id)
+        {
+            return composite.Sample;
+        }
+
+        ReleaseClonePreview();
+        PixelBuffer sample = CloneSampling.AllLayers(_document, clone.Placement, clone.Width, clone.Height);
+        _cloneComposite = (_document, clone.Layer.Id, sample);
+        return sample;
+    }
+
+    private void ReleaseClonePreview()
+    {
+        _cloneComposite?.Sample.Release();
+        _cloneComposite = null;
+        _clonePreview?.Dispose();
+        _clonePreview = null;
+        _clonePreviewKey = null;
     }
 
     /// <summary>
@@ -2168,6 +2304,7 @@ internal sealed partial class CanvasView : IDisposable
         _maskShown?.Release();
         _maskWorking?.Release();
         _cloneSample?.Release();
+        ReleaseClonePreview();
         _preview?.Dispose();
         ReleaseSource();
         ReleaseComposite();
