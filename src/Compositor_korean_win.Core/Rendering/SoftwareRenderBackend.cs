@@ -266,7 +266,7 @@ public sealed class SoftwareRenderBackend : IRenderBackend
             bool whole = needed.X == 0 && needed.Y == 0
                          && needed.Width == source.Width && needed.Height == source.Height;
 
-            if (whole && source is BufferSource plain)
+            if (whole && source is BufferSource { Buffer: { IsDeferred: false } } plain)
             {
                 // The common case: a layer drawn whole, so the cached pyramid does the work.
                 (PixelBuffer reduced, int applied) = pyramid.Reduced(plain.Buffer, level);

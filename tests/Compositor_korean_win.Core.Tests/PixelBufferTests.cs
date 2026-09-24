@@ -73,6 +73,22 @@ public class PixelBufferTests
     }
 
     [Fact]
+    public void LayeredBufferCopiesARegionWithoutFlatteningTheWholeImage()
+    {
+        using PixelBuffer original = RenderFixture.Solid(1024, 1024, 10, 20, 30);
+        using PixelBuffer replacement = RenderFixture.Solid(16, 16, 200, 100, 50);
+        using PixelBuffer layered = PixelBuffer.Layered(original,
+            [new RasterPatch(new PixelRect(400, 500, 16, 16), replacement)]);
+
+        Assert.True(layered.IsDeferred);
+        using PixelBuffer region = PixelRegion.Copy(layered, new PixelRect(396, 496, 24, 24));
+
+        Assert.True(layered.IsDeferred);
+        Assert.Equal((10, 20, 30, 255), RenderFixture.At(region, 1, 1));
+        Assert.Equal((200, 100, 50, 255), RenderFixture.At(region, 8, 8));
+    }
+
+    [Fact]
     public void ReleasingMoreOftenThanRetainedThrows()
     {
         PixelBuffer buffer = PixelBuffer.Allocate(4, 4);

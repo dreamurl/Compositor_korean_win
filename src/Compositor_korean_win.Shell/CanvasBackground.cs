@@ -86,6 +86,7 @@ internal sealed partial class CanvasView
     /// <summary>Picks up a model run that has finished. The window calls it before every frame.</summary>
     public void Tick()
     {
+        FlushLiquifyPointer();
         if (_background is not { Done: false } job || !job.Work.IsCompleted) return;
 
         (job.Logits, job.Side, job.Error) = job.Work.Result;

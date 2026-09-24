@@ -21,6 +21,53 @@ public sealed class BufferSource(PixelBuffer buffer) : IPixelSource
     public PixelBuffer Materialize(PixelRect region) => PixelRegion.Copy(Buffer, region);
 }
 
+/// <summary>
+/// A session-only preview buffer whose dirty rectangle may be replaced between frames.
+/// </summary>
+/// <remarks>
+/// Document pixels remain immutable. Liquify is different while its sheet is open: one private
+/// preview has no history readers, so updating it and telling a backend exactly what changed avoids
+/// allocating and uploading a whole window for every pointer event. CPU backends simply read the
+/// current pixels; Direct2D keeps one bitmap and updates the dirty rectangle.
+/// </remarks>
+public sealed class MutableBufferSource(PixelBuffer buffer) : IPixelSource
+{
+    private readonly object _gate = new();
+    private PixelRect _dirty = new(0, 0, buffer.Width, buffer.Height);
+
+    public PixelBuffer Buffer { get; } = buffer;
+
+    public int Width => Buffer.Width;
+    public int Height => Buffer.Height;
+    public long Revision { get; private set; } = 1;
+
+    public PixelBuffer Materialize(PixelRect region) => PixelRegion.Copy(Buffer, region);
+
+    public void Changed(PixelRect region)
+    {
+        region = region.Intersect(new PixelRect(0, 0, Width, Height));
+        if (region.IsEmpty) return;
+        lock (_gate)
+        {
+            Revision++;
+            _dirty = _dirty.IsEmpty ? region : PixelRect.FromBounds(
+                Math.Min(_dirty.X, region.X), Math.Min(_dirty.Y, region.Y),
+                Math.Max(_dirty.Right, region.Right), Math.Max(_dirty.Bottom, region.Bottom));
+        }
+    }
+
+    /// <summary>Changes accumulated through <paramref name="revision"/>, acknowledged by one renderer.</summary>
+    public PixelRect TakeDirty(long revision)
+    {
+        lock (_gate)
+        {
+            PixelRect dirty = _dirty;
+            if (Revision == revision) _dirty = default;
+            return dirty;
+        }
+    }
+}
+
 /// <summary>One replacement tile: pixels that stand in for part of a layer.</summary>
 public readonly record struct RasterPatch(PixelRect Region, PixelBuffer Pixels);
 
@@ -83,21 +130,5 @@ public sealed class LayerRaster(PixelBuffer baseImage, IReadOnlyList<RasterPatch
 /// <summary>Copying rectangles of pixels, with anything outside the source left transparent.</summary>
 public static class PixelRegion
 {
-    public static PixelBuffer Copy(PixelBuffer source, PixelRect region)
-    {
-        if (region.IsEmpty) throw new ArgumentException("an empty region", nameof(region));
-
-        PixelBuffer result = PixelBuffer.Allocate(region.Width, region.Height);
-        PixelRect overlap = region.Intersect(new PixelRect(0, 0, source.Width, source.Height));
-        if (overlap.IsEmpty) return result;
-
-        for (int y = overlap.Y; y < overlap.Bottom; y++)
-        {
-            ReadOnlySpan<byte> from = source.Row(y).Slice(overlap.X * 4, overlap.Width * 4);
-            Span<byte> to = result.Row(y - region.Y).Slice((overlap.X - region.X) * 4, overlap.Width * 4);
-            from.CopyTo(to);
-        }
-
-        return result;
-    }
+    public static PixelBuffer Copy(PixelBuffer source, PixelRect region) => source.CopyRegion(region);
 }

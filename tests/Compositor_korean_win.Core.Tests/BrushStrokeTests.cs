@@ -139,6 +139,7 @@ public class BrushStrokeTests
         stroke.Append(new Point(260, 150));
 
         using PixelBuffer committed = stroke.Commit();
+        Assert.True(committed.IsDeferred);
         var raster = new LayerRaster(filled, stroke.Patches);
         using PixelBuffer live = raster.Flatten();
 

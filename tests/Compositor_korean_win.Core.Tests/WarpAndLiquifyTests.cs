@@ -191,6 +191,27 @@ public class WarpAndLiquifyTests
     }
 
     [Fact]
+    public void LiquifyPreviewKeepsOneBufferAndReportsOnlyItsDirtyRectangle()
+    {
+        using PixelBuffer pixels = Gradient(80, 60);
+        ImageLayer layer = Layer("gradient", pixels, 0, 0);
+        var field = new LiquifyField(80, 60);
+        using var preview = new LiquifyPreview(layer);
+
+        LiveEdit first = preview.Frame(field, CanvasProjection.Identity, 80, 60)!;
+        MutableBufferSource source = Assert.IsType<MutableBufferSource>(first.Source);
+        source.TakeDirty(source.Revision);
+
+        field.Dab(LiquifyTool.Forward, new Point(20, 20), 8, 1, new Point(3, 0));
+        LiveEdit second = preview.Frame(field, CanvasProjection.Identity, 80, 60)!;
+        PixelRect dirty = source.TakeDirty(source.Revision);
+
+        Assert.Same(source, second.Source);
+        Assert.False(dirty.IsEmpty);
+        Assert.True(dirty.Width < source.Width && dirty.Height < source.Height);
+    }
+
+    [Fact]
     public void ApplyingKeepsTheLayerWhereItWas()
     {
         using PixelBuffer pixels = Gradient(40, 30);

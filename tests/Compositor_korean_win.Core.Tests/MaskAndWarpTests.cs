@@ -216,6 +216,23 @@ public class MaskAndWarpTests
         Assert.Equal((0, 0, 255, 255), RenderFixture.At(sample, 2, 5));
     }
 
+    [Fact]
+    public void SamplingEveryLayerCanRenderOnlyARequestedTile()
+    {
+        using PixelBuffer bottom = RenderFixture.Solid(512, 512, 255, 0, 0);
+        using PixelBuffer top = RenderFixture.Solid(256, 512, 0, 0, 255);
+        CanvasDocument document = RenderFixture.Document(512, 512,
+            RenderFixture.Layer("bottom", bottom), RenderFixture.Layer("top", top, 256, 0));
+        IPixelSource source = CloneSampling.AllLayersSource(document,
+            new LayerTransform(Point.Zero, new Size(512, 512)), 512, 512);
+
+        using PixelBuffer tile = source.Materialize(new PixelRect(240, 100, 32, 24));
+
+        Assert.Equal((32, 24), (tile.Width, tile.Height));
+        Assert.Equal((255, 0, 0, 255), RenderFixture.At(tile, 4, 4));
+        Assert.Equal((0, 0, 255, 255), RenderFixture.At(tile, 24, 4));
+    }
+
     // MARK: Linking, moving and copying a mask
 
     [Fact]

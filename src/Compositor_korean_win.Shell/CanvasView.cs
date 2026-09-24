@@ -162,7 +162,6 @@ internal sealed partial class CanvasView : IDisposable
     private Guid _painting;
     private PixelRect _paintGrid;
     private Point? _cloneAnchor;
-    private PixelBuffer? _cloneSample;
     private Point? _cloneOffset;
     private Point? _shapeFrom;
     private Point _shapeTo;
@@ -881,6 +880,7 @@ internal sealed partial class CanvasView : IDisposable
         {
             _cloneAnchor = start;
             _cloneOffset = null;
+            NeedsRedraw = true;
             return;
         }
 
@@ -891,12 +891,10 @@ internal sealed partial class CanvasView : IDisposable
 
             // Taken once, when the stroke starts, as upstream does: what the stroke paints is not
             // something it goes on to copy from.
-            PixelBuffer? sample = CloneSampleAll
-                ? CloneSampling.AllLayers(_document, placement, _paintGrid.Width, _paintGrid.Height)
-                : layer.Image?.Retain();
-            if (sample is null) return;
-            _cloneSample?.Release();
-            _cloneSample = sample;
+            if (layer.Image is not PixelBuffer layerPixels) return;
+            IPixelSource sample = CloneSampleAll
+                ? CloneSampling.AllLayersSource(_document, placement, _paintGrid.Width, _paintGrid.Height)
+                : new BufferSource(layerPixels);
 
             // Aligned keeps the offset the first stroke established, so a second stroke carries on
             // copying the same thing; unaligned starts again from the anchor each time.
@@ -1141,8 +1139,6 @@ internal sealed partial class CanvasView : IDisposable
         stroke.Dispose();
         _strokeBase?.Release();
         _strokeBase = null;
-        _cloneSample?.Release();
-        _cloneSample = null;
         if (_strokeOnMask)
         {
             _strokeOnMask = false;
@@ -1197,8 +1193,6 @@ internal sealed partial class CanvasView : IDisposable
             stroke.Dispose();
             _strokeBase?.Release();
             _strokeBase = null;
-            _cloneSample?.Release();
-            _cloneSample = null;
         }
     }
 
@@ -2018,9 +2012,8 @@ internal sealed partial class CanvasView : IDisposable
     private readonly record struct CloneSourceView(
         ImageLayer Layer, LayerTransform Placement, int Width, int Height, Point Centre, Point Sample);
 
-    private ID2D1Bitmap1? _clonePreview;
-    private (PixelBuffer Source, PixelRect Region)? _clonePreviewKey;
-    private (CanvasDocument Document, Guid Layer, PixelBuffer Sample)? _cloneComposite;
+    private readonly Dictionary<(int X, int Y), ID2D1Bitmap1> _clonePreviewTiles = [];
+    private (CanvasDocument Document, Guid Layer, bool AllLayers, IPixelSource Source)? _cloneComposite;
 
     /// <summary>
     /// Where Clone Stamp reads from for the brush under the pointer — upstream's
@@ -2082,22 +2075,11 @@ internal sealed partial class CanvasView : IDisposable
     {
         if (_stroke is not null || Win32.IsKeyDown(Win32.VK_MENU)) return;
         double radius = Brush.Radius;
-        if (radius < 0.5 || ClonePreviewSource(clone) is not PixelBuffer source) return;
+        if (radius < 0.5 || ClonePreviewSource(clone) is not IPixelSource source) return;
 
         int side = (int)Math.Ceiling(2 * radius) + 2;
-        // A brush this wide previews nothing useful and would upload megapixels on every move.
-        if ((long)side * side > 4_000_000) return;
         var region = new PixelRect((int)Math.Floor(clone.Sample.X - radius) - 1, (int)Math.Floor(clone.Sample.Y - radius) - 1,
                                    side, side);
-
-        if (_clonePreview is null || _clonePreviewKey is not { } uploaded
-            || !ReferenceEquals(uploaded.Source, source) || uploaded.Region != region)
-        {
-            _clonePreview?.Dispose();
-            using PixelBuffer square = PixelRegion.Copy(source, region);
-            _clonePreview = ImageLoader.Upload(context, square, Vortice.DXGI.Format.R8G8B8A8_UNorm);
-            _clonePreviewKey = (source, region);
-        }
 
         // Layer pixels to device pixels: the placement onto the document, then the view. Both are
         // affine, so three points give the whole transform.
@@ -2109,42 +2091,73 @@ internal sealed partial class CanvasView : IDisposable
             (float)(down.X - origin.X), (float)(down.Y - origin.Y),
             (float)origin.X, (float)origin.Y);
 
-        // The source square, moved from round the sample point to round the brush.
+        // Source tiles stay on the GPU as the pointer moves. Crossing a tile boundary uploads only
+        // the new tile; the old path copied and uploaded the whole brush square for every event.
         double dx = clone.Sample.X - clone.Centre.X, dy = clone.Sample.Y - clone.Centre.Y;
-        using ID2D1BitmapBrush fill = context.CreateBitmapBrush(_clonePreview,
-            new BitmapBrushProperties(ExtendMode.Clamp, ExtendMode.Clamp, BitmapInterpolationMode.Linear));
-        fill.Transform = Matrix3x2.CreateTranslation((float)(region.X - dx), (float)(region.Y - dy));
-        fill.Opacity = (float)Brush.Opacity;
-
         Matrix3x2 before = context.Transform;
         context.Transform = toDevice * before;
-        context.FillEllipse(new Ellipse(new Vector2((float)clone.Centre.X, (float)clone.Centre.Y), (float)radius, (float)radius), fill);
+        const int tileSize = 256;
+        int firstX = Math.Max(0, region.X) / tileSize;
+        int firstY = Math.Max(0, region.Y) / tileSize;
+        int lastX = Math.Max(0, Math.Min(source.Width, region.Right) - 1) / tileSize;
+        int lastY = Math.Max(0, Math.Min(source.Height, region.Bottom) - 1) / tileSize;
+        var ellipse = new Ellipse(new Vector2((float)clone.Centre.X, (float)clone.Centre.Y), (float)radius, (float)radius);
+
+        if (region.Right > 0 && region.Bottom > 0 && region.X < source.Width && region.Y < source.Height)
+        {
+            for (int tileY = firstY; tileY <= lastY; tileY++)
+            {
+                for (int tileX = firstX; tileX <= lastX; tileX++)
+                {
+                    if (!_clonePreviewTiles.TryGetValue((tileX, tileY), out ID2D1Bitmap1? bitmap))
+                    {
+                        var tile = new PixelRect(tileX * tileSize, tileY * tileSize,
+                            Math.Min(tileSize, source.Width - tileX * tileSize),
+                            Math.Min(tileSize, source.Height - tileY * tileSize));
+                        using PixelBuffer pixels = source.Materialize(tile);
+                        bitmap = ImageLoader.Upload(context, pixels, Vortice.DXGI.Format.R8G8B8A8_UNorm);
+                        _clonePreviewTiles[(tileX, tileY)] = bitmap;
+                    }
+
+                    double targetX = tileX * tileSize - dx, targetY = tileY * tileSize - dy;
+                    using ID2D1BitmapBrush fill = context.CreateBitmapBrush(bitmap,
+                        new BitmapBrushProperties(ExtendMode.Clamp, ExtendMode.Clamp, BitmapInterpolationMode.Linear));
+                    fill.Transform = Matrix3x2.CreateTranslation((float)targetX, (float)targetY);
+                    fill.Opacity = (float)Brush.Opacity;
+                    context.PushAxisAlignedClip(Raw(new Rect(targetX, targetY, bitmap.PixelSize.Width, bitmap.PixelSize.Height)),
+                                                AntialiasMode.Aliased);
+                    context.FillEllipse(ellipse, fill);
+                    context.PopAxisAlignedClip();
+                }
+            }
+        }
         context.Transform = before;
     }
 
-    private PixelBuffer? ClonePreviewSource(CloneSourceView clone)
+    private IPixelSource? ClonePreviewSource(CloneSourceView clone)
     {
-        if (!CloneSampleAll) return clone.Layer.Image;
         if (_document is null) return null;
         if (_cloneComposite is { } composite && ReferenceEquals(composite.Document, _document)
-            && composite.Layer == clone.Layer.Id)
+            && composite.Layer == clone.Layer.Id && composite.AllLayers == CloneSampleAll)
         {
-            return composite.Sample;
+            return composite.Source;
         }
 
         ReleaseClonePreview();
-        PixelBuffer sample = CloneSampling.AllLayers(_document, clone.Placement, clone.Width, clone.Height);
-        _cloneComposite = (_document, clone.Layer.Id, sample);
-        return sample;
+        IPixelSource source = CloneSampleAll
+            ? CloneSampling.AllLayersSource(_document, clone.Placement, clone.Width, clone.Height)
+            : clone.Layer.Image is PixelBuffer image ? new BufferSource(image) : null!;
+        if (source is null) return null;
+        _cloneComposite = (_document, clone.Layer.Id, CloneSampleAll, source);
+        return source;
     }
 
     private void ReleaseClonePreview()
     {
-        _cloneComposite?.Sample.Release();
+        if (_cloneComposite?.Source is IDisposable owned) owned.Dispose();
         _cloneComposite = null;
-        _clonePreview?.Dispose();
-        _clonePreview = null;
-        _clonePreviewKey = null;
+        foreach (ID2D1Bitmap1 tile in _clonePreviewTiles.Values) tile.Dispose();
+        _clonePreviewTiles.Clear();
     }
 
     /// <summary>
@@ -2339,7 +2352,6 @@ internal sealed partial class CanvasView : IDisposable
         _warp?.Dispose();
         _maskShown?.Release();
         _maskWorking?.Release();
-        _cloneSample?.Release();
         ReleaseClonePreview();
         _meshPreview?.Dispose();
         _liquifyPreview?.Dispose();

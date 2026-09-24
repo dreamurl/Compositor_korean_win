@@ -298,6 +298,7 @@ internal sealed partial class CanvasView
     private Guid _liquifyLayer;
     private LiquifyPreview? _liquifyPreview;
     private Point? _liquifyLast;
+    private Point? _liquifyPendingView;
 
     /// <summary>Whether Filter › Liquify is open.</summary>
     public bool Liquifying => _liquify is not null;
@@ -329,6 +330,7 @@ internal sealed partial class CanvasView
         if (_liquify is not LiquifyField field || _document is null) return;
         _liquify = null;
         _liquifyLast = null;
+        _liquifyPendingView = null;
         _liquifyPreview?.Dispose();
         _liquifyPreview = null;
 
@@ -364,6 +366,7 @@ internal sealed partial class CanvasView
         if (_liquify is not LiquifyField field) return false;
         if (LiquifyPoint(view) is not Point at) return true;
         _liquifyLast = at;
+        _liquifyPendingView = null;
         // Brushes that act where they stand take their first dab at once; the pushing ones need a move.
         if (LiquifyBrush is not (LiquifyTool.Forward or LiquifyTool.PushLeft)) Dab(field, at, default);
         NeedsRedraw = true;
@@ -372,14 +375,27 @@ internal sealed partial class CanvasView
 
     private bool LiquifyPointerMoved(Point view)
     {
-        if (_liquify is not LiquifyField field) return false;
+        if (_liquify is null) return false;
         NeedsRedraw = true; // the brush circle follows the pointer
-        if (_liquifyLast is not Point from || LiquifyPoint(view) is not Point to) return true;
+        if (_liquifyLast is not null) _liquifyPendingView = view;
+        return true;
+    }
+
+    /// <summary>
+    /// Applies only the latest pointer report before a frame. Windows may deliver many reports
+    /// while one large brush dab is being computed; replaying every stale point makes latency grow
+    /// without improving the visible stroke because spacing fills the segment below.
+    /// </summary>
+    private void FlushLiquifyPointer()
+    {
+        if (_liquifyPendingView is not Point view || _liquify is not LiquifyField field) return;
+        _liquifyPendingView = null;
+        if (_liquifyLast is not Point from || LiquifyPoint(view) is not Point to) return;
 
         // Dabs a quarter of the brush apart, each pushing by the way it came.
         double distance = Math.Sqrt((to.X - from.X) * (to.X - from.X) + (to.Y - from.Y) * (to.Y - from.Y));
         double spacing = Math.Max(1, LiquifyRadius * 0.25);
-        if (distance < spacing) return true;
+        if (distance < spacing) return;
 
         int steps = (int)Math.Ceiling(distance / spacing);
         Point previous = from;
@@ -392,13 +408,14 @@ internal sealed partial class CanvasView
         }
         _liquifyLast = to;
         NeedsRedraw = true;
-        return true;
     }
 
     private bool LiquifyPointerUp()
     {
         if (_liquify is null) return false;
+        FlushLiquifyPointer();
         _liquifyLast = null;
+        _liquifyPendingView = null;
         return true;
     }
 

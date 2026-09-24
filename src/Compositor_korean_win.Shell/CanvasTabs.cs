@@ -169,6 +169,7 @@ internal sealed partial class CanvasView
     private void ForgetDocumentState()
     {
         ReleaseComposite();
+        ReleaseClonePreview();
         _cloneAnchor = null;
         _cloneOffset = null;
         _polygon = null;

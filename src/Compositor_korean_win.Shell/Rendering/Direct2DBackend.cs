@@ -49,11 +49,12 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
 
     private readonly DownsamplePyramid _pyramid = new();
     private readonly UploadCache _uploads = new();
+    private readonly DynamicUploadCache _dynamic = new();
 
     public string Name => device.IsWarp ? "direct2d (warp)" : "direct2d";
 
     public IRenderSurface CreateSurface(int width, int height) =>
-        new Surface(device, width, height, _pyramid, _uploads);
+        new Surface(device, width, height, _pyramid, _uploads, _dynamic);
 
     /// <summary>
     /// A surface that draws straight onto the window's back buffer.
@@ -69,7 +70,7 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
         ID2D1Bitmap1 target = device.BackBuffer
             ?? throw new InvalidOperationException("no window has been bound");
 
-        return new Surface(device, target, width, height, _pyramid, _uploads);
+        return new Surface(device, target, width, height, _pyramid, _uploads, _dynamic);
     }
 
     public PixelBuffer Downsample(PixelBuffer source, int level)
@@ -81,7 +82,87 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
     public void Dispose()
     {
         _uploads.Dispose();
+        _dynamic.Dispose();
         _pyramid.Dispose();
+    }
+
+    /// <summary>GPU bitmaps for previews that replace only a dirty rectangle between frames.</summary>
+    private sealed class DynamicUploadCache : IDisposable
+    {
+        private sealed record Entry(ID2D1Bitmap1 Bitmap, PixelRect Region)
+        {
+            public long Revision { get; set; }
+            public long Use { get; set; }
+        }
+
+        private readonly Dictionary<MutableBufferSource, Entry> _entries = [];
+        private long _clock;
+        private const int EntryLimit = 4;
+
+        public (ID2D1Bitmap1 Bitmap, int Width, int Height) Resolve(ID2D1DeviceContext context,
+                                                                    MutableBufferSource source,
+                                                                    PixelRect needed)
+        {
+            long revision = source.Revision;
+            if (!_entries.TryGetValue(source, out Entry? entry) || entry.Region != needed)
+            {
+                if (entry is not null)
+                {
+                    entry.Bitmap.Dispose();
+                    _entries.Remove(source);
+                }
+
+                using PixelBuffer pixels = source.Materialize(needed);
+                var properties = new BitmapProperties1
+                {
+                    PixelFormat = new Vortice.DCommon.PixelFormat(SurfaceFormat, AlphaMode.Premultiplied),
+                };
+                ID2D1Bitmap1 bitmap = context.CreateBitmap(new SizeI(pixels.Width, pixels.Height),
+                                                            pixels.Scan0, (uint)pixels.Stride, properties);
+                source.TakeDirty(revision);
+                entry = new Entry(bitmap, needed) { Revision = revision, Use = ++_clock };
+                _entries[source] = entry;
+                Evict(entry);
+                return (bitmap, pixels.Width, pixels.Height);
+            }
+
+            entry.Use = ++_clock;
+            if (entry.Revision != revision)
+            {
+                PixelRect dirty = source.TakeDirty(revision).Intersect(needed);
+                if (!dirty.IsEmpty)
+                {
+                    using PixelBuffer pixels = source.Materialize(dirty);
+                    var destination = new Vortice.RawRect(dirty.X - needed.X, dirty.Y - needed.Y,
+                                                          dirty.Right - needed.X, dirty.Bottom - needed.Y);
+                    entry.Bitmap.CopyFromMemory(pixels.Scan0, (uint)pixels.Stride, destination).CheckError();
+                }
+                entry.Revision = revision;
+            }
+            return (entry.Bitmap, needed.Width, needed.Height);
+        }
+
+        private void Evict(Entry keeping)
+        {
+            while (_entries.Count > EntryLimit)
+            {
+                KeyValuePair<MutableBufferSource, Entry>? oldest = null;
+                foreach (KeyValuePair<MutableBufferSource, Entry> candidate in _entries)
+                {
+                    if (ReferenceEquals(candidate.Value, keeping)) continue;
+                    if (oldest is null || candidate.Value.Use < oldest.Value.Value.Use) oldest = candidate;
+                }
+                if (oldest is null) return;
+                oldest.Value.Value.Bitmap.Dispose();
+                _entries.Remove(oldest.Value.Key);
+            }
+        }
+
+        public void Dispose()
+        {
+            foreach (Entry entry in _entries.Values) entry.Bitmap.Dispose();
+            _entries.Clear();
+        }
     }
 
     /// <summary>The blend modes, mapped onto Direct2D's effect. Normal never gets here.</summary>
@@ -108,26 +189,28 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
         private readonly ID2D1Bitmap1 _target;
         private readonly DownsamplePyramid _pyramid;
         private readonly UploadCache _uploads;
+        private readonly DynamicUploadCache _dynamic;
         private readonly bool _ownsTarget;
         private readonly Stack<PixelRect> _clips = new();
         private ID2D1Bitmap1? _staging;
 
         public Surface(GraphicsDevice device, int width, int height,
-                       DownsamplePyramid pyramid, UploadCache uploads)
+                       DownsamplePyramid pyramid, UploadCache uploads, DynamicUploadCache dynamic)
             : this(device, CreateBitmap(device.D2DContext, width, height, BitmapOptions.Target),
-                   width, height, pyramid, uploads)
+                   width, height, pyramid, uploads, dynamic)
         {
             _ownsTarget = true;
         }
 
         /// <summary>Draws onto a target someone else owns — the window's back buffer.</summary>
         public Surface(GraphicsDevice device, ID2D1Bitmap1 target, int width, int height,
-                       DownsamplePyramid pyramid, UploadCache uploads)
+                       DownsamplePyramid pyramid, UploadCache uploads, DynamicUploadCache dynamic)
         {
             _device = device;
             _target = target;
             _pyramid = pyramid;
             _uploads = uploads;
+            _dynamic = dynamic;
             Width = width;
             Height = height;
         }
@@ -386,6 +469,12 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
         /// </remarks>
         private Piece Resolve(LayerDraw draw, PixelRect needed, int level)
         {
+            if (level == 0 && draw.Mask is null && draw.Source is MutableBufferSource changing)
+            {
+                (ID2D1Bitmap1 bitmap, int width, int height) = _dynamic.Resolve(_device.D2DContext, changing, needed);
+                return new Piece(bitmap, width, height, owned: false);
+            }
+
             bool cacheable = draw.Mask is null && draw.Source is BufferSource { Cacheable: true };
             UploadCache.Key key = default;
 
@@ -427,7 +516,7 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
             bool whole = needed.X == 0 && needed.Y == 0
                          && needed.Width == source.Width && needed.Height == source.Height;
 
-            if (whole && source is BufferSource plain)
+            if (whole && source is BufferSource { Buffer: { IsDeferred: false } } plain)
             {
                 (PixelBuffer reduced, int _) = _pyramid.Reduced(plain.Buffer, level);
                 return reduced.Retain();

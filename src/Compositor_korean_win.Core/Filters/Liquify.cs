@@ -52,6 +52,9 @@ public enum LiquifyTool
 public sealed class LiquifyField
 {
     private readonly float[] _dx, _dy, _frozen;
+    private float[] _nextX = [];
+    private float[] _nextY = [];
+    private float[] _nextFrozen = [];
 
     public LiquifyField(int width, int height)
     {
@@ -169,18 +172,22 @@ public sealed class LiquifyField
         // New values are worked out from the field as it was before this dab, then written, so a
         // point read by its neighbour's move is not one already moved.
         int span = right - left + 1;
-        var nextX = new float[span * (bottom - top + 1)];
-        var nextY = new float[nextX.Length];
-        var nextFrozen = new float[nextX.Length];
+        int needed = span * (bottom - top + 1);
+        if (_nextX.Length < needed)
+        {
+            _nextX = new float[needed];
+            _nextY = new float[needed];
+            _nextFrozen = new float[needed];
+        }
 
         for (int row = top; row <= bottom; row++)
         {
             for (int column = left; column <= right; column++)
             {
                 int i = row * Columns + column, k = (row - top) * span + (column - left);
-                nextX[k] = _dx[i];
-                nextY[k] = _dy[i];
-                nextFrozen[k] = _frozen[i];
+                _nextX[k] = _dx[i];
+                _nextY[k] = _dy[i];
+                _nextFrozen[k] = _frozen[i];
 
                 double px = column * Step, py = row * Step;
                 double distance = Math.Sqrt((px - centre.X) * (px - centre.X) + (py - centre.Y) * (py - centre.Y)) / radius;
@@ -192,7 +199,7 @@ public sealed class LiquifyField
 
                 if (tool is LiquifyTool.Freeze or LiquifyTool.Thaw)
                 {
-                    nextFrozen[k] = (float)Math.Clamp(_frozen[i] + (tool == LiquifyTool.Freeze ? weight : -weight), 0, 1);
+                    _nextFrozen[k] = (float)Math.Clamp(_frozen[i] + (tool == LiquifyTool.Freeze ? weight : -weight), 0, 1);
                     continue;
                 }
 
@@ -233,14 +240,14 @@ public sealed class LiquifyField
 
                     default:
                         // Reconstruct: a share of the way back to reading from where the point is.
-                        nextX[k] = (float)(_dx[i] * (1 - 0.25 * weight));
-                        nextY[k] = (float)(_dy[i] * (1 - 0.25 * weight));
+                        _nextX[k] = (float)(_dx[i] * (1 - 0.25 * weight));
+                        _nextY[k] = (float)(_dy[i] * (1 - 0.25 * weight));
                         continue;
                 }
 
                 (float dx, float dy, _) = Read(fromX, fromY);
-                nextX[k] = (float)(fromX + dx - px);
-                nextY[k] = (float)(fromY + dy - py);
+                _nextX[k] = (float)(fromX + dx - px);
+                _nextY[k] = (float)(fromY + dy - py);
             }
         }
 
@@ -249,10 +256,10 @@ public sealed class LiquifyField
             for (int column = left; column <= right; column++)
             {
                 int i = row * Columns + column, k = (row - top) * span + (column - left);
-                _dx[i] = nextX[k];
-                _dy[i] = nextY[k];
-                _frozen[i] = nextFrozen[k];
-                if (nextFrozen[k] > 0) HasFrozen = true;
+                _dx[i] = _nextX[k];
+                _dy[i] = _nextY[k];
+                _frozen[i] = _nextFrozen[k];
+                if (_nextFrozen[k] > 0) HasFrozen = true;
             }
         }
 
@@ -337,6 +344,7 @@ public sealed class LiquifyPreview(ImageLayer layer) : IDisposable
 {
     private readonly DownsamplePyramid _pyramid = new();
     private PixelBuffer? _last;
+    private MutableBufferSource? _source;
     private (int Level, PixelRect Crop)? _shown;
     private int _revision;
 
@@ -369,11 +377,11 @@ public sealed class LiquifyPreview(ImageLayer layer) : IDisposable
                 PixelRect dirty = field.TakeDirty();
                 var inGrid = PixelRect.FromBounds(dirty.X / unit - 1, dirty.Y / unit - 1,
                                                   (dirty.Right + unit - 1) / unit + 1, (dirty.Bottom + unit - 1) / unit + 1);
-                // A new buffer each change: buffers are never changed once drawn from.
-                PixelBuffer next = PixelRegion.Copy(last, new PixelRect(0, 0, last.Width, last.Height));
-                field.RenderInto(next, crop, reduced, unit, inGrid, showFrozen: true);
-                last.Release();
-                _last = next;
+                PixelRect changed = inGrid.Intersect(crop);
+                field.RenderInto(last, crop, reduced, unit, changed, showFrozen: true);
+                if (!changed.IsEmpty)
+                    _source!.Changed(new PixelRect(changed.X - crop.X, changed.Y - crop.Y,
+                                                   changed.Width, changed.Height));
                 _revision = field.Revision;
             }
         }
@@ -383,12 +391,11 @@ public sealed class LiquifyPreview(ImageLayer layer) : IDisposable
             field.TakeDirty();
             _last?.Release();
             _last = pixels;
+            _source = new MutableBufferSource(pixels);
             _shown = (applied, crop);
             _revision = field.Revision;
         }
-        PixelBuffer shownPixels = _last!;
-
-        return new LiveEdit(Layer.Id, new BufferSource(shownPixels) { Cacheable = false })
+        return new LiveEdit(Layer.Id, _source!)
         {
             Placement = LayerGeometry.Place(Layer.Transform, Scaled(crop, unit), w, h),
         };
@@ -401,6 +408,7 @@ public sealed class LiquifyPreview(ImageLayer layer) : IDisposable
     {
         _last?.Release();
         _last = null;
+        _source = null;
         _pyramid.Dispose();
     }
 }

@@ -32,7 +32,85 @@ public enum BrushMode
 /// to work out: aligned cloning keeps one offset for the whole stroke, unaligned resets it at every
 /// stroke, and neither is something the stroke itself has an opinion about.
 /// </remarks>
-public sealed record CloneSource(PixelBuffer Sample, Point Offset);
+public sealed class CloneSource : IDisposable
+{
+    private readonly IPixelSource _source;
+    private readonly IDisposable? _owner;
+    private readonly Dictionary<int, PixelBuffer> _tiles = [];
+    private readonly object _gate = new();
+    private bool _disposed;
+
+    public CloneSource(PixelBuffer sample, Point offset)
+    {
+        PixelBuffer kept = sample.Retain();
+        _source = new BufferSource(kept);
+        _owner = kept;
+        Offset = offset;
+    }
+
+    public CloneSource(IPixelSource source, Point offset, IDisposable? owner = null)
+    {
+        _source = source;
+        _owner = owner;
+        Offset = offset;
+    }
+
+    public Point Offset { get; }
+
+    public int Width => _source.Width;
+
+    public int Height => _source.Height;
+
+    /// <summary>Reads through a small cached source tile, never a whole document-sized sample.</summary>
+    public bool Read(int x, int y, Span<byte> result)
+    {
+        if (x < 0 || y < 0 || x >= Width || y >= Height) return false;
+        const int tileSize = BrushStroke.TileSize;
+        int columns = (Width + tileSize - 1) / tileSize;
+        int tileX = x / tileSize, tileY = y / tileSize;
+        int key = tileY * columns + tileX;
+
+        PixelBuffer? tile;
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _tiles.TryGetValue(key, out tile);
+        }
+
+        if (tile is null)
+        {
+            var region = new PixelRect(tileX * tileSize, tileY * tileSize,
+                Math.Min(tileSize, Width - tileX * tileSize), Math.Min(tileSize, Height - tileY * tileSize));
+            PixelBuffer made = _source.Materialize(region);
+            lock (_gate)
+            {
+                if (_disposed)
+                {
+                    made.Release();
+                    throw new ObjectDisposedException(nameof(CloneSource));
+                }
+                if (_tiles.TryGetValue(key, out tile)) made.Release();
+                else _tiles[key] = tile = made;
+            }
+        }
+
+        PixelBuffer ready = tile ?? throw new InvalidOperationException("clone tile was not created");
+        ready.Row(y - tileY * tileSize).Slice((x - tileX * tileSize) * 4, 4).CopyTo(result);
+        return true;
+    }
+
+    public void Dispose()
+    {
+        lock (_gate)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            foreach (PixelBuffer tile in _tiles.Values) tile.Release();
+            _tiles.Clear();
+            _owner?.Dispose();
+        }
+    }
+}
 
 /// <summary>What the brush paints and how it is shaped.</summary>
 /// <remarks>
@@ -96,6 +174,8 @@ public sealed class BrushStroke : IDisposable
     {
         public required PixelRect Rect { get; init; }
         public required byte[] Coverage { get; init; }
+        /// <summary>The unchanged pixels under this tile, so recomposing never reads a whole deferred layer.</summary>
+        public required PixelBuffer Original { get; init; }
         public required PixelBuffer Pixels { get; init; }
 
         /// <summary>The tile softened, made once for a blur stroke and kept for the stroke.</summary>
@@ -108,6 +188,12 @@ public sealed class BrushStroke : IDisposable
     private readonly byte[] _tip;
     private readonly int _tipSize;
     private readonly double _spacing;
+
+    private readonly record struct TipKey(double Diameter, double Hardness);
+    private static readonly object s_tipGate = new();
+    private static readonly Dictionary<TipKey, (byte[] Tip, int Size)> s_tips = [];
+    private static readonly Queue<TipKey> s_tipOrder = [];
+    private const int TipCacheLimit = 8;
 
     /// <summary>What the stroke may touch: null for the whole layer.</summary>
     private readonly byte[]? _selection;
@@ -124,7 +210,7 @@ public sealed class BrushStroke : IDisposable
         _base = baseImage;
         _settings = settings;
 
-        (_tip, _tipSize) = Tip(settings);
+        (_tip, _tipSize) = CachedTip(settings);
 
         // Upstream's rate: a hard tip can afford wider gaps because its silhouette is the edge,
         // while a soft one has to lay often enough for the falloffs to add up smoothly.
@@ -280,7 +366,7 @@ public sealed class BrushStroke : IDisposable
         PixelBuffer baseImage = _base ?? PixelBuffer.Allocate(Width, Height);
         try
         {
-            return new LayerRaster(baseImage, Patches).Flatten();
+            return PixelBuffer.Layered(baseImage, Patches);
         }
         finally
         {
@@ -299,6 +385,7 @@ public sealed class BrushStroke : IDisposable
 
         if (touched.IsEmpty) return;
 
+        var work = new List<(Tile Tile, PixelRect Area)>();
         for (int tileY = touched.Y / TileSize; tileY <= (touched.Bottom - 1) / TileSize; tileY++)
         {
             for (int tileX = touched.X / TileSize; tileX <= (touched.Right - 1) / TileSize; tileX++)
@@ -306,11 +393,22 @@ public sealed class BrushStroke : IDisposable
                 Tile tile = TileAt(tileX, tileY);
                 PixelRect area = touched.Intersect(tile.Rect);
                 if (area.IsEmpty) continue;
-
-                Stamp(tile, area, point);
-                Compose(tile, area);
+                work.Add((tile, area));
             }
         }
+
+        void Paint((Tile Tile, PixelRect Area) item)
+        {
+            Stamp(item.Tile, item.Area, point);
+            Compose(item.Tile, item.Area);
+        }
+
+        // Tiles do not share writable memory. Wide tips therefore scale over CPU cores on a
+        // software-only machine, while small tips avoid the scheduling overhead entirely.
+        if ((long)touched.Width * touched.Height >= 256L * 256 && work.Count > 1)
+            Parallel.ForEach(work, Paint);
+        else
+            foreach ((Tile Tile, PixelRect Area) item in work) Paint(item);
 
         Dirty = Dirty.IsEmpty ? touched : PixelRect.FromBounds(
             Math.Min(Dirty.X, touched.X), Math.Min(Dirty.Y, touched.Y),
@@ -377,9 +475,7 @@ public sealed class BrushStroke : IDisposable
         for (int y = area.Y; y < area.Bottom; y++)
         {
             Span<byte> target = tile.Pixels.Row(y - tile.Rect.Y);
-            ReadOnlySpan<byte> source = _base is PixelBuffer image && y < image.Height
-                ? image.Row(y)
-                : default;
+            ReadOnlySpan<byte> source = tile.Original.Row(y - tile.Rect.Y);
 
             for (int x = area.X; x < area.Right; x++)
             {
@@ -390,8 +486,7 @@ public sealed class BrushStroke : IDisposable
                 Span<byte> pixel = target.Slice(local * 4, 4);
 
                 // The layer's own pixels first: a tile is rebuilt, not accumulated into.
-                if (!source.IsEmpty && x < _base!.Width) source.Slice(x * 4, 4).CopyTo(pixel);
-                else pixel.Clear();
+                source.Slice((x - tile.Rect.X) * 4, 4).CopyTo(pixel);
 
                 if (alpha <= 0) continue;
 
@@ -445,10 +540,7 @@ public sealed class BrushStroke : IDisposable
 
         int sx = (int)Math.Round(x + clone.Offset.X, MidpointRounding.AwayFromZero);
         int sy = (int)Math.Round(y + clone.Offset.Y, MidpointRounding.AwayFromZero);
-        if (sx < 0 || sy < 0 || sx >= clone.Sample.Width || sy >= clone.Sample.Height) return false;
-
-        clone.Sample.Row(sy).Slice(sx * 4, 4).CopyTo(result);
-        return true;
+        return clone.Read(sx, sy, result);
     }
 
     /// <summary>
@@ -565,12 +657,15 @@ public sealed class BrushStroke : IDisposable
 
         // A patch replaces its whole tile, so a new tile starts as a copy of what is under it.
         // Only the pixels a dab actually reaches are rebuilt after that.
+        PixelBuffer original = _base is PixelBuffer image ? PixelRegion.Copy(image, rect)
+                                                           : PixelBuffer.Allocate(rect.Width, rect.Height);
+        PixelBuffer pixels = PixelRegion.Copy(original, new PixelRect(0, 0, rect.Width, rect.Height));
         var tile = new Tile
         {
             Rect = rect,
             Coverage = new byte[rect.Width * rect.Height],
-            Pixels = _base is PixelBuffer image ? PixelRegion.Copy(image, rect)
-                                                : PixelBuffer.Allocate(rect.Width, rect.Height),
+            Original = original,
+            Pixels = pixels,
         };
 
         _tiles[key] = tile;
@@ -587,6 +682,25 @@ public sealed class BrushStroke : IDisposable
     /// has no falloff at all and gets a single pixel of antialiasing instead, so its edge is smooth
     /// without being soft.
     /// </remarks>
+    private static (byte[] Tip, int Size) CachedTip(BrushSettings settings)
+    {
+        var key = new TipKey(settings.Diameter, settings.Hardness);
+        lock (s_tipGate)
+        {
+            if (s_tips.TryGetValue(key, out (byte[] Tip, int Size) found)) return found;
+        }
+
+        (byte[] Tip, int Size) made = Tip(settings);
+        lock (s_tipGate)
+        {
+            if (s_tips.TryGetValue(key, out (byte[] Tip, int Size) raced)) return raced;
+            s_tips[key] = made;
+            s_tipOrder.Enqueue(key);
+            while (s_tipOrder.Count > TipCacheLimit) s_tips.Remove(s_tipOrder.Dequeue());
+            return made;
+        }
+    }
+
     private static (byte[] Tip, int Size) Tip(BrushSettings settings)
     {
         double radius = settings.Radius;
@@ -596,7 +710,7 @@ public sealed class BrushStroke : IDisposable
         double centre = size / 2.0;
         double inner = radius * Math.Clamp(settings.Hardness, 0, 1);
 
-        for (int y = 0; y < size; y++)
+        Parallel.For(0, size, y =>
         {
             for (int x = 0; x < size; x++)
             {
@@ -623,7 +737,7 @@ public sealed class BrushStroke : IDisposable
 
                 tip[y * size + x] = (byte)Math.Round(Math.Clamp(value, 0, 1) * 255, MidpointRounding.AwayFromZero);
             }
-        }
+        });
 
         return (tip, size);
     }
@@ -641,10 +755,12 @@ public sealed class BrushStroke : IDisposable
     {
         foreach (Tile tile in _tiles.Values)
         {
+            tile.Original.Release();
             tile.Pixels.Release();
             tile.Softened?.Release();
         }
 
         _tiles.Clear();
+        _settings.CloneFrom?.Dispose();
     }
 }
