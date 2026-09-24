@@ -321,6 +321,14 @@ internal static unsafe partial class Win32
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool ImmSetConversionStatus(nint inputContext, uint conversion, uint sentence);
 
+    [LibraryImport("imm32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool ImmGetOpenStatus(nint inputContext);
+
+    [LibraryImport("imm32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool ImmSetOpenStatus(nint inputContext, [MarshalAs(UnmanagedType.Bool)] bool open);
+
     internal const uint WM_MOUSELEAVE = 0x02A3;
     internal const uint TME_LEAVE = 0x00000002;
 
@@ -349,16 +357,21 @@ internal static unsafe partial class Win32
         nint context = ImmGetContext(hwnd);
         if (context == 0) return null;
         bool? native = ImmGetConversionStatus(context, out uint conversion, out _)
-            ? (conversion & IME_CMODE_NATIVE) != 0 : null;
+            ? ImmGetOpenStatus(context) && (conversion & IME_CMODE_NATIVE) != 0 : null;
         ImmReleaseContext(hwnd, context);
         return native;
     }
 
     /// <summary>Puts a window's input context in Hangul or English mode.</summary>
+    /// <remarks>
+    /// The Korean IME takes Hangul only while its context is also open: a fresh edit box's context
+    /// starts closed, and the native-mode bit alone left it typing Latin letters.
+    /// </remarks>
     internal static void WriteHangul(nint hwnd, bool hangul)
     {
         nint context = ImmGetContext(hwnd);
         if (context == 0) return;
+        if (hangul) ImmSetOpenStatus(context, true);
         if (ImmGetConversionStatus(context, out uint conversion, out uint sentence))
             ImmSetConversionStatus(context, hangul ? conversion | IME_CMODE_NATIVE : conversion & ~IME_CMODE_NATIVE, sentence);
         ImmReleaseContext(hwnd, context);
