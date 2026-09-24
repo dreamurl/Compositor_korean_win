@@ -302,6 +302,68 @@ internal static unsafe partial class Win32
     [LibraryImport("imm32.dll")]
     internal static partial uint ImmGetVirtualKey(nint hwnd);
 
+    /// <summary>The Korean keyboard's Han/Eng key.</summary>
+    internal const int VK_HANGUL = 0x15;
+    internal const uint IME_CMODE_NATIVE = 0x0001;
+
+    [LibraryImport("imm32.dll")]
+    internal static partial nint ImmGetContext(nint hwnd);
+
+    [LibraryImport("imm32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool ImmReleaseContext(nint hwnd, nint inputContext);
+
+    [LibraryImport("imm32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool ImmGetConversionStatus(nint inputContext, out uint conversion, out uint sentence);
+
+    [LibraryImport("imm32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool ImmSetConversionStatus(nint inputContext, uint conversion, uint sentence);
+
+    internal const uint WM_MOUSELEAVE = 0x02A3;
+    internal const uint TME_LEAVE = 0x00000002;
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct TRACKMOUSEEVENT
+    {
+        public uint cbSize;
+        public uint dwFlags;
+        public nint hwndTrack;
+        public uint dwHoverTime;
+    }
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool TrackMouseEvent(ref TRACKMOUSEEVENT track);
+
+    /// <summary>
+    /// Whether the user last left the Korean IME in Hangul mode. The canvas window has no input
+    /// context of its own, so its Han/Eng presses are counted here and handed to the rename box.
+    /// </summary>
+    internal static bool HangulMode;
+
+    /// <summary>Reads a window's input context's Hangul mode, or null when it has none.</summary>
+    internal static bool? ReadHangul(nint hwnd)
+    {
+        nint context = ImmGetContext(hwnd);
+        if (context == 0) return null;
+        bool? native = ImmGetConversionStatus(context, out uint conversion, out _)
+            ? (conversion & IME_CMODE_NATIVE) != 0 : null;
+        ImmReleaseContext(hwnd, context);
+        return native;
+    }
+
+    /// <summary>Puts a window's input context in Hangul or English mode.</summary>
+    internal static void WriteHangul(nint hwnd, bool hangul)
+    {
+        nint context = ImmGetContext(hwnd);
+        if (context == 0) return;
+        if (ImmGetConversionStatus(context, out uint conversion, out uint sentence))
+            ImmSetConversionStatus(context, hangul ? conversion | IME_CMODE_NATIVE : conversion & ~IME_CMODE_NATIVE, sentence);
+        ImmReleaseContext(hwnd, context);
+    }
+
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool GetCursorPos(out POINTSTRUCT point);

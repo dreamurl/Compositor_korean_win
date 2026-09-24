@@ -41,6 +41,9 @@ internal sealed unsafe class MainWindow : IDisposable
     /// </summary>
     private bool _altUsed;
 
+    /// <summary>Whether a WM_MOUSELEAVE has been asked for since the last one arrived.</summary>
+    private bool _trackingLeave;
+
     public nint Handle { get; private set; }
 
     /// <summary>The canvas this window shows, once one has been opened.</summary>
@@ -118,6 +121,7 @@ internal sealed unsafe class MainWindow : IDisposable
         // are in Hangul mode as often as not. Photoshop for Windows reads its single-key shortcuts
         // through the same way. The layer rename box is a window of its own with its own context,
         // so Korean names still type as they should.
+        HangulMode = ReadHangul(Handle) ?? false;
         ImmAssociateContextEx(Handle, 0, 0);
 
         ShowWindow(Handle, visible ? SW_SHOW : SW_HIDE);
@@ -380,6 +384,18 @@ internal sealed unsafe class MainWindow : IDisposable
                             window.Invalidate();
                             if (ui.TooltipPending) SetTimer(hwnd, TooltipTimer, Ui.TooltipDelay + 50, 0);
                         }
+                        // The brush ring belongs over the picture; off it — on a panel, a bar, or
+                        // out of the window (WM_MOUSELEAVE) — it goes, as upstream's cursor does.
+                        if (!window._trackingLeave)
+                        {
+                            var track = new TRACKMOUSEEVENT
+                            {
+                                cbSize = (uint)sizeof(TRACKMOUSEEVENT), dwFlags = TME_LEAVE, hwndTrack = hwnd,
+                            };
+                            window._trackingLeave = TrackMouseEvent(ref track);
+                        }
+                        canvas.PointerOverCanvas(window.Chrome?.OverPanels(at) != true);
+
                         if (window._uiHasPointer) return;
 
                         canvas.PointerMoved(canvas.ToView(PositionX(lParam), PositionY(lParam)),
@@ -490,6 +506,21 @@ internal sealed unsafe class MainWindow : IDisposable
             case WM_SYSKEYUP when (int)wParam == VK_MENU && window?._altUsed == true:
                 window._altUsed = false;
                 return 0;
+
+            // The window has no input context, so its Han/Eng key toggles nothing; it is remembered
+            // for the rename box, which should open in the mode the user last chose.
+            case WM_KEYDOWN when (int)wParam == VK_HANGUL:
+                HangulMode = !HangulMode;
+                return 0;
+
+            case WM_MOUSELEAVE:
+                if (window is not null) window._trackingLeave = false;
+                if (canvas is not null && window is not null)
+                {
+                    canvas.PointerOverCanvas(false);
+                    window.AfterInput();
+                }
+                break;
 
             case WM_KEYDOWN or WM_SYSKEYDOWN:
                 // Should an input method still be composing (one attached by another route), the key

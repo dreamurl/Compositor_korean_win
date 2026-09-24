@@ -129,11 +129,14 @@ internal sealed partial class CanvasView
     /// <summary>The colour the document shows at a point, into the foreground or background.</summary>
     private void Sample(Point pixel, Point view)
     {
-        // A mask's colours are its black and white, not something to pick.
+        // The ring follows the pointer even where there is nothing to take — a transparent pixel, or
+        // a mask, whose colours are its black and white — showing the colour left as it was, as
+        // upstream's does.
+        _sampleRingAt = view;
+        NeedsRedraw = true;
         if (EditingMask || CompositeColour(pixel) is not (double red, double green, double blue)) return;
 
         var colour = new Rgba((byte)Math.Round(red * 255), (byte)Math.Round(green * 255), (byte)Math.Round(blue * 255));
-        _sampleRingAt = view;
         if (_samplingBackground) BackgroundColor = colour;
         else ForegroundColor = colour;
         NeedsRedraw = true;

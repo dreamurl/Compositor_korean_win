@@ -853,12 +853,19 @@ internal sealed unsafe class Chrome : IDisposable
 
         _ui.Context.PushAxisAlignedClip(Ui.Raw(_layersList), AntialiasMode.Aliased);
         double y = _layersList.Y - _scroll;
+        _bottomRow = null;
         foreach ((ImageLayer layer, int depth) in rows)
         {
             var row = new Rect(_layersList.X, y, _layersList.Width, rowHeight);
             if (row.MaxY >= _layersList.Y && row.Y <= _layersList.MaxY) Row(row, layer, depth, order);
+            if (depth == 0) _bottomRow = (row, layer.Id);
             y += rowHeight;
         }
+        _rowsEnd = y;
+
+        // Below the last row is the bottom of the stack, as upstream's table drops there.
+        if (_rowDragFrom is not null && _rowDragMoved && BottomDrop(_rowDragAt) is (Rect last, _))
+            _ui.Rule(new Point(last.X, last.MaxY - 1), new Point(last.MaxX, last.MaxY - 1), Ui.Accent, _ui.P(2));
         _ui.Context.PopAxisAlignedClip();
     }
 
@@ -961,6 +968,12 @@ internal sealed unsafe class Chrome : IDisposable
     }
 
     private readonly List<(Rect Row, Guid Id)> _rowAreas = [];
+    private (Rect Row, Guid Id)? _bottomRow;
+    private double _rowsEnd;
+
+    /// <summary>The bottom top-level row, when a drop at <paramref name="point"/> is in the empty list below the rows.</summary>
+    private (Rect Row, Guid Id)? BottomDrop(Point point) =>
+        _layersList.Contains(point) && point.Y >= _rowsEnd ? _bottomRow : null;
     private Guid? _maskDragFrom;
     private Point _maskDragStart;
     private Point _maskDragAt;
@@ -1062,6 +1075,9 @@ internal sealed unsafe class Chrome : IDisposable
             _canvas.PlaceLayers(layer.Id, target, DropAt(row, under, point), copy: alt);
             return;
         }
+
+        if (BottomDrop(point) is (_, Guid bottom) && bottom != layer.Id)
+            _canvas.PlaceLayers(layer.Id, bottom, LayerDrop.Below, copy: alt);
     }
 
     /// <summary>Above or below a row by which half the pointer is in; a folder's middle half is into it.</summary>
@@ -1360,6 +1376,7 @@ internal sealed unsafe class Chrome : IDisposable
         SendMessageW(_renameBox, WM_SETFONT, (nuint)_renameFont, 1);
         SendMessageW(_renameBox, EM_SETSEL, 0, -1);
         SetFocus(_renameBox);
+        WriteHangul(_renameBox, HangulMode);
         _renaming = id;
     }
 
@@ -1375,6 +1392,8 @@ internal sealed unsafe class Chrome : IDisposable
 
     public void FinishRename(bool commit)
     {
+        // A Han/Eng press in the box is the user's choice too.
+        if (_renameBox != 0 && ReadHangul(_renameBox) is bool hangul) HangulMode = hangul;
         if (_renameBox == 0) return;
 
         if (commit)

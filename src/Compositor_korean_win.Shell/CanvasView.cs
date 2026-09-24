@@ -172,6 +172,15 @@ internal sealed partial class CanvasView : IDisposable
     private Point _movingTo;
     private bool _movingDuplicates;
     private Point _pointer;
+    private bool _pointerOverCanvas;
+
+    /// <summary>The pointer reached or left the picture's part of the window.</summary>
+    public void PointerOverCanvas(bool over)
+    {
+        if (_pointerOverCanvas == over) return;
+        _pointerOverCanvas = over;
+        if (_tool.Paints()) NeedsRedraw = true;
+    }
     private Point? _marqueeFrom;
     private Point _marqueeTo;
     private List<Point>? _lasso;
@@ -1997,8 +2006,10 @@ internal sealed partial class CanvasView : IDisposable
         // The corners clicked so far, which are not a selection until the outline closes.
         if (_polygon is { Count: >= 2 } corners) Outline(corners);
 
-        // The brush, shown where it would land and at the size it would be.
-        if (_tool.Paints() && _document is not null && Primary is Guid id
+        // The brush, shown where it would land and at the size it would be — while the pointer is
+        // over the picture, or a stroke or a right-drag resize is holding it there.
+        if (_tool.Paints() && (_pointerOverCanvas || _stroke is not null || _warp is not null || _brushAdjustFrom is not null)
+            && _document is not null && Primary is Guid id
             && _document.Layer(id) is ImageLayer target)
         {
             int width = target.Image?.Width ?? _document.Width;
