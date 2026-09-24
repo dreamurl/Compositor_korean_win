@@ -27,17 +27,51 @@ internal sealed partial class CanvasView
     public void AddImages(IReadOnlyList<(PixelBuffer Pixels, string Name)> images)
     {
         if (images.Count == 0) return;
+        bool useFirstImageAsCanvas = _document is CanvasDocument current && IsPristineBlankCanvas(current);
         Edit(TextKey.CommandImportImages, document =>
         {
             CanvasDocument next = document;
             Guid? chosen = Primary;
-            foreach ((PixelBuffer pixels, string name) in images)
+            for (int index = 0; index < images.Count; index++)
             {
-                (next, Guid added) = DocumentCommands.AddImage(next, pixels, name, chosen);
+                (PixelBuffer pixels, string name) = images[index];
+                (CanvasDocument updated, Guid added) = index == 0 && useFirstImageAsCanvas
+                    ? DocumentCommands.UseImageAsCanvas(next, pixels, name)
+                    : AddImage(next, pixels, name, chosen);
+                next = updated;
                 chosen = added;
             }
             return (next, chosen);
         });
+        if (useFirstImageAsCanvas && _document is not null) _viewport = _viewport.Fit(_document.Size);
+
+        (CanvasDocument Document, Guid Layer) AddImage(CanvasDocument document, PixelBuffer pixels,
+                                                       string name, Guid? active)
+        {
+            if (_isPhotoshopDocument)
+                return DocumentCommands.AddImage(document, pixels, name, active, maximumCanvasFraction: 0.9);
+            return pixels.Width > document.Width || pixels.Height > document.Height
+                ? DocumentCommands.AddImage(document, pixels, name, active, maximumCanvasFraction: 1)
+                : DocumentCommands.AddImage(document, pixels, name, active);
+        }
+    }
+
+    /// <summary>
+    /// A never-edited transparent new document may adopt its first imported image. An opened file,
+    /// a filled background, or a layer the user has already changed must keep its canvas.
+    /// </summary>
+    private bool IsPristineBlankCanvas(CanvasDocument document)
+    {
+        if (_history.IsModified || FilePath is not null || _isPhotoshopDocument) return false;
+        if (document.Layers.Count == 0) return true;
+        if (document.Layers.Count != 1) return false;
+
+        ImageLayer layer = document.Layers[0];
+        return layer.Image is null && !layer.IsGroup && layer.ParentId is null
+            && layer.MaskSourceId is null && layer.Mask is null && layer.Adjustment is null
+            && layer.Shape is null && layer.Text is null && layer.Effects is null
+            && layer.IsVisible && layer.Opacity == 1 && layer.BlendMode == LayerBlendMode.Normal
+            && layer.Transform == new LayerTransform(Point.Zero, document.Size);
     }
 
     public bool IsModified => _history.IsModified;
@@ -49,6 +83,7 @@ internal sealed partial class CanvasView
     public void MarkSaved(string path)
     {
         FilePath = path;
+        _isPhotoshopDocument = Path.GetExtension(path).ToLowerInvariant() is ".psd" or ".psb";
         _history.MarkSaved();
     }
 

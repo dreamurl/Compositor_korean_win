@@ -245,22 +245,64 @@ public static class DocumentCommands
         };
     }
 
+    /// <summary>An image that becomes both the only layer and the exact size of an empty canvas.</summary>
+    public static (CanvasDocument Document, Guid Layer) UseImageAsCanvas(CanvasDocument document,
+                                                                         PixelBuffer pixels, string name)
+    {
+        var layer = new ImageLayer
+        {
+            Id = Guid.NewGuid(),
+            Name = name,
+            Image = pixels,
+            Transform = new LayerTransform(Point.Zero, new Size(pixels.Width, pixels.Height)),
+        };
+
+        return (document with
+        {
+            Width = pixels.Width,
+            Height = pixels.Height,
+            Layers = new EquatableList<ImageLayer>([layer]),
+        }, layer.Id);
+    }
+
     /// <summary>
     /// An image brought in as a new layer above <paramref name="active"/>, centred on the canvas at
     /// its own size.
     /// </summary>
     public static (CanvasDocument Document, Guid Layer) AddImage(CanvasDocument document, PixelBuffer pixels,
                                                                  string name, Guid? active)
+        => AddImage(document, pixels, name, active, maximumCanvasFraction: null);
+
+    /// <summary>
+    /// An image brought in as a new layer, reduced proportionally when necessary to fit within the
+    /// given fraction of both canvas sides. Smaller images are never enlarged.
+    /// </summary>
+    public static (CanvasDocument Document, Guid Layer) AddImage(CanvasDocument document, PixelBuffer pixels,
+                                                                 string name, Guid? active,
+                                                                 double maximumCanvasFraction)
+        => AddImage(document, pixels, name, active,
+                    (double?)Math.Clamp(maximumCanvasFraction, 0.01, 1));
+
+    private static (CanvasDocument Document, Guid Layer) AddImage(CanvasDocument document, PixelBuffer pixels,
+                                                                  string name, Guid? active,
+                                                                  double? maximumCanvasFraction)
     {
         ImageLayer? above = active is Guid id ? document.Layer(id) : null;
+        double scale = maximumCanvasFraction is double fraction
+            ? Math.Min(1, Math.Min(document.Width * fraction / pixels.Width,
+                                   document.Height * fraction / pixels.Height))
+            : 1;
+        var size = new Size(pixels.Width * scale, pixels.Height * scale);
+        var origin = maximumCanvasFraction is null
+            ? new Point(Math.Round((document.Width - size.Width) / 2),
+                        Math.Round((document.Height - size.Height) / 2))
+            : new Point((document.Width - size.Width) / 2, (document.Height - size.Height) / 2);
         var layer = new ImageLayer
         {
             Id = Guid.NewGuid(),
             Name = name,
             Image = pixels,
-            Transform = new LayerTransform(
-                new Point(Math.Round((document.Width - pixels.Width) / 2.0), Math.Round((document.Height - pixels.Height) / 2.0)),
-                new Size(pixels.Width, pixels.Height)),
+            Transform = new LayerTransform(origin, size),
             ParentId = above is { IsGroup: true } ? above.Id : above?.ParentId,
         };
 

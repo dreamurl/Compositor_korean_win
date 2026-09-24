@@ -15,6 +15,7 @@ internal sealed class DocumentTab
     public DocumentHistory History { get; set; } = new(ownsPixels: true);
     public string? FilePath { get; set; }
     public string? Name { get; set; }
+    public bool IsPhotoshopDocument { get; set; }
     public CanvasViewport Viewport { get; set; } = new();
     public DocumentSelection? Selection { get; set; }
     public List<Guid> Chosen { get; set; } = [];
@@ -40,6 +41,7 @@ internal sealed partial class CanvasView
     private readonly List<DocumentTab> _tabs = [];
     private int _active = -1;
     private string? _name;
+    private bool _isPhotoshopDocument;
 
     /// <summary>The open documents, in the order their tabs show.</summary>
     public IReadOnlyList<DocumentTab> Tabs
@@ -63,13 +65,20 @@ internal sealed partial class CanvasView
         : tab.Name ?? Localizer.Text(TextKey.DocumentUntitled);
 
     /// <summary>Opens a document in a tab of its own, after the others, and shows it.</summary>
-    public void Open(CanvasDocument document, string? path = null, string? name = null)
+    public void Open(CanvasDocument document, string? path = null, string? name = null,
+                     bool isPhotoshopDocument = false)
     {
         if (!CanSwitchTab) return;
         CommitGradient();
         Stash();
 
-        _tabs.Add(new DocumentTab { Document = document, FilePath = path, Name = name });
+        _tabs.Add(new DocumentTab
+        {
+            Document = document,
+            FilePath = path,
+            Name = name,
+            IsPhotoshopDocument = isPhotoshopDocument,
+        });
         Bring(_tabs.Count - 1);
         ChooseTopImageLayer();
         _viewport = _viewport.Fit(document.Size);
@@ -119,6 +128,7 @@ internal sealed partial class CanvasView
             _history = new DocumentHistory(ownsPixels: true);
             FilePath = null;
             _name = null;
+            _isPhotoshopDocument = false;
             _selection = null;
             _chosen.Clear();
             _maskOf = null;
@@ -136,6 +146,7 @@ internal sealed partial class CanvasView
         tab.History = _history;
         tab.FilePath = FilePath;
         tab.Name = _name;
+        tab.IsPhotoshopDocument = _isPhotoshopDocument;
         tab.Viewport = _viewport;
         tab.Selection = _selection;
         tab.Chosen = [.. _chosen];
@@ -151,6 +162,7 @@ internal sealed partial class CanvasView
         _history = tab.History;
         FilePath = tab.FilePath;
         _name = tab.Name;
+        _isPhotoshopDocument = tab.IsPhotoshopDocument;
         _selection = tab.Selection;
         _chosen.Clear();
         foreach (Guid id in tab.Chosen) _chosen.Add(id);

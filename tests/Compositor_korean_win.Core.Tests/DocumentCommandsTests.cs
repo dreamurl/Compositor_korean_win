@@ -136,6 +136,39 @@ public class DocumentCommandsTests
     }
 
     [Fact]
+    public void TheFirstImageCanBecomeTheCanvasWithoutLeavingTheBlankLayer()
+    {
+        CanvasDocument blank = DocumentCommands.New(20, 20, 300, background: null);
+        PixelBuffer imported = Solid(8, 6, 9, 9, 9);
+
+        (CanvasDocument next, Guid added) = DocumentCommands.UseImageAsCanvas(blank, imported, "photo");
+
+        Assert.Equal((8, 6), (next.Width, next.Height));
+        Assert.Single(next.Layers);
+        Assert.Equal(added, next.Layers[0].Id);
+        Assert.Same(imported, next.Layers[0].Image);
+        Assert.Equal(new LayerTransform(Point.Zero, new Size(8, 6)), next.Layers[0].Transform);
+        Assert.Equal(300, next.Resolution);
+        imported.Release();
+    }
+
+    [Fact]
+    public void ATooLargeImportedImageIsReducedProportionallyInsideTheCanvas()
+    {
+        using PixelBuffer backdrop = Solid(100, 80, 0, 0, 0);
+        ImageLayer bottom = Layer("bottom", backdrop);
+        PixelBuffer imported = Solid(200, 100, 9, 9, 9);
+
+        (CanvasDocument next, Guid added) = DocumentCommands.AddImage(
+            Document(100, 80, bottom), imported, "photo", bottom.Id, maximumCanvasFraction: 0.9);
+
+        LayerTransform transform = next.Layer(added)!.Transform;
+        Assert.Equal(new Size(90, 45), transform.Size);
+        Assert.Equal(new Point(5, 17.5), transform.Origin);
+        imported.Release();
+    }
+
+    [Fact]
     public void SizesPastTheFormatsLimitsAreRefused()
     {
         Assert.False(DocumentCommands.IsValidSize(0, 10));

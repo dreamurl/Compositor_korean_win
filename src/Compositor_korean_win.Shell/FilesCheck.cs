@@ -113,6 +113,23 @@ internal static class FilesCheck
             Expect(canvas.HasDocument && canvas.Title == "dropped", $"a dropped image opened as \"{canvas.Title}\"");
             canvas.Close();
 
+            // A pristine transparent canvas adopts its first imported image instead of keeping a
+            // small canvas and a redundant blank layer. Later oversized images fit inside it.
+            canvas.Open(DocumentCommands.New(17, 13, 144, background: null));
+            PixelBuffer firstImport = PixelRegion.Copy(image, new PixelRect(0, 0, image.Width, image.Height));
+            canvas.AddImages([(firstImport, "first")]);
+            Expect(canvas.Document!.Width == image.Width && canvas.Document.Height == image.Height,
+                   "the first image did not set the blank canvas size");
+            Expect(canvas.Document.Layers.Count == 1 && ReferenceEquals(canvas.Document.Layers[0].Image, firstImport),
+                   "the first image left the blank layer behind");
+
+            PixelBuffer oversized = PixelBuffer.Allocate(image.Width * 2, image.Height);
+            canvas.AddImages([(oversized, "oversized")]);
+            ImageLayer fitted = canvas.ActiveLayer!;
+            Expect(fitted.Transform.Size.Width == image.Width && fitted.Transform.Size.Height == image.Height / 2.0,
+                   "a later oversized image did not retain its ratio while fitting the canvas");
+            canvas.Close();
+
             // A PSD: the project saved as one, which then opens — and opens when dropped — as a
             // document of its own that looks the same and saves back to itself.
             Expect(files.OpenPath(project), "the project did not open again for the PSD check");
@@ -129,6 +146,12 @@ internal static class FilesCheck
                    "layer names changed through the PSD");
             int psdDifference = MaximumDifference(source, fromPsd);
             Expect(psdDifference <= 2, $"the document draws differently after the PSD, by up to {psdDifference}");
+
+            PixelBuffer psdImport = PixelRegion.Copy(image, new PixelRect(0, 0, image.Width, image.Height));
+            canvas.AddImages([(psdImport, "PSD import")]);
+            ImageLayer inset = canvas.ActiveLayer!;
+            Expect(inset.Transform.Size.Width < fromPsd.Width && inset.Transform.Size.Height < fromPsd.Height,
+                   "an image imported into a PSD was not inset inside the canvas");
             files.Drop([psd]);
             Expect(canvas.Tabs.Count == 3 && canvas.ActiveTab == 2, "a dropped PSD did not open in a new tab");
             while (canvas.HasDocument) canvas.Close();

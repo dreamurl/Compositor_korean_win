@@ -149,7 +149,8 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
                 PsdImportResult opened = PsdImport.Read(path, [.. DirectWriteGlyphs.Shared.Families(korean: false).Select(f => f.Name)]);
                 // A PSD is saved back where it came from; a PSB is not, as only PSDs are written.
                 bool writable = string.Equals(Path.GetExtension(path), ".psd", StringComparison.OrdinalIgnoreCase);
-                canvas.Open(opened.Document, writable ? path : null, Path.GetFileNameWithoutExtension(path));
+                canvas.Open(opened.Document, writable ? path : null, Path.GetFileNameWithoutExtension(path),
+                            isPhotoshopDocument: true);
                 ShowNotes(opened.Notes, TextKey.PsdNotesOpened, path, opened.MissingFonts);
             }
             else
