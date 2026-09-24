@@ -234,7 +234,16 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
 
                 // Blend takes what is already on the target as its first input. Direct2D will not
                 // read a target while it is bound, so the copy has to happen before the scope opens.
-                using ID2D1Bitmap1 backdrop = CreateBitmap(_device.D2DContext, Width, Height, BitmapOptions.None);
+                // The copy must match the target exactly. The window's back buffer is a swap-chain
+                // surface whose alpha mode is Ignore, not Premultiplied, and CopyFromBitmap rejects
+                // any format or size mismatch with E_INVALIDARG — so a blended layer on the live
+                // canvas crashed while the same layer rendered fine offscreen.
+                using ID2D1Bitmap1 backdrop = _device.D2DContext.CreateBitmap(_target.PixelSize,
+                    new BitmapProperties1
+                    {
+                        BitmapOptions = BitmapOptions.None,
+                        PixelFormat = _target.PixelFormat,
+                    });
                 backdrop.CopyFromBitmap(_target).CheckError();
 
                 using var blend = new BlendEffect(_device.D2DContext) { Mode = ToBlendMode(draw.Blend) };
