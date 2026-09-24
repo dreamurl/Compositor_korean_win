@@ -169,7 +169,7 @@ internal static class ToolsCheck
                 canvas.BlurMode = mode;
                 canvas.Brush = canvas.Brush with { Diameter = Math.Max(8, h / 6), Hardness = 0.5, Opacity = 1 };
                 PixelBuffer before = canvas.Document!.Layer(id)!.Image!;
-                string undoBeforeStroke = canvas.UndoName;
+                string undoBefore = canvas.UndoName;
                 Drag(w * 0.3, w * 0.7, h * 0.5);
                 PixelBuffer after = canvas.Document!.Layer(id)!.Image!;
                 Expect(!ReferenceEquals(before, after), $"{mode} did not change the layer");
