@@ -10,6 +10,11 @@ BRUTALISM fading out, a yellow-to-green panel, a black-and-white figure in front
 mirrored below, "Choose Your Style" arched, FREE ENTRY running up the side, four-point stars and thin
 lines.
 
+The figure comes from generate_image. The server is started with COMPOSITOR_IMAGE_COMMAND pointing at
+scripts/stand_in_image.py, which draws a plain bust, so the whole generator path runs without an image
+service account — and without a downloaded photograph, whose content nobody reviews before the poster
+is published to the mcp-results branch.
+
 Usage: python scripts/mcp_poster.py <path to Compositor_korean_win.exe> <output folder>
 """
 
@@ -19,16 +24,18 @@ import os
 import subprocess
 import sys
 import time
-import urllib.request
 
-PORTRAIT = "https://commons.wikimedia.org/wiki/Special:FilePath/Studio_Portrait_of_a_Woman.jpg?width=900"
+STAND_IN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stand_in_image.py")
 
 
 class Client:
     def __init__(self, exe):
+        environment = dict(os.environ)
+        environment["COMPOSITOR_IMAGE_GENERATOR"] = "command"
+        environment["COMPOSITOR_IMAGE_COMMAND"] = f'"{sys.executable}" "{STAND_IN}" "{{output}}" {{width}} {{height}}'
         self.process = subprocess.Popen(
             [exe, "--mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=sys.stderr,
-            bufsize=0)
+            bufsize=0, env=environment)
         self.next_id = 0
         self.calls = 0
 
@@ -110,21 +117,16 @@ def main(exe, folder):
     c("set_clipping", layer=panel_colour)
     c("set_effects", layer=panel, drop_shadow={"distance": 24, "size": 48, "opacity": 0.55, "angle": 120})
 
-    # The figure: a photograph, its background removed, made black and white, in front of the panel.
-    portrait = os.path.join(folder, "portrait.jpg")
+    # The figure: generated, its background removed, made black and white, in front of the panel.
+    figure = client.layer_id(c("generate_image", prompt="Studio portrait of a person in a dark suit, head and shoulders, "
+                               "plain light grey backdrop, soft light from the upper left", width=620, height=760,
+                               x=230, y=300, save_to=os.path.abspath(os.path.join(folder, "figure.png")), name="figure"))
     try:
-        request = urllib.request.Request(PORTRAIT, headers={"User-Agent": "Compositor-CI/1.0 (poster check)"})
-        with urllib.request.urlopen(request, timeout=60) as response, open(portrait, "wb") as file:
-            file.write(response.read())
-        figure = client.layer_id(c("add_image", path=os.path.abspath(portrait), width=620, x=230, y=300, name="figure"))
-        try:
-            c("remove_background", layer=figure)
-        except SystemExit as reason:
-            print(f"  (background removal skipped: {reason})")
-        c("add_adjustment", kind="hue_saturation", saturation=-100, above=figure, clip=True, name="black and white")
-        c("add_adjustment", kind="levels", black=20, white=225, above="black and white", clip=True, name="contrast")
-    except OSError as reason:
-        print(f"  (no photograph: {reason}; the poster goes on without one)")
+        c("remove_background", layer=figure)
+    except SystemExit as reason:
+        print(f"  (background removal skipped: {reason})")
+    c("add_adjustment", kind="hue_saturation", saturation=-100, above=figure, clip=True, name="black and white")
+    c("add_adjustment", kind="levels", black=20, white=225, above="black and white", clip=True, name="contrast")
 
     # EXHIBITION mirrored below the panel, fading out as a reflection does.
     exhibition = client.layer_id(c("add_text", text="EXHIBITION", x=540, y=1150, font=heavy, size=118, weight=900,
