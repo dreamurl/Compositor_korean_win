@@ -83,12 +83,20 @@ public sealed record LayerAdjustment
         && Exposure.IsValid && GradientMap.IsValid && Grain.IsValid;
 }
 
-/// <summary>The two shapes the Shape tool draws.</summary>
+/// <summary>The shapes the Shape tool draws.</summary>
+/// <remarks>
+/// Upstream has the first two. The rest are this port's; a layer's stored recipe
+/// (<see cref="LayerShapeStyle"/>) only ever names the first two, so the format stays the macOS
+/// build's.
+/// </remarks>
 [JsonConverter(typeof(JsonStringEnumConverter<ShapeKind>))]
 public enum ShapeKind
 {
     [JsonStringEnumMemberName("Rectangle")] Rectangle,
     [JsonStringEnumMemberName("Ellipse")] Ellipse,
+    [JsonStringEnumMemberName("Polygon")] Polygon,
+    [JsonStringEnumMemberName("Star")] Star,
+    [JsonStringEnumMemberName("Line")] Line,
 }
 
 /// <summary>

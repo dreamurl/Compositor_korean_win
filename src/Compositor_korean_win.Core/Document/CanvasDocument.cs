@@ -124,6 +124,19 @@ public sealed record ImageLayer
     public LayerAdjustment? Adjustment { get; init; }
     public LayerShapeStyle? Shape { get; init; }
 
+    /// <summary>A text layer's recipe; see <see cref="LayerText"/> for when it still applies.</summary>
+    public LayerText? Text { get; init; }
+
+    /// <summary>Drop shadow, outer glow and stroke, drawn from the layer's shape.</summary>
+    public LayerEffects? Effects { get; init; }
+
+    /// <summary>
+    /// Whether this layer's pixels are still the words its <see cref="Text"/> set — false once
+    /// a brush or a filter has been at them.
+    /// </summary>
+    [JsonIgnore]
+    public bool IsLiveText => Text is LayerText text && Image is not null && ReferenceEquals(text.Rendered, Image);
+
     [JsonIgnore]
     public Point Origin => Transform.Origin;
 
@@ -138,7 +151,8 @@ public sealed record ImageLayer
         && ParentId == other.ParentId && IsGroup == other.IsGroup
         && Opacity.Equals(other.Opacity) && BlendMode == other.BlendMode
         && Mask == other.Mask && MaskSourceId == other.MaskSourceId
-        && Adjustment == other.Adjustment && Shape == other.Shape;
+        && Adjustment == other.Adjustment && Shape == other.Shape
+        && Text == other.Text && Effects == other.Effects;
 
     public override int GetHashCode() => HashCode.Combine(Id, Name, Transform, ParentId, Opacity, BlendMode);
 }

@@ -47,6 +47,8 @@ public static class ProjectMapping
                 MaskPlacement = layer.Mask?.Placement,
                 MaskLinked = layer.Mask?.IsLinked,
                 Shape = layer.Shape,
+                Text = layer.IsLiveText ? layer.Text : null,
+                Effects = layer.Effects is { IsEmpty: false } effects ? effects : null,
             });
         }
 
@@ -113,6 +115,9 @@ public static class ProjectMapping
                 Mask = mask,
                 Adjustment = record.Adjustment,
                 Shape = record.Shape,
+                // The pixels saved are the ones the text set, so they are its rendering again.
+                Text = record.Text is LayerText text && image is not null ? text with { Rendered = image } : null,
+                Effects = record.Effects,
             });
         }
 

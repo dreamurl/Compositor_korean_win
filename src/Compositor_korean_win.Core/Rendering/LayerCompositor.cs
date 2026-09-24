@@ -227,20 +227,79 @@ public static class LayerCompositor
                 if (!byId.TryGetValue(sourceId, out ImageLayer? source)) continue;
 
                 using PixelBuffer coverage = Coverage(source, surface, backend, projection);
-                DrawOne(item, surface, projection, new MaskClip(coverage, canvas), live: live);
+                var restricted = new MaskClip(coverage, canvas);
+                List<EffectDraw> clippedEffects = EffectRendering.For(item.Layer);
+                try
+                {
+                    DrawEffects(item, clippedEffects, above: false, surface, projection, restricted);
+                    DrawOne(item, surface, projection, restricted, live: live);
+                    DrawEffects(item, clippedEffects, above: true, surface, projection, restricted);
+                }
+                finally
+                {
+                    Release(clippedEffects);
+                }
                 continue;
             }
 
-            List<Item> clipped = ContiguousClipped(items, i, item.Layer.Id);
-            if (clipped.Count == 0)
+            List<EffectDraw> effects = EffectRendering.For(item.Layer);
+            try
             {
-                DrawOne(item, surface, projection, extra: null, live: live);
-                continue;
-            }
+                DrawEffects(item, effects, above: false, surface, projection, extra: null);
 
-            DrawClippingGroup(item, clipped, surface, backend, projection, live);
-            for (int k = 1; k <= clipped.Count; k++) consumed.Add(i + k);
+                List<Item> clipped = ContiguousClipped(items, i, item.Layer.Id);
+                if (clipped.Count == 0)
+                {
+                    DrawOne(item, surface, projection, extra: null, live: live);
+                }
+                else
+                {
+                    DrawClippingGroup(item, clipped, surface, backend, projection, live);
+                    for (int k = 1; k <= clipped.Count; k++) consumed.Add(i + k);
+                }
+
+                DrawEffects(item, effects, above: true, surface, projection, extra: null);
+            }
+            finally
+            {
+                Release(effects);
+            }
         }
+    }
+
+    /// <summary>
+    /// A layer's effects on one side of it, through the same folder masks and clip as the layer.
+    /// </summary>
+    /// <remarks>
+    /// The layer's own mask is not applied again here: the effects were drawn from the masked
+    /// shape already, and a shadow cast past the layer's edge must not be cut off at it.
+    /// </remarks>
+    private static void DrawEffects(Item item, List<EffectDraw> effects, bool above, IRenderSurface surface,
+                                    CanvasProjection projection, MaskClip? extra)
+    {
+        if (effects.Count == 0) return;
+
+        var clips = new List<MaskClip>(item.Clips.Count + 1);
+        foreach (MaskClip inherited in item.Clips) clips.Add(projection.Apply(inherited));
+        if (extra is MaskClip clip) clips.Add(clip);
+
+        foreach (EffectDraw effect in effects)
+        {
+            if (effect.Above != above) continue;
+            surface.Draw(new LayerDraw
+            {
+                Source = new BufferSource(effect.Pixels),
+                Placement = projection.Apply(effect.Placement with { Sampling = item.Layer.Transform.Sampling }),
+                Opacity = item.Layer.Opacity * effect.Opacity,
+                Blend = effect.Blend,
+                Clips = clips,
+            });
+        }
+    }
+
+    private static void Release(List<EffectDraw> effects)
+    {
+        foreach (EffectDraw effect in effects) effect.Pixels.Release();
     }
 
     /// <summary>

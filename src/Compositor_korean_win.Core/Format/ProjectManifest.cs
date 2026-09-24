@@ -76,6 +76,15 @@ public sealed record ProjectLayerRecord
 
     /// <summary>A shape layer's recipe, redrawn when the layer is scaled. Older versions keep the pixels.</summary>
     [JsonPropertyName("shape")] public LayerShapeStyle? Shape { get; init; }
+
+    /// <summary>
+    /// This port's own: a text layer's recipe. Written only while the pixels are still the text it
+    /// set, so the macOS build, which ignores the key, and this one agree on what the layer shows.
+    /// </summary>
+    [JsonPropertyName("text")] public LayerText? Text { get; init; }
+
+    /// <summary>This port's own: drop shadow, outer glow and stroke. The macOS build ignores it.</summary>
+    [JsonPropertyName("effects")] public LayerEffects? Effects { get; init; }
 }
 
 /// <summary>A project's <c>manifest.json</c>.</summary>

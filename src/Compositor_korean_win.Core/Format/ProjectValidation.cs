@@ -254,6 +254,16 @@ public static class ManifestValidator
         if (layer.MaskPlacement is LayerTransform placement && !placement.IsValid)
             throw ProjectException.Invalid($"layer {layer.Id}'s mask placement is out of range");
 
+        if (layer.Text is LayerText text)
+        {
+            if (!text.IsValid) throw ProjectException.Invalid($"layer {layer.Id}'s text has out-of-range settings");
+            if (layer.ImageFile is null || layer.IsGroup == true || layer.Adjustment is not null)
+                throw ProjectException.Invalid($"layer {layer.Id} cannot carry text");
+        }
+
+        if (layer.Effects is LayerEffects effects && !effects.IsValid)
+            throw ProjectException.Invalid($"layer {layer.Id}'s effects have out-of-range settings");
+
         double opacity = layer.Opacity ?? 1;
         LayerBlendMode blend = layer.BlendMode ?? LayerBlendMode.Normal;
         bool plain = opacity == 1 && blend == LayerBlendMode.Normal;
