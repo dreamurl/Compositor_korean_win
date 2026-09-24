@@ -518,10 +518,10 @@ internal static class ToolsCheck
             canvas.PointerDown(Corner(0.2, 0.4), pan: false);
             canvas.PointerUp();
             Expect(requested is Guid && canvas.EditingText == requested, "a click with the Type tool did not open a text layer");
-            canvas.UpdateEditedText("가나 AB");
-            canvas.UpdateEditedText("가나다 ABC");
+            canvas.UpdateEditedText("\uAC00\uB098 AB");
+            canvas.UpdateEditedText("\uAC00\uB098\uB2E4 ABC");
             ImageLayer typed = canvas.ActiveLayer!;
-            Expect(typed.IsLiveText && typed.Name == "가나다 ABC", "typing did not set a live text layer named for its words");
+            Expect(typed.IsLiveText && typed.Name == "\uAC00\uB098\uB2E4 ABC", "typing did not set a live text layer named for its words");
             Expect(typed.Image is PixelBuffer typedPixels && Opaque(typedPixels) > 0, "the typed words drew nothing");
             canvas.EndTextEdit(commit: true);
             Expect(canvas.Document!.Layers.Count == layerCount + 1 && canvas.UndoName == Localizer.Text(TextKey.HistoryAddText),
