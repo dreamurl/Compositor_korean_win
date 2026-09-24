@@ -125,8 +125,8 @@ public sealed class McpTests : IDisposable
             {"text":"BRUTALISM","x":150,"y":300,"size":40,"align":"center","color":"#FFFFFF","tracking":50,
              "warp":{"style":"arc","bend":30},"name":"title"}
             """));
-        Call("set_mask", $$"""{"layer":"{{title}}","shape":"linear_gradient","start":{"x":0,"y":260},"end":{"x":0,"y":320}}""");
-        Call("set_effects", $$"""{"layer":"{{title}}","drop_shadow":{"distance":4,"size":3,"opacity":0.6},"stroke":{"size":2,"color":"#FF00FF"}}""");
+        Call("set_mask", $$$"""{"layer":"{{{title}}}","shape":"linear_gradient","start":{"x":0,"y":260},"end":{"x":0,"y":320}}""");
+        Call("set_effects", $$$"""{"layer":"{{{title}}}","drop_shadow":{"distance":4,"size":3,"opacity":0.6},"stroke":{"size":2,"color":"#FF00FF"}}""");
 
         Call("add_text", """{"text":"FREE ENTRY","x":20,"y":380,"size":14,"color":"#FFFFFF","rotation":-90}""");
         Call("add_shape", """{"kind":"star","x":230,"y":20,"width":50,"height":50,"sides":4,"inset":0.15,"curved":true,"fill":"#FFFFFF"}""");
@@ -267,7 +267,7 @@ public sealed class McpTests : IDisposable
         Call("new_document", """{"width":120,"height":90}""");
         string title = Id(Call("add_text", """{"text":"leak","x":10,"y":50,"size":30}"""));
         Call("edit_text", $$"""{"layer":"{{title}}","text":"no leaks"}""");
-        Call("set_effects", $$"""{"layer":"{{title}}","outer_glow":{"size":6}}""");
+        Call("set_effects", $$$"""{"layer":"{{{title}}}","outer_glow":{"size":6}}""");
         Call("render", "{}");
         Call("apply_filter", $$"""{"layer":"{{title}}","filter":"gaussian_blur","radius":2}""");
         Call("undo", "{}");
