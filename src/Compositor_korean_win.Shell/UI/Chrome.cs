@@ -738,20 +738,28 @@ internal sealed unsafe class Chrome : IDisposable
         _ui.Rule(new Point(rail.MaxX - 0.5, rail.Y), new Point(rail.MaxX - 0.5, rail.MaxY), Ui.Line);
 
         double size = _ui.P(36);
-        double x = rail.X + (rail.Width - size) / 2, y = rail.Y + _ui.P(8);
+        // Upstream's rail scrolls when the window is too short for every tool rather than losing the
+        // last ones under the status bar. Only whole buttons are drawn, so none is half clickable.
+        _railArea = rail;
+        double content = Tools.Length * (size + _ui.P(2)) + _ui.P(8 + 12 + 40 + 8);
+        _railScroll = Math.Clamp(_railScroll, 0, Math.Max(0, content - rail.Height));
+        double x = rail.X + (rail.Width - size) / 2, y = rail.Y + _ui.P(8) - _railScroll;
+        bool Shows(Rect area) => area.Y >= rail.Y && area.MaxY <= rail.MaxY;
 
         foreach ((CanvasTool tool, char key) in Tools)
         {
             var area = new Rect(x, y, size, size);
             CanvasTool chosen = tool;
             string tip = $"{Localizer.Text(CanvasView.Name(tool))} ({key})";
-            _ui.Button(area, () => _canvas.SetTool(chosen), tip, active: _canvas.Tool == tool,
-                       face: face => Icons.Tool(_ui, chosen, face, Ui.Ink));
+            if (Shows(area))
+                _ui.Button(area, () => _canvas.SetTool(chosen), tip, active: _canvas.Tool == tool,
+                           face: face => Icons.Tool(_ui, chosen, face, Ui.Ink));
             y += size + _ui.P(2);
         }
 
         // Foreground over background, as in Photoshop, with swap and reset beside them.
         y += _ui.P(12);
+        if (!Shows(new Rect(x, y - _ui.P(4), size, _ui.P(40)))) return;
         double swatch = _ui.P(22);
         var foreground = new Rect(x + _ui.P(2), y, swatch, swatch);
         var background = new Rect(x + _ui.P(12), y + _ui.P(12), swatch, swatch);
@@ -933,7 +941,7 @@ internal sealed unsafe class Chrome : IDisposable
             x = link.MaxX;
 
             var maskThumb = new Rect(x, thumb.Y, thumb.Width, thumb.Height);
-            Picture(maskThumb, mask.Coverage, checker: false);
+            CanvasPicture(maskThumb, mask.Coverage, MaskEditing.PlacementOf(layer), EdgeTone(mask.Coverage));
             // A click makes the mask the target; a drag onto another layer's row copies it there.
             _ui.Drag(Clip(maskThumb, _layersList), (point, finished) => MaskDrag(id, point, finished),
                      Localizer.Text(TextKey.TooltipLayerMask));
@@ -1132,16 +1140,85 @@ internal sealed unsafe class Chrome : IDisposable
             Icons.Adjustment(_ui, area, Ui.Dim);
             return;
         }
-        if (layer.Image is PixelBuffer image) Picture(area, image, checker: true);
-        else
-        {
-            _ui.Fill(area, new Color4(1, 1, 1, 1));
-            _ui.Frame(area, Ui.Line);
-        }
+        CanvasPicture(area, layer.Image, layer.Transform, edge: null);
     }
 
-    /// <summary>A small picture of some pixels, fitted to <paramref name="area"/>, cached per buffer.</summary>
-    private void Picture(Rect area, PixelBuffer pixels, bool checker)
+    private readonly Dictionary<PixelBuffer, float> _edgeTones = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>
+    /// Upstream's <c>CanvasThumbnail</c>: a canvas-shaped picture with the pixels drawn where they sit
+    /// on the canvas, whatever their own bounds — over the transparency checkerboard for a layer (an
+    /// empty layer is an empty canvas), over the mask's own edge tone for a mask, since outside its
+    /// layer a mask has no effect: a reveal-all mask reads white and a hide-all one black.
+    /// </summary>
+    private void CanvasPicture(Rect area, PixelBuffer? pixels, LayerTransform? placement, float? edge)
+    {
+        double canvasWidth = Math.Max(1, _canvas.Document?.Width ?? 1);
+        double canvasHeight = Math.Max(1, _canvas.Document?.Height ?? 1);
+        double fit = Math.Min(area.Width / canvasWidth, area.Height / canvasHeight);
+        double w = Math.Max(1, Math.Round(canvasWidth * fit)), h = Math.Max(1, Math.Round(canvasHeight * fit));
+        var frame = new Rect(area.X + Math.Round((area.Width - w) / 2), area.Y + Math.Round((area.Height - h) / 2), w, h);
+
+        _ui.Context.PushAxisAlignedClip(Ui.Raw(frame), AntialiasMode.Aliased);
+        if (edge is float tone)
+        {
+            _ui.Fill(frame, new Color4(tone, tone, tone, 1));
+        }
+        else
+        {
+            _ui.Fill(frame, new Color4(0.22f, 0.22f, 0.22f, 1));
+            double tile = _ui.P(4);
+            for (int row = 0; row * tile < h; row++)
+                for (int column = row % 2; column * tile < w; column += 2)
+                    _ui.Fill(new Rect(frame.X + column * tile, frame.Y + row * tile, tile, tile), new Color4(0.32f, 0.32f, 0.32f, 1));
+        }
+
+        if (pixels is not null && placement is not null)
+        {
+            ID2D1Bitmap1 bitmap = ThumbnailBitmap(pixels);
+            Vortice.Mathematics.SizeI size = bitmap.PixelSize;
+            // The bitmap's unit square onto the placement's corners, and the canvas onto the frame.
+            Point origin = placement.PointAt(new Point(0, 0));
+            Point across = placement.PointAt(new Point(1, 0));
+            Point down = placement.PointAt(new Point(0, 1));
+            double sx = frame.Width / canvasWidth, sy = frame.Height / canvasHeight;
+            var toFrame = new System.Numerics.Matrix3x2(
+                (float)((across.X - origin.X) * sx / size.Width), (float)((across.Y - origin.Y) * sy / size.Width),
+                (float)((down.X - origin.X) * sx / size.Height), (float)((down.Y - origin.Y) * sy / size.Height),
+                (float)(frame.X + origin.X * sx), (float)(frame.Y + origin.Y * sy));
+            System.Numerics.Matrix3x2 before = _ui.Context.Transform;
+            _ui.Context.Transform = toFrame * before;
+            _ui.Context.DrawBitmap(bitmap, new Vortice.RawRectF(0, 0, size.Width, size.Height), 1f,
+                                   BitmapInterpolationMode.Linear, null);
+            _ui.Context.Transform = before;
+        }
+        _ui.Context.PopAxisAlignedClip();
+        _ui.Frame(frame, Ui.Line);
+    }
+
+    /// <summary>The mean grey of a mask's outermost pixels, what it leaves the rest of the canvas at.</summary>
+    private float EdgeTone(PixelBuffer coverage)
+    {
+        if (_edgeTones.TryGetValue(coverage, out float known)) return known;
+        long sum = 0, count = 0;
+        for (int y = 0; y < coverage.Height; y++)
+        {
+            ReadOnlySpan<byte> row = coverage.Row(y);
+            bool edgeRow = y == 0 || y == coverage.Height - 1;
+            for (int x = 0; x < coverage.Width; x += edgeRow ? 1 : Math.Max(1, coverage.Width - 1))
+            {
+                sum += row[x * 4];
+                count++;
+            }
+        }
+        float tone = count == 0 ? 1 : sum / (255f * count);
+        if (_edgeTones.Count > 256) _edgeTones.Clear();
+        _edgeTones[coverage] = tone;
+        return tone;
+    }
+
+    /// <summary>The small bitmap a buffer's thumbnails draw, uploaded once per buffer.</summary>
+    private ID2D1Bitmap1 ThumbnailBitmap(PixelBuffer pixels)
     {
         _thumbnailsUsed.Add(pixels);
         if (!_thumbnails.TryGetValue(pixels, out ID2D1Bitmap1? bitmap))
@@ -1159,19 +1236,7 @@ internal sealed unsafe class Chrome : IDisposable
             reduced.Release();
             _thumbnails[pixels] = bitmap;
         }
-
-        double scale = Math.Min(area.Width / pixels.Width, area.Height / pixels.Height);
-        double w = Math.Max(1, pixels.Width * scale), h = Math.Max(1, pixels.Height * scale);
-        var fitted = new Rect(area.X + (area.Width - w) / 2, area.Y + (area.Height - h) / 2, w, h);
-
-        if (checker)
-        {
-            _ui.Fill(fitted, new Color4(0.8f, 0.8f, 0.8f, 1));
-            _ui.Fill(new Rect(fitted.X, fitted.Y, fitted.Width / 2, fitted.Height / 2), new Color4(0.6f, 0.6f, 0.6f, 1));
-            _ui.Fill(new Rect(fitted.MidX, fitted.MidY, fitted.Width / 2, fitted.Height / 2), new Color4(0.6f, 0.6f, 0.6f, 1));
-        }
-        _ui.Context.DrawBitmap(bitmap, Ui.Raw(fitted), 1f, BitmapInterpolationMode.Linear, null);
-        _ui.Frame(fitted, Ui.Line);
+        return bitmap;
     }
 
     private void BottomButtons(Rect bar)
@@ -1218,8 +1283,16 @@ internal sealed unsafe class Chrome : IDisposable
     }
 
     /// <summary>The wheel over the Layers panel scrolls its rows.</summary>
+    private Rect _railArea;
+    private double _railScroll;
+
     public bool Scroll(Point at, double notches)
     {
+        if (_railArea.Contains(at))
+        {
+            _railScroll -= notches * _ui.P(38);
+            return true;
+        }
         if (!_layersList.Contains(at)) return false;
         _scroll -= notches * _ui.P(RowHeight) * 2;
         return true;
@@ -1277,8 +1350,12 @@ internal sealed unsafe class Chrome : IDisposable
         _renameFont = CreateFontW(-(int)_ui.P(13), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0,
                                   Localizer.Current == Language.Korean ? "Malgun Gothic" : "Segoe UI");
         double left = row.X + _ui.P(64);
-        _renameBox = CreateWindowExW(0, "EDIT", layer.Name, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
-                                     (int)left, (int)(row.Y + _ui.P(6)), (int)(row.MaxX - left - _ui.P(8)),
+        // An owned pop-up rather than a child: the window presents through a flip-model swap chain,
+        // which covers child windows, so a child box took the typing while nothing of it showed.
+        var corner = new POINTSTRUCT { X = (int)left, Y = (int)(row.Y + _ui.P(6)) };
+        ClientToScreen(_window, ref corner);
+        _renameBox = CreateWindowExW(WS_EX_TOOLWINDOW, "EDIT", layer.Name, WS_POPUP | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
+                                     corner.X, corner.Y, (int)(row.MaxX - left - _ui.P(8)),
                                      (int)(row.Height - _ui.P(12)), _window, 0, GetModuleHandleW(0), 0);
         SendMessageW(_renameBox, WM_SETFONT, (nuint)_renameFont, 1);
         SendMessageW(_renameBox, EM_SETSEL, 0, -1);

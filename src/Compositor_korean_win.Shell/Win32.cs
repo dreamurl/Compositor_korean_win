@@ -289,6 +289,19 @@ internal static unsafe partial class Win32
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool ClientToScreen(nint hwnd, ref POINTSTRUCT point);
 
+    internal const uint WS_POPUP = 0x80000000;
+    internal const uint WS_EX_TOOLWINDOW = 0x00000080;
+
+    /// <summary>What a key reads as while an input method is composing it.</summary>
+    internal const int VK_PROCESSKEY = 0xE5;
+
+    [LibraryImport("imm32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool ImmAssociateContextEx(nint hwnd, nint inputContext, uint flags);
+
+    [LibraryImport("imm32.dll")]
+    internal static partial uint ImmGetVirtualKey(nint hwnd);
+
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool GetCursorPos(out POINTSTRUCT point);

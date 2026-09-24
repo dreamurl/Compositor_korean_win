@@ -113,6 +113,13 @@ internal sealed unsafe class MainWindow : IDisposable
         if (Handle == 0)
             throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateWindowExW failed");
 
+        // No input method on the window itself. With the Korean IME in Hangul mode every key reaches
+        // the window as VK_PROCESSKEY, so B, V, [ and the rest did nothing — and Korean Windows users
+        // are in Hangul mode as often as not. Photoshop for Windows reads its single-key shortcuts
+        // through the same way. The layer rename box is a window of its own with its own context,
+        // so Korean names still type as they should.
+        ImmAssociateContextEx(Handle, 0, 0);
+
         ShowWindow(Handle, visible ? SW_SHOW : SW_HIDE);
         DragAcceptFiles(Handle, true);
 
@@ -485,6 +492,10 @@ internal sealed unsafe class MainWindow : IDisposable
                 return 0;
 
             case WM_KEYDOWN or WM_SYSKEYDOWN:
+                // Should an input method still be composing (one attached by another route), the key
+                // it swallowed is still there to be read.
+                if ((int)wParam == VK_PROCESSKEY && ImmGetVirtualKey(hwnd) is var real and not 0 and not (uint)VK_PROCESSKEY)
+                    wParam = real;
                 if (canvas is not null && window is not null && window.KeyDown((int)wParam, canvas))
                 {
                     window.AfterInput();
