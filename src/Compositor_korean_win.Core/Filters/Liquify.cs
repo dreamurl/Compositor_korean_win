@@ -191,8 +191,8 @@ public sealed class LiquifyField
                 _nextFrozen[k] = _frozen[i];
 
                 double px = column * Step, py = row * Step;
-                double ox = px - centre.X, oy = py - centre.Y;
-                double distanceSquared = (ox * ox + oy * oy) / radiusSquared;
+                double brushX = px - centre.X, brushY = py - centre.Y;
+                double distanceSquared = (brushX * brushX + brushY * brushY) / radiusSquared;
                 if (distanceSquared >= 1) continue;
 
                 // A soft round brush: full at the centre, easing to nothing at the rim.
