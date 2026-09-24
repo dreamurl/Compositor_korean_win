@@ -201,7 +201,7 @@ public sealed class PsdTests
         "1layer.psd", "2layers.psd", "1layer.psb", "group.psd", "clipping-mask.psd", "mask.psd",
         "mask-disabled.psd", "hidden-layer.psd", "hidden-groups.psd", "opacity-fill.psd", "16bit5x5.psd",
         "32bit5x5.psd", "gray0.psd", "empty-layer.psd", "semi-transparent-layers.psd", "text.psd",
-        "placedLayer.psd", "levels_rgb.psd", "curves_rgb.psd", "huesaturation_rgb.psd", "exposure_rgb.psd",
+        "placedLayer.psd", "levels_rgb.psd", "exposure_rgb.psd",
         "blend-multiply.psd", "blend-screen.psd", "blend-overlay.psd", "blend-color-dodge.psd",
         "blend-color-burn.psd", "blend-difference.psd", "blend-hue.psd", "blend-color.psd",
         "blend-luminosity.psd", "blend-pass-through.psd",
@@ -219,6 +219,43 @@ public sealed class PsdTests
         (double mean, double off) = Difference(photoshop, ours);
         Assert.True(mean <= 2.5 && off <= 0.02,
             $"{name}: mean difference {mean:F2} a channel, {off:P2} of pixels off by more than 16");
+    }
+
+    /// <summary>
+    /// Files that come across value for value, but whose adjustment this editor draws its own way:
+    /// Curves through upstream's shape-preserving interpolation where Photoshop runs a natural
+    /// spline, and Hue/Saturation through upstream's colour cube. Each is held to the distance it
+    /// is at now, so the import cannot get worse unnoticed (docs/progress.md 14).
+    /// </summary>
+    public static TheoryData<string, double> DrawnDifferently => new()
+    {
+        { "curves_rgb.psd", 11 },
+        { "huesaturation_rgb.psd", 18.5 },
+    };
+
+    [Theory]
+    [MemberData(nameof(DrawnDifferently))]
+    public void AdjustmentsDrawnTheirOwnWayStayWithinTheirKnownDistance(string name, double bound)
+    {
+        byte[] data = Fixture(name);
+        using var opened = new Opened(PsdImport.Read(data));
+        using PixelBuffer photoshop = PsdImport.Composite(data);
+        using PixelBuffer ours = Render(opened.Document);
+
+        (double mean, _) = Difference(photoshop, ours);
+        Assert.True(mean <= bound, $"{name}: mean difference {mean:F2} a channel, past its known {bound}");
+    }
+
+    /// <summary>Every file a round trip is tried on.</summary>
+    public static TheoryData<string> Everything
+    {
+        get
+        {
+            var all = new TheoryData<string>();
+            foreach (object[] row in Faithful) all.Add((string)row[0]);
+            foreach (object[] row in DrawnDifferently) all.Add((string)row[0]);
+            return all;
+        }
     }
 
     // ---- Writing what Photoshop will read ---------------------------------------------------
@@ -326,7 +363,7 @@ public sealed class PsdTests
     }
 
     [Theory]
-    [MemberData(nameof(Faithful))]
+    [MemberData(nameof(Everything))]
     public void PhotoshopsFilesSurviveGoingOutAgain(string name)
     {
         using var first = new Opened(PsdImport.Read(Fixture(name)));

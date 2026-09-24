@@ -58,6 +58,7 @@ internal static class AppCommands
                     if (files.ConfirmDiscardAll()) PostQuitMessage(0);
                 }, null, [new(VK_Q, Control: true)], Interactive: true),
             new(CommandIds.ImportImages, TextKey.CommandImportImages, files.ImportImages, Editable, Interactive: true),
+            new(CommandIds.ExportPsd, TextKey.CommandExportPsd, files.ExportPsd, Editable, Interactive: true),
             new(CommandIds.ExportJpeg, TextKey.CommandExportJpeg, files.ExportJpeg, Editable,
                 [new(VK_S, Control: true, Shift: true, Alt: true)], Interactive: true),
             new(CommandIds.Close, TextKey.CommandClose, files.Close, () => canvas.HasDocument && !canvas.IsFiltering,
@@ -314,7 +315,7 @@ internal static class AppCommands
             [
                 Item(CommandIds.New), Item(CommandIds.Open), Item(CommandIds.ImportImages), MenuEntry.Line,
                 Item(CommandIds.Close), Item(CommandIds.Save), Item(CommandIds.SaveAs), MenuEntry.Line,
-                Item(CommandIds.ExportPng), Item(CommandIds.ExportJpeg), MenuEntry.Line,
+                Item(CommandIds.ExportPng), Item(CommandIds.ExportJpeg), Item(CommandIds.ExportPsd), MenuEntry.Line,
                 Item(CommandIds.Exit),
             ]),
             new(TextKey.MenuEdit,

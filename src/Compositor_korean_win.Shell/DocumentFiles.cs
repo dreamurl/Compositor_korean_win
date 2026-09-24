@@ -25,6 +25,7 @@ namespace Compositor_korean_win.Shell;
 internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format format)
 {
     private const string ImagePatterns = "*.png;*.jpg;*.jpeg;*.tif;*.tiff;*.bmp;*.gif;*.heic";
+    private const string PsdPatterns = "*.psd;*.psb";
 
     /// <summary>
     /// Asks whether to save a changed document before it goes. False when the user cancels, or asked
@@ -109,8 +110,12 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
     /// <summary>Asks for a project or an image and opens it.</summary>
     public void Open()
     {
+        // Everything first: the dialog shows only the chosen type, and a PSD should not be hidden
+        // behind a second choice.
         string filter = Filter(
+            (TextKey.FileTypeSupported, "*.comp;" + PsdPatterns + ";" + ImagePatterns),
             (TextKey.FileTypeProject, "*.comp"),
+            (TextKey.FileTypePsd, PsdPatterns),
             (TextKey.FileTypeImages, ImagePatterns));
 
         if (Pick(save: false, filter, defaultExtension: null, suggested: null) is string path) OpenPath(path);
@@ -118,6 +123,15 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
 
     private static bool IsProject(string path) =>
         string.Equals(Path.GetExtension(path), ".comp", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsPsd(string path) =>
+        Path.GetExtension(path).ToLowerInvariant() is ".psd" or ".psb";
+
+    /// <summary>
+    /// A layered document of its own — a project or a PSD — which opens in a tab, where an image
+    /// dropped on the window joins the open document instead.
+    /// </summary>
+    private static bool IsDocument(string path) => IsProject(path) || IsPsd(path);
 
     /// <summary>A project or an image opened in a tab of its own. False, and reported, when it will not read.</summary>
     public bool OpenPath(string path)
@@ -128,6 +142,14 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
             {
                 ProjectSnapshot snapshot = ProjectStore.Load(path);
                 canvas.Open(ProjectMapping.ToDocument(snapshot), path);
+            }
+            else if (IsPsd(path))
+            {
+                PsdImportResult opened = PsdImport.Read(path);
+                // A PSD is saved back where it came from; a PSB is not, as only PSDs are written.
+                bool writable = string.Equals(Path.GetExtension(path), ".psd", StringComparison.OrdinalIgnoreCase);
+                canvas.Open(opened.Document, writable ? path : null, Path.GetFileNameWithoutExtension(path));
+                ShowNotes(opened.Notes, TextKey.PsdNotesOpened, path);
             }
             else
             {
@@ -153,9 +175,9 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
     /// </summary>
     public void Drop(IReadOnlyList<string> paths)
     {
-        foreach (string project in paths.Where(IsProject)) OpenPath(project);
+        foreach (string document in paths.Where(IsDocument)) OpenPath(document);
 
-        List<string> images = [.. paths.Where(path => !IsProject(path))];
+        List<string> images = [.. paths.Where(path => !IsDocument(path))];
         if (images.Count == 0) return;
         if (!canvas.HasDocument)
         {
@@ -177,7 +199,7 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
 
         foreach (string path in paths)
         {
-            if (IsProject(path)) OpenPath(path);
+            if (IsDocument(path)) OpenPath(path);
             else
             {
                 try
@@ -242,7 +264,14 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
             ? Path.GetFileNameWithoutExtension(path)
             : canvas.Title;
 
-        if (Pick(save: true, Filter((TextKey.FileTypeProject, "*.comp")), "comp", suggested) is string chosen)
+        // A PSD is what other programs read, so it comes first — unless this document is a
+        // project already, which keeps its own kind first.
+        bool project = canvas.FilePath is string current && IsProject(current);
+        string filter = project
+            ? Filter((TextKey.FileTypeProject, "*.comp"), (TextKey.FileTypePsd, "*.psd"))
+            : Filter((TextKey.FileTypePsd, "*.psd"), (TextKey.FileTypeProject, "*.comp"));
+
+        if (Pick(save: true, filter, project ? "comp" : "psd", suggested) is string chosen)
             Write(chosen);
     }
 
@@ -252,8 +281,17 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
 
         try
         {
-            ProjectStore.Save(ProjectMapping.ToSnapshot(document, canvas.ActiveLayerId), path);
-            canvas.MarkSaved(path);
+            if (IsPsd(path))
+            {
+                IReadOnlyDictionary<PsdNote, int> notes = WritePsd(document, path);
+                canvas.MarkSaved(path);
+                ShowNotes(notes, TextKey.PsdNotesSaved, path);
+            }
+            else
+            {
+                ProjectStore.Save(ProjectMapping.ToSnapshot(document, canvas.ActiveLayerId), path);
+                canvas.MarkSaved(path);
+            }
         }
         catch (Exception exception)
         {
@@ -261,6 +299,84 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
             Report(TextKey.ErrorCannotSave, path, exception);
         }
     }
+
+    /// <summary>
+    /// Asks where, then writes the document there as a layered PSD. The document stays what it
+    /// was — its own file and whether it has unsaved changes — as with the other exports.
+    /// </summary>
+    public void ExportPsd()
+    {
+        if (canvas.Document is not CanvasDocument document) return;
+        if (Pick(save: true, Filter((TextKey.FileTypePsd, "*.psd")), "psd", canvas.Title) is not string path) return;
+
+        try
+        {
+            ShowNotes(WritePsd(document, path), TextKey.PsdNotesSaved, path);
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine(exception);
+            Report(TextKey.ErrorCannotSave, path, exception);
+        }
+    }
+
+    /// <summary>
+    /// Writes a PSD beside the target and moves it over only once it is whole, so a failure part
+    /// way never leaves a broken file where a good one was.
+    /// </summary>
+    private static IReadOnlyDictionary<PsdNote, int> WritePsd(CanvasDocument document, string path)
+    {
+        string partial = path + ".partial";
+        try
+        {
+            IReadOnlyDictionary<PsdNote, int> notes;
+            using (var stream = new FileStream(partial, FileMode.Create, FileAccess.ReadWrite, FileShare.None))
+                notes = PsdExport.Write(document, stream);
+            File.Move(partial, path, overwrite: true);
+            return notes;
+        }
+        finally
+        {
+            if (File.Exists(partial)) File.Delete(partial);
+        }
+    }
+
+    /// <summary>
+    /// Tells the person what a PSD could not carry exactly, in one message; nothing when all of it
+    /// came across. The self-test only logs it.
+    /// </summary>
+    private void ShowNotes(IReadOnlyDictionary<PsdNote, int> notes, TextKey header, string path)
+    {
+        if (notes.Count == 0) return;
+
+        var lines = new List<string> { Localizer.Format(header, Path.GetFileName(path)), string.Empty };
+        foreach ((PsdNote note, int count) in notes.OrderBy(pair => pair.Key))
+            lines.Add("• " + Localizer.Format(NoteText(note), count));
+        string message = string.Join("\n", lines);
+
+        Console.Error.WriteLine(message);
+        if (!Quiet) MessageBoxW(owner, message, Localizer.Text(TextKey.AppTitle), MB_OK | MB_ICONINFORMATION);
+    }
+
+    private static TextKey NoteText(PsdNote note) => note switch
+    {
+        PsdNote.BlendModeReplaced => TextKey.PsdNoteBlendModeReplaced,
+        PsdNote.AdjustmentDropped => TextKey.PsdNoteAdjustmentDropped,
+        PsdNote.GradientMapSimplified => TextKey.PsdNoteGradientMapSimplified,
+        PsdNote.EffectDropped => TextKey.PsdNoteEffectDropped,
+        PsdNote.EffectSimplified => TextKey.PsdNoteEffectSimplified,
+        PsdNote.TypeRasterized => TextKey.PsdNoteTypeRasterized,
+        PsdNote.SmartObjectRasterized => TextKey.PsdNoteSmartObjectRasterized,
+        PsdNote.VectorMaskDropped => TextKey.PsdNoteVectorMaskDropped,
+        PsdNote.MaskParametersDropped => TextKey.PsdNoteMaskParametersDropped,
+        PsdNote.GroupMerged => TextKey.PsdNoteGroupMerged,
+        PsdNote.ClippingDropped => TextKey.PsdNoteClippingDropped,
+        PsdNote.FlattenedOnly => TextKey.PsdNoteFlattenedOnly,
+        PsdNote.TextExportedAsPixels => TextKey.PsdNoteTextExportedAsPixels,
+        PsdNote.GrainDropped => TextKey.PsdNoteGrainDropped,
+        PsdNote.ClippingBaked => TextKey.PsdNoteClippingBaked,
+        _ => TextKey.PsdNoteAdjustmentSimplified,
+    };
 
     /// <summary>Asks where, then writes the composited document there as a PNG.</summary>
     public void ExportPng()
@@ -371,6 +487,7 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
             ProjectException { Kind: ProjectErrorKind.MissingImage } => Localizer.Text(TextKey.ErrorProjectMissingImage),
             ProjectException { Kind: ProjectErrorKind.TooLarge } => Localizer.Text(TextKey.ErrorProjectTooLarge),
             ProjectException { Kind: ProjectErrorKind.Encode } => Localizer.Text(TextKey.ErrorProjectEncode),
+            ProjectException when IsPsd(path) => Localizer.Text(TextKey.ErrorPsdUnreadable),
             ProjectException => Localizer.Text(TextKey.ErrorProjectInvalid),
             _ when what == TextKey.ErrorCannotOpen => Localizer.Text(TextKey.ErrorImageUnreadable),
             _ => string.Empty,

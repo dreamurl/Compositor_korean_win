@@ -112,6 +112,26 @@ internal static class FilesCheck
             files.Drop([picture]);
             Expect(canvas.HasDocument && canvas.Title == "dropped", $"a dropped image opened as \"{canvas.Title}\"");
             canvas.Close();
+
+            // A PSD: the project saved as one, which then opens — and opens when dropped — as a
+            // document of its own that looks the same and saves back to itself.
+            Expect(files.OpenPath(project), "the project did not open again for the PSD check");
+            CanvasDocument source = canvas.Document!;
+            string psd = Path.Combine(folder, "round trip.psd");
+            files.SaveTo(psd);
+            Expect(!canvas.IsModified && canvas.FilePath == psd, "saving as a PSD did not leave the document saved there");
+            Expect(files.OpenPath(psd), "the saved PSD did not open");
+            CanvasDocument fromPsd = canvas.Document!;
+            Expect(canvas.Tabs.Count == 2, $"the PSD opened with {canvas.Tabs.Count} tabs open");
+            Expect(canvas.FilePath == psd, "the opened PSD would not save back to itself");
+            Expect(fromPsd.Layers.Count == source.Layers.Count, $"{source.Layers.Count} layers came back from the PSD as {fromPsd.Layers.Count}");
+            Expect(fromPsd.Layers.Select(layer => layer.Name).SequenceEqual(source.Layers.Select(layer => layer.Name)),
+                   "layer names changed through the PSD");
+            int psdDifference = MaximumDifference(source, fromPsd);
+            Expect(psdDifference <= 2, $"the document draws differently after the PSD, by up to {psdDifference}");
+            files.Drop([psd]);
+            Expect(canvas.Tabs.Count == 3 && canvas.ActiveTab == 2, "a dropped PSD did not open in a new tab");
+            while (canvas.HasDocument) canvas.Close();
         }
         catch (Exception exception)
         {

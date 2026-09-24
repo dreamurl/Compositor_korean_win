@@ -108,7 +108,7 @@ internal sealed class PsdFile
     public static PsdFile Read(byte[] data)
     {
         var reader = new PsdReader(data);
-        if (reader.Key() != "8BPS") throw PsdFormat.Invalid("not a Photoshop document");
+        if (reader.Key() != "8BPS") throw PsdFormat.Invalid("not a PSD");
         int version = reader.U16();
         if (version is not (1 or 2)) throw PsdFormat.Invalid($"version {version}");
         reader.Skip(6);
