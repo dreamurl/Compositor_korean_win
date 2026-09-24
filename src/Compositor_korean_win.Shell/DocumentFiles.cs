@@ -197,10 +197,10 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
     }
 
     /// <summary>An encoded PNG or DIB supplied directly by another application, without a file.</summary>
-    public void DropImage(byte[] data, bool png, DropDestination destination)
+    public void DropImage(byte[] data, bool png, DropDestination destination, string? fileName = null)
     {
         PixelBuffer? pixels = null;
-        string name = Localizer.Plain(Localizer.Text(TextKey.CommandPaste));
+        string name = string.IsNullOrWhiteSpace(fileName) ? Localizer.Plain(Localizer.Text(TextKey.CommandPaste)) : fileName;
         try
         {
             if (png)

@@ -62,11 +62,11 @@ internal sealed partial class OleImageDropTarget : IOleDropTarget
     private const int MaximumVirtualFile = 512 * 1024 * 1024;
 
     private readonly Action<IReadOnlyList<string>, PointL> _files;
-    private readonly Action<byte[], bool, PointL> _image;
+    private readonly Action<byte[], bool, string?, PointL> _image;
     private bool _accepts;
 
     public OleImageDropTarget(Action<IReadOnlyList<string>, PointL> files,
-                              Action<byte[], bool, PointL> image)
+                              Action<byte[], bool, string?, PointL> image)
     {
         _files = files;
         _image = image;
@@ -105,23 +105,24 @@ internal sealed partial class OleImageDropTarget : IOleDropTarget
             }
             else if (Take(dataObject, Png) is StorageMedium png)
             {
-                try { _image(Bytes(png.Value), true, point); }
+                try { _image(Bytes(png.Value), true, null, point); }
                 finally { ReleaseStgMedium(in png); }
                 effect = Copy;
             }
             else if (Take(dataObject, CfDib) is StorageMedium dib)
             {
-                try { _image(Bytes(dib.Value), false, point); }
+                try { _image(Bytes(dib.Value), false, null, point); }
                 finally { ReleaseStgMedium(in dib); }
                 effect = Copy;
             }
-            else if (VirtualFileCount(dataObject) is int count and > 0)
+            else if (VirtualFileNames(dataObject) is { Count: > 0 } names)
             {
                 // Each file's bytes go to the image decoder, which reads PNG, JPEG, GIF, BMP and the
-                // rest by their contents; one it cannot read is skipped there, as a bad file is.
-                for (int index = 0; index < count; index++)
+                // rest by their contents; one it cannot read is skipped there, as a bad file is. The
+                // layer takes the file's name, as a file dropped from Explorer does.
+                for (int index = 0; index < names.Count; index++)
                     if (VirtualFile(dataObject, index) is byte[] bytes && bytes.Length > 0)
-                        _image(bytes, true, point);
+                        _image(bytes, true, names[index], point);
                 effect = Copy;
             }
         }
@@ -158,15 +159,28 @@ internal sealed partial class OleImageDropTarget : IOleDropTarget
         Medium = medium,
     };
 
-    /// <summary>How many files a FILEGROUPDESCRIPTORW names; its first field is the count.</summary>
-    private static int? VirtualFileCount(nint dataObject)
+    /// <summary>The names in a FILEGROUPDESCRIPTORW, without their extensions.</summary>
+    /// <remarks>
+    /// A count, then one 592-byte FILEDESCRIPTORW per file with its 260-character name at byte 72.
+    /// </remarks>
+    private static List<string>? VirtualFileNames(nint dataObject)
     {
         if (Take(dataObject, FileDescriptor) is not StorageMedium descriptor) return null;
         try
         {
             nint group = GlobalLock(descriptor.Value);
             if (group == 0) return null;
-            try { return Math.Clamp(Marshal.ReadInt32(group), 0, 64); }
+            try
+            {
+                int count = Math.Clamp(Marshal.ReadInt32(group), 0, 64);
+                var names = new List<string>(count);
+                for (int index = 0; index < count; index++)
+                {
+                    string name = Marshal.PtrToStringUni(group + 4 + index * 592 + 72) ?? string.Empty;
+                    names.Add(Path.GetFileNameWithoutExtension(name));
+                }
+                return names;
+            }
             finally { GlobalUnlock(descriptor.Value); }
         }
         finally { ReleaseStgMedium(in descriptor); }

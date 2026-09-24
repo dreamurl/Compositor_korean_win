@@ -60,7 +60,7 @@ internal sealed unsafe class MainWindow : IDisposable
 
     public Action<IReadOnlyList<string>, DropDestination>? OleFilesDropped { get; set; }
 
-    public Action<byte[], bool, DropDestination>? ImageDataDropped { get; set; }
+    public Action<byte[], bool, string?, DropDestination>? ImageDataDropped { get; set; }
 
     /// <summary>The paths a WM_DROPFILES carries.</summary>
     private static unsafe List<string> DroppedFiles(nint drop)
@@ -169,7 +169,7 @@ internal sealed unsafe class MainWindow : IDisposable
         _oleInitialized = true;
         _dropTarget = new OleImageDropTarget(
             (paths, point) => Guarded(() => OleFilesDropped?.Invoke(paths, DropDestinationFor(point))),
-            (data, png, point) => Guarded(() => ImageDataDropped?.Invoke(data, png, DropDestinationFor(point))));
+            (data, png, name, point) => Guarded(() => ImageDataDropped?.Invoke(data, png, name, DropDestinationFor(point))));
         _oleRegistered = RegisterDragDrop(Handle, _dropTarget) >= 0;
     }
 
