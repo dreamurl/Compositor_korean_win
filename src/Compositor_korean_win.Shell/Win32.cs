@@ -28,6 +28,7 @@ internal static unsafe partial class Win32
     internal const uint WM_MOUSEMOVE = 0x0200;
     internal const uint WM_LBUTTONDOWN = 0x0201;
     internal const uint WM_LBUTTONUP = 0x0202;
+    internal const uint WM_RBUTTONDOWN = 0x0204;
     internal const uint WM_RBUTTONUP = 0x0205;
     internal const uint WM_MBUTTONDOWN = 0x0207;
     internal const uint WM_MBUTTONUP = 0x0208;

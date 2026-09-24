@@ -32,6 +32,7 @@ internal sealed unsafe class MainWindow : IDisposable
     private OleImageDropTarget? _dropTarget;
     private bool _oleInitialized;
     private bool _oleRegistered;
+    private bool _brushAdjusting;
 
     public nint Handle { get; private set; }
 
@@ -338,6 +339,11 @@ internal sealed unsafe class MainWindow : IDisposable
                     var at = new Point(PositionX(lParam), PositionY(lParam));
                     window.Guarded(() =>
                     {
+                        if (window._brushAdjusting)
+                        {
+                            canvas.DragBrushAdjust(canvas.ToView(PositionX(lParam), PositionY(lParam)));
+                            return;
+                        }
                         if (window.Chrome?.Ui is Ui ui && ui.PointerMoved(at))
                         {
                             window.Invalidate();
@@ -349,6 +355,15 @@ internal sealed unsafe class MainWindow : IDisposable
                                             IsKeyDown(VK_SHIFT), IsKeyDown(VK_MENU), IsKeyDown(VK_CONTROL));
                     });
                     window.AfterInput();
+                }
+                break;
+
+            case WM_RBUTTONDOWN:
+                if (canvas is not null && window is not null
+                    && window.Chrome?.OverPanels(new Point(PositionX(lParam), PositionY(lParam))) != true)
+                {
+                    window._brushAdjusting = canvas.BeginBrushAdjust(canvas.ToView(PositionX(lParam), PositionY(lParam)));
+                    if (window._brushAdjusting) SetCapture(hwnd);
                 }
                 break;
 
@@ -374,7 +389,14 @@ internal sealed unsafe class MainWindow : IDisposable
 
             // A right click on a layer's row opens its menu.
             case WM_RBUTTONUP:
-                if (window?.Chrome is Chrome menuChrome)
+                if (window?._brushAdjusting == true && canvas is not null)
+                {
+                    ReleaseCapture();
+                    window._brushAdjusting = false;
+                    canvas.EndBrushAdjust();
+                    window.AfterInput();
+                }
+                else if (window?.Chrome is Chrome menuChrome)
                 {
                     var at = new Point(PositionX(lParam), PositionY(lParam));
                     window.Guarded(() =>
@@ -451,7 +473,12 @@ internal sealed unsafe class MainWindow : IDisposable
                 break;
 
             case WM_CAPTURECHANGED:
-                canvas?.PointerUp();
+                if (window?._brushAdjusting == true && canvas is not null)
+                {
+                    window._brushAdjusting = false;
+                    canvas.EndBrushAdjust();
+                }
+                else canvas?.PointerUp();
                 break;
 
             case WM_CLOSE:
@@ -487,9 +514,9 @@ internal sealed unsafe class MainWindow : IDisposable
                 taken = true;
                 Invalidate();
             }
-            else if (canvas.IsFiltering && canvas.Key(key, control)) taken = true;
+            else if (canvas.IsFiltering && canvas.Key(key, control, shift, alt)) taken = true;
             else if (Menu?.TryShortcut(new Shortcut(key, control, shift, alt)) == true) taken = true;
-            else if (!alt) taken = canvas.Key(key, control);
+            else if (!alt) taken = canvas.Key(key, control, shift, alt);
         });
 
         return taken;

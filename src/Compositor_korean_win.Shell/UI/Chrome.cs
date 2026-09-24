@@ -1001,7 +1001,13 @@ internal sealed unsafe class Chrome : IDisposable
 
         _rowDragAt = point;
         if (Math.Abs(point.Y - _rowDragStart.Y) > _ui.P(5)) _rowDragMoved = true;
-        if (!finished) return;
+        if (!finished)
+        {
+            double edge = _ui.P(24);
+            if (point.Y < _layersList.Y + edge) _scroll = Math.Max(0, _scroll - _ui.P(10));
+            else if (point.Y > _layersList.MaxY - edge) _scroll += _ui.P(10);
+            return;
+        }
         _rowDragFrom = null;
 
         bool control = IsKeyDown(VK_CONTROL), shift = IsKeyDown(VK_SHIFT), alt = IsKeyDown(VK_MENU);
@@ -1308,9 +1314,11 @@ internal sealed unsafe class Chrome : IDisposable
             return;
         }
 
-        string zoom = Localizer.Format(TextKey.UnitPercent, Math.Round(_canvas.Viewport.Zoom * 100, _canvas.Viewport.Zoom < 0.1 ? 1 : 0));
         string size = Localizer.Format(TextKey.StatusDocumentSize, document.Width, document.Height);
-        _ui.Text(zoom, new Rect(pad, bar.Y, _ui.P(70), bar.Height), Ui.Ink, Ui.TextSize.Small);
+        var zoomBox = new Rect(pad, bar.Y + _ui.P(2), _ui.P(62), bar.Height - _ui.P(4));
+        _ui.Field(zoomBox, "status-zoom", _canvas.Viewport.Zoom * 100,
+                  _canvas.Viewport.Zoom < 0.1 ? 1 : 0, _canvas.SetZoomPercent);
+        _ui.Text("%", new Rect(zoomBox.MaxX + _ui.P(2), bar.Y, _ui.P(12), bar.Height), Ui.Dim, Ui.TextSize.Small);
         _ui.Text(size, new Rect(pad + _ui.P(80), bar.Y, _ui.P(200), bar.Height), Ui.Dim, Ui.TextSize.Small);
         _ui.Text(_canvas.Title, new Rect(pad + _ui.P(290), bar.Y, _ui.P(400), bar.Height), Ui.Dim, Ui.TextSize.Small,
                  // A file's or an image's name is the user's; only "Untitled" is the interface's own word.

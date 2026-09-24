@@ -24,6 +24,8 @@ internal sealed partial class CanvasView
     private double _zoomAtStart;
     private bool _zoomMoved;
     private bool _zoomOut;
+    private Point? _sampledPoint;
+    private Rgba _sampledColour;
 
     /// <summary>Whether a press with this tool and Alt takes a colour instead of doing the tool's own thing.</summary>
     private bool PicksWithAlt => _tool is CanvasTool.Brush or CanvasTool.Heal or CanvasTool.Gradient;
@@ -84,6 +86,8 @@ internal sealed partial class CanvasView
         if (_sampling)
         {
             _sampling = false;
+            _sampledPoint = null;
+            NeedsRedraw = true;
             return true;
         }
 
@@ -106,6 +110,8 @@ internal sealed partial class CanvasView
         if (EditingMask || CompositeColour(pixel) is not (double red, double green, double blue)) return;
 
         var colour = new Rgba((byte)Math.Round(red * 255), (byte)Math.Round(green * 255), (byte)Math.Round(blue * 255));
+        _sampledPoint = pixel;
+        _sampledColour = colour;
         if (_samplingBackground) BackgroundColor = colour;
         else ForegroundColor = colour;
         NeedsRedraw = true;

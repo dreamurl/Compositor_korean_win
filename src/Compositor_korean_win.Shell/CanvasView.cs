@@ -13,6 +13,9 @@ namespace Compositor_korean_win.Shell;
 /// <summary>What a drag on the canvas does.</summary>
 internal enum CanvasTool
 {
+    /// <summary>Leaves the canvas inert while inspecting the document.</summary>
+    Idle,
+
     /// <summary>Picks a layer up and puts it somewhere else.</summary>
     Move,
 
@@ -144,6 +147,10 @@ internal sealed partial class CanvasView : IDisposable
     private BrushStroke? _stroke;
     private PixelBuffer? _strokeBase;
     private Point? _strokeStart;
+    private Point? _strokeEnd;
+    private Point? _lastStrokeEnd;
+    private Guid? _lastStrokeLayer;
+    private CanvasTool _lastStrokeTool;
     private Guid _painting;
     private PixelRect _paintGrid;
     private Point? _cloneAnchor;
@@ -161,6 +168,8 @@ internal sealed partial class CanvasView : IDisposable
     private List<Point>? _lasso;
     private bool _marqueeAdds;
     private bool _marqueeTakesAway;
+    private Point? _brushAdjustFrom;
+    private BrushSettings? _brushBeforeAdjust;
 
     public SelectionModeChoice SelectionMode { get; set; }
 
@@ -339,6 +348,8 @@ internal sealed partial class CanvasView : IDisposable
 
         if (BeginNavigation(view, pixel, Win32.IsKeyDown(Win32.VK_MENU))) return;
 
+        if (_tool == CanvasTool.Idle) return;
+
         if (_tool == CanvasTool.PolygonLasso)
         {
             AddCorner(pixel);
@@ -353,7 +364,8 @@ internal sealed partial class CanvasView : IDisposable
 
         if (_tool.Paints())
         {
-            BeginStroke(pixel, alt: Win32.IsKeyDown(Win32.VK_MENU));
+            BeginStroke(pixel, alt: Win32.IsKeyDown(Win32.VK_MENU),
+                        shift: Win32.IsKeyDown(Win32.VK_SHIFT));
             return;
         }
 
@@ -521,6 +533,7 @@ internal sealed partial class CanvasView : IDisposable
         }
 
         _pointer = view;
+        AutoScroll(view);
 
         if (DragNavigation(view, _viewport.DocumentPoint(view, _document.Size))) return;
 
@@ -539,6 +552,7 @@ internal sealed partial class CanvasView : IDisposable
             Point inGrid = LayerGeometry.ToPixels(_strokePlacement, at, _paintGrid.Width, _paintGrid.Height);
             _stroke?.Append(inGrid);
             _warp?.Append(inGrid);
+            _strokeEnd = at;
             if (_strokeOnMask) ShowMaskStroke();
             NeedsRedraw = true;
             return;
@@ -763,7 +777,7 @@ internal sealed partial class CanvasView : IDisposable
     /// blank layer: painting is the thing that decides a blank layer's raster, and until then there
     /// is nothing to decide it from.
     /// </remarks>
-    private void BeginStroke(Point document, bool alt)
+    private void BeginStroke(Point document, bool alt, bool shift)
     {
         if (_document is null || Primary is not Guid id
             || _document.Layer(id) is not ImageLayer layer) return;
@@ -839,6 +853,9 @@ internal sealed partial class CanvasView : IDisposable
         _stroke = new BrushStroke(layer.Image, _paintGrid.Width, _paintGrid.Height, settings,
                                   Restricted(placement));
         _strokeStart = document;
+        _strokeEnd = document;
+        if (shift && _lastStrokeEnd is Point previous && _lastStrokeLayer == id && _lastStrokeTool == _tool)
+            _stroke.Append(LayerGeometry.ToPixels(placement, previous, _paintGrid.Width, _paintGrid.Height));
         _stroke.Append(start);
         NeedsRedraw = true;
     }
@@ -971,6 +988,9 @@ internal sealed partial class CanvasView : IDisposable
             });
 
             _history.End(_document, _painting);
+            _lastStrokeEnd = _strokeEnd;
+            _lastStrokeLayer = _painting;
+            _lastStrokeTool = _tool;
             NeedsRedraw = true;
         }
         finally
@@ -1163,7 +1183,7 @@ internal sealed partial class CanvasView : IDisposable
     }
 
     /// <summary>A key went down. Returns true when the canvas took it.</summary>
-    public bool Key(int key, bool control)
+    public bool Key(int key, bool control, bool shift = false, bool alt = false)
     {
         if (_document is null) return false;
 
@@ -1206,6 +1226,22 @@ internal sealed partial class CanvasView : IDisposable
 
         switch (key)
         {
+            case >= Win32.VK_0 and <= 0x39 when !control && !alt:
+                SetToolOpacity(key == Win32.VK_0 ? 1 : (key - Win32.VK_0) / 10.0);
+                break;
+
+            case Win32.VK_OEM_PLUS or Win32.VK_ADD when shift && !control:
+                CycleBlendMode(1);
+                break;
+
+            case Win32.VK_OEM_MINUS or Win32.VK_SUBTRACT when shift && !control:
+                CycleBlendMode(-1);
+                break;
+
+            case Win32.VK_A when !control:
+                _tool = CanvasTool.Idle;
+                break;
+
             // Photoshop's colour keys: X swaps foreground and background, D puts back black and white.
             case Win32.VK_X when !control:
                 SwapColors();
@@ -1288,15 +1324,19 @@ internal sealed partial class CanvasView : IDisposable
                 break;
 
             case Win32.VK_U when !control:
-                _tool = CanvasTool.Shape;
+                if (shift)
+                    Shape = Shape with { Kind = Shape.Kind == ShapeKind.Rectangle ? ShapeKind.Ellipse : ShapeKind.Rectangle };
+                else _tool = CanvasTool.Shape;
                 break;
 
             // The bracket keys size the brush, as they do everywhere else.
             case Win32.VK_OEM_4 or Win32.VK_OEM_6:
                 Brush = Brush with
                 {
-                    Diameter = Math.Clamp(key == Win32.VK_OEM_4 ? Brush.Diameter / 1.25
-                                                                : Brush.Diameter * 1.25, 1, 2000),
+                    Diameter = shift ? Brush.Diameter : Math.Clamp(key == Win32.VK_OEM_4 ? Brush.Diameter / 1.25
+                                                                                         : Brush.Diameter * 1.25, 1, 2000),
+                    Hardness = !shift ? Brush.Hardness : Math.Clamp(Brush.Hardness
+                                 + (key == Win32.VK_OEM_4 ? -0.1 : 0.1), 0, 1),
                 };
                 break;
 
@@ -1312,6 +1352,73 @@ internal sealed partial class CanvasView : IDisposable
         if (_tool != CanvasTool.Crop) _cropFrame = null;
         NeedsRedraw = true;
         return true;
+    }
+
+    private void SetToolOpacity(double opacity)
+    {
+        opacity = Math.Clamp(opacity, 0, 1);
+        if (_tool == CanvasTool.Gradient) Gradient = Gradient with { Opacity = opacity };
+        else if (_tool == CanvasTool.Shape) Shape = Shape with { Opacity = opacity };
+        else Brush = Brush with { Opacity = opacity };
+    }
+
+    private void CycleBlendMode(int direction)
+    {
+        if (ActiveLayer is not ImageLayer layer) return;
+        LayerBlendMode[] modes = Enum.GetValues<LayerBlendMode>();
+        int current = Array.IndexOf(modes, layer.BlendMode);
+        SetBlendMode(modes[(current + direction + modes.Length) % modes.Length]);
+    }
+
+    /// <summary>Starts Photoshop-style right-drag brush size and hardness adjustment.</summary>
+    public bool BeginBrushAdjust(Point view)
+    {
+        if (!_tool.Paints() || IsFiltering) return false;
+        _brushAdjustFrom = view;
+        _brushBeforeAdjust = Brush;
+        return true;
+    }
+
+    public void DragBrushAdjust(Point view)
+    {
+        if (_brushAdjustFrom is not Point from || _brushBeforeAdjust is not BrushSettings before) return;
+        Brush = before with
+        {
+            Diameter = Math.Clamp(before.Diameter + (view.X - from.X) * 2, 1, 2000),
+            Hardness = Math.Clamp(before.Hardness - (view.Y - from.Y) / 150, 0, 1),
+        };
+        NeedsRedraw = true;
+    }
+
+    /// <summary>Keeps a canvas drag moving when the pointer reaches the visible edge.</summary>
+    private void AutoScroll(Point view)
+    {
+        bool dragging = _cropDragging || _stroke is not null || _warp is not null || _movingFrom is not null
+                        || _shapeFrom is not null || _marqueeFrom is not null || _drag is not null;
+        if (!dragging) return;
+
+        const double edge = 24;
+        double dx = view.X < edge ? edge - view.X
+                  : view.X > _viewport.ViewSize.Width - edge ? _viewport.ViewSize.Width - edge - view.X : 0;
+        double dy = view.Y < edge ? edge - view.Y
+                  : view.Y > _viewport.ViewSize.Height - edge ? _viewport.ViewSize.Height - edge - view.Y : 0;
+        if (dx == 0 && dy == 0) return;
+        _viewport = _viewport.Translated(new Point(dx * 0.35, dy * 0.35));
+        NeedsRedraw = true;
+    }
+
+    public void EndBrushAdjust()
+    {
+        _brushAdjustFrom = null;
+        _brushBeforeAdjust = null;
+    }
+
+    /// <summary>Applies an exact percentage around the centre of the visible canvas.</summary>
+    public void SetZoomPercent(double percent)
+    {
+        if (_document is null || !double.IsFinite(percent)) return;
+        _viewport = _viewport.ZoomedTo(percent / 100, _viewport.Center, _document.Size);
+        NeedsRedraw = true;
     }
 
     /// <summary>
@@ -1473,6 +1580,7 @@ internal sealed partial class CanvasView : IDisposable
         DrawPixelGrid(context, projection);
         DrawSelection(context, projection, fill, shadow, thickness);
         DrawCrop(context, projection, fill, outline, thickness, half);
+        DrawSampleRing(context, projection, fill, shadow, thickness);
 
         // Floating pixels always show their handles: they are there to be transformed.
         if (_tool != CanvasTool.Move || Box() is not LayerTransform box || !ShowTransformControls && !IsFloating)
@@ -1506,6 +1614,20 @@ internal sealed partial class CanvasView : IDisposable
 
         context.PopAxisAlignedClip();
             context.EndDraw().CheckError();
+    }
+
+    private void DrawSampleRing(ID2D1DeviceContext context, CanvasProjection projection,
+                                ID2D1SolidColorBrush light, ID2D1SolidColorBrush dark, float thickness)
+    {
+        if (!_sampling || _sampledPoint is not Point sampled) return;
+        Point centre = projection.Apply(sampled);
+        var outer = new Ellipse(Vector(centre), (float)(14 * _scale), (float)(14 * _scale));
+        var inner = new Ellipse(Vector(centre), (float)(9 * _scale), (float)(9 * _scale));
+        context.FillEllipse(outer, dark);
+        using ID2D1SolidColorBrush colour = context.CreateSolidColorBrush(new Color4(
+            _sampledColour.R / 255f, _sampledColour.G / 255f, _sampledColour.B / 255f, 1));
+        context.FillEllipse(inner, colour);
+        context.DrawEllipse(outer, light, thickness);
     }
 
     /// <summary>

@@ -337,6 +337,34 @@ internal static class ToolsCheck
                    "an in-memory image drop did not create a project tab");
             Expect(canvas.Document!.Width == image.Width && canvas.Document.Height == image.Height,
                    "an in-memory image drop did not preserve its dimensions");
+
+            // Keyboard-only controls and the right-drag gesture share the exact settings exposed
+            // by the options bar, so neither path may keep a second hidden value.
+            canvas.SetTool(CanvasTool.Brush);
+            canvas.Key(Win32.VK_1 + 4, control: false);
+            Expect(Math.Abs(canvas.Brush.Opacity - 0.5) < 0.001, "the numeric opacity shortcut did not set 50%");
+            canvas.Brush = canvas.Brush with { Diameter = 40, Hardness = 0.5 };
+            canvas.Key(Win32.VK_OEM_6, control: false, shift: true);
+            Expect(canvas.Brush.Diameter == 40 && canvas.Brush.Hardness > 0.5,
+                   "Shift+] did not change hardness without changing diameter");
+            Expect(canvas.BeginBrushAdjust(new Point(10, 10)), "a brush right-drag could not begin");
+            canvas.DragBrushAdjust(new Point(30, -5));
+            canvas.EndBrushAdjust();
+            Expect(canvas.Brush.Diameter > 40 && canvas.Brush.Hardness > 0.5,
+                   "a brush right-drag did not change size and hardness");
+
+            canvas.SetTool(CanvasTool.Shape);
+            ShapeKind shapeBefore = canvas.Shape.Kind;
+            canvas.Key(Win32.VK_U, control: false, shift: true);
+            Expect(canvas.Shape.Kind != shapeBefore, "Shift+U did not cycle the shape kind");
+            LayerBlendMode blendBefore = canvas.ActiveLayer!.BlendMode;
+            canvas.Key(Win32.VK_OEM_PLUS, control: false, shift: true);
+            Expect(canvas.ActiveLayer.BlendMode != blendBefore, "Shift+Plus did not cycle the layer blend mode");
+
+            canvas.SetZoomPercent(125);
+            Expect(Math.Abs(canvas.Viewport.Zoom - 1.25) < 0.001, "the exact zoom field did not apply its percentage");
+            canvas.Key(Win32.VK_A, control: false);
+            Expect(canvas.Tool == CanvasTool.Idle, "A did not select the inert inspection tool");
         }
         catch (Exception exception)
         {
