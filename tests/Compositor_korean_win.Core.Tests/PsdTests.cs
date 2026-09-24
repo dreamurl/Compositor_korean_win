@@ -407,6 +407,56 @@ public sealed class PsdTests
         }
     }
 
+    [Fact]
+    public void LiveTextIsExportedAsAnEditablePhotoshopTypeLayer()
+    {
+        PixelBuffer pixels = RenderFixture.Solid(48, 24, 40, 80, 120);
+        var text = new LayerText
+        {
+            Text = "편집 가능한 글자",
+            Font = "Malgun Gothic",
+            Size = 18,
+            Weight = 700,
+            Red = 0.2,
+            Green = 0.4,
+            Blue = 0.8,
+            Align = TextAlign.Center,
+            Tracking = 25,
+            Leading = 1.3,
+            AnchorX = 24,
+            AnchorY = 18,
+            Rendered = pixels,
+        };
+        CanvasDocument document = ProjectFixture.Document(new ImageLayer
+        {
+            Id = Guid.NewGuid(),
+            Name = "편집 문자",
+            Transform = new LayerTransform(new Point(8, 6), new Size(48, 24)),
+            Image = pixels,
+            Text = text,
+        });
+
+        try
+        {
+            byte[] psd = Export(document, "editable-text.psd", out IReadOnlyDictionary<PsdNote, int> notes);
+            Assert.False(notes.ContainsKey(PsdNote.TextExportedAsPixels));
+
+            using var back = new Opened(PsdImport.Read(psd, ["Malgun Gothic"]));
+            ImageLayer layer = back.Document.Layers.Single();
+            Assert.True(layer.IsLiveText);
+            Assert.Equal(text.Text, layer.Text!.Text);
+            Assert.Equal(text.Font, layer.Text.Font);
+            Assert.Equal(text.Weight, layer.Text.Weight);
+            Assert.Equal(text.Align, layer.Text.Align);
+            Assert.Equal(text.Tracking, layer.Text.Tracking, 3);
+            Assert.Equal(text.Size, layer.Text.Size, 3);
+        }
+        finally
+        {
+            Release(document);
+        }
+    }
+
     [Theory]
     [MemberData(nameof(Everything))]
     public void PhotoshopsFilesSurviveGoingOutAgain(string name)

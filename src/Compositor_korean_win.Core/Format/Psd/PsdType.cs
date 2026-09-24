@@ -30,6 +30,101 @@ internal sealed record PsdTypeLayer(LayerText Text, string PostScriptName, bool 
 /// </remarks>
 internal static class PsdType
 {
+    /// <summary>A live text layer as Photoshop's editable <c>TySh</c> block.</summary>
+    public static PsdBlockWriter? Writer(ImageLayer layer)
+    {
+        if (!layer.IsLiveText || layer.Text is not LayerText text || layer.Image is not PixelBuffer image) return null;
+
+        return new PsdBlockWriter("TySh", writer =>
+        {
+            LayerTransform placement = layer.Transform;
+            double scaleX = placement.Size.Width / image.Width * (placement.FlipX ? -1 : 1);
+            double scaleY = placement.Size.Height / image.Height * (placement.FlipY ? -1 : 1);
+            double cos = Math.Cos(placement.Radians), sin = Math.Sin(placement.Radians);
+            Point anchor = LayerGeometry.ToDocument(placement, new Point(text.AnchorX, text.AnchorY), image.Width, image.Height);
+
+            writer.U16(1);
+            writer.F64(scaleX * cos);
+            writer.F64(scaleX * sin);
+            writer.F64(-scaleY * sin);
+            writer.F64(scaleY * cos);
+            writer.F64(anchor.X);
+            writer.F64(anchor.Y);
+
+            writer.U16(50);
+            writer.U32(16);
+            string words = text.Text.Replace("\r\n", "\r", StringComparison.Ordinal)
+                                    .Replace('\n', '\r') + "\r";
+            new PsdDescriptor { ClassId = "TxLr" }
+                .Add("Txt ", words)
+                .Add("textGridding", new PsdEnum("textGridding", "None"))
+                .Add("Ornt", new PsdEnum("Ornt", "Hrzn"))
+                .Add("AntA", new PsdEnum("Annt", "AnSm"))
+                .Add("TextIndex", 0)
+                .Add("EngineData", EngineData.Write(text, words, PostScriptName(text)))
+                .Write(writer);
+
+            writer.U16(1);
+            writer.U32(16);
+            TextWarp warp = text.Warp ?? new TextWarp { Style = TextWarpStyle.None, Bend = 0 };
+            new PsdDescriptor { ClassId = "warp" }
+                .Add("warpStyle", new PsdEnum("warpStyle", WarpName(warp.Style)))
+                .Add("warpValue", warp.Bend)
+                .Add("warpPerspective", warp.Horizontal)
+                .Add("warpPerspectiveOther", warp.Vertical)
+                .Add("warpRotate", new PsdEnum("Ornt", "Hrzn"))
+                .Write(writer);
+
+            writer.I32(0);
+            writer.I32(0);
+            writer.I32(image.Width);
+            writer.I32(image.Height);
+        });
+    }
+
+    private static string WarpName(TextWarpStyle style) => style switch
+    {
+        TextWarpStyle.Arc => "warpArc",
+        TextWarpStyle.ArcLower => "warpArcLower",
+        TextWarpStyle.ArcUpper => "warpArcUpper",
+        TextWarpStyle.Arch => "warpArch",
+        TextWarpStyle.Bulge => "warpBulge",
+        TextWarpStyle.ShellLower => "warpShellLower",
+        TextWarpStyle.ShellUpper => "warpShellUpper",
+        TextWarpStyle.Flag => "warpFlag",
+        TextWarpStyle.Wave => "warpWave",
+        TextWarpStyle.Fish => "warpFish",
+        TextWarpStyle.Rise => "warpRise",
+        TextWarpStyle.Fisheye => "warpFisheye",
+        TextWarpStyle.Inflate => "warpInflate",
+        TextWarpStyle.Squeeze => "warpSqueeze",
+        TextWarpStyle.Twist => "warpTwist",
+        _ => "warpNone",
+    };
+
+    /// <summary>A practical PostScript face name from the Windows family and style.</summary>
+    private static string PostScriptName(LayerText text)
+    {
+        string family = text.Font.Trim();
+        string stem = family switch
+        {
+            "Arial" => "ArialMT",
+            "Times New Roman" => "TimesNewRomanPSMT",
+            "Malgun Gothic" => "MalgunGothic",
+            _ => new string(family.Where(char.IsLetterOrDigit).ToArray()),
+        };
+        if (stem.Length == 0) stem = "ArialMT";
+        string style = (text.Weight >= 600, text.Italic) switch
+        {
+            (true, true) => "-BoldItalic",
+            (true, false) when family == "Malgun Gothic" => "Bold",
+            (true, false) => "-Bold",
+            (false, true) => "-Italic",
+            _ => "",
+        };
+        return stem + style;
+    }
+
     public static PsdTypeLayer? Read(PsdReader block)
     {
         if (block.Remaining < 2 + 48 + 2 + 4 || block.U16() != 1) return null;
@@ -264,6 +359,62 @@ internal static class PsdType
 /// </remarks>
 internal static class EngineData
 {
+    /// <summary>
+    /// The compact text-engine dictionary Photoshop needs to keep a point-text layer editable.
+    /// It deliberately contains one paragraph run and one character run because <see cref="LayerText"/>
+    /// has one style for the whole layer.
+    /// </summary>
+    public static byte[] Write(LayerText text, string words, string postScriptName)
+    {
+        var output = new EngineDataWriter();
+        string length = words.Length.ToString(CultureInfo.InvariantCulture);
+        string size = Number(text.Size);
+        string tracking = Number(text.Tracking);
+        string leading = Number(text.Size * text.Leading);
+        string autoLeading = Number(text.Leading);
+        string justification = text.Align switch
+        {
+            TextAlign.Right => "1",
+            TextAlign.Center => "2",
+            _ => "0",
+        };
+        string red = Number(text.Red), green = Number(text.Green), blue = Number(text.Blue);
+
+        output.Ascii("<< /EngineDict << /Editor << /Text ");
+        output.Utf16(words);
+        output.Ascii(" >> /ParagraphRun << /RunArray [ << /ParagraphSheet << /DefaultStyleSheet 0 /Properties << ");
+        output.Ascii($"/Justification {justification} /AutoLeading {autoLeading} /HyphenatedWordSize 6 /PreHyphen 2 /PostHyphen 2 ");
+        output.Ascii("/ConsecutiveHyphens 8 /Zone 36 /WordSpacing [ 0.8 1.0 1.33 ] /LetterSpacing [ 0 0 0 ] /GlyphSpacing [ 1 1 1 ] ");
+        output.Ascii(">> >> /Adjustments << >> >> ] /RunLengthArray [ ");
+        output.Ascii(length);
+        output.Ascii(" ] /IsJoinable 1 >> /StyleRun << /RunArray [ << /StyleSheet << /StyleSheetData << ");
+        output.Ascii($"/Font 0 /FontSize {size} /FauxBold {(text.Weight >= 600 ? "true" : "false")} ");
+        output.Ascii($"/FauxItalic {(text.Italic ? "true" : "false")} /AutoLeading false /Leading {leading} ");
+        output.Ascii($"/HorizontalScale 1 /VerticalScale 1 /Tracking {tracking} /AutoKerning true /Kerning 0 ");
+        output.Ascii("/BaselineShift 0 /FontCaps 0 /Underline false /Strikethrough false ");
+        output.Ascii($"/FillColor << /Type 1 /Values [ 1 {red} {green} {blue} ] >> ");
+        output.Ascii("/StrokeColor << /Type 1 /Values [ 1 0 0 0 ] >> /FillFlag true /StrokeFlag false /FillFirst true ");
+        output.Ascii("/YUnderline 1 /OutlineWidth 1 >> >> >> ] /RunLengthArray [ ");
+        output.Ascii(length);
+        output.Ascii(" ] /IsJoinable 2 >> /GridInfo << /GridIsOn false /ShowGrid false >> /AntiAlias 3 ");
+        output.Ascii("/UseFractionalGlyphWidths true /Rendered << /Version 1 /Shapes << /WritingDirection 0 /Children [ ");
+        output.Ascii("<< /ShapeType 0 /Procession 0 /Lines << /WritingDirection 0 >> /Cookie << /Photoshop << /ShapeType 0 ");
+        output.Ascii("/PointBase [ 0 0 ] /Base << /ShapeType 0 /TransformPoint0 [ 1 0 ] /TransformPoint1 [ 0 1 ] ");
+        output.Ascii("/TransformPoint2 [ 0 0 ] >> >> >> >> ] >> >> >> ");
+
+        output.Ascii("/ResourceDict << /TheNormalStyleSheet 0 /TheNormalParagraphSheet 0 /FontSet [ << /Name ");
+        output.Utf16(postScriptName);
+        output.Ascii(" /Script 0 /FontType 1 /Synthetic 0 >> ] ");
+        output.Ascii("/StyleSheetSet [ << /Name ");
+        output.Utf16("Normal RGB");
+        output.Ascii(" /StyleSheetData << >> >> ] /ParagraphSheetSet [ << /Name ");
+        output.Utf16("Normal RGB");
+        output.Ascii(" /DefaultStyleSheet 0 /Properties << /Justification 0 /AutoLeading 1.2 >> >> ] >> >>");
+        return output.ToArray();
+
+        static string Number(double value) => value.ToString("R", CultureInfo.InvariantCulture);
+    }
+
     public static object? Parse(ReadOnlySpan<byte> data)
     {
         int at = 0;
@@ -371,6 +522,30 @@ internal static class EngineData
         return raw.Length >= 2 && raw[0] == 0xFE && raw[1] == 0xFF
             ? Encoding.BigEndianUnicode.GetString(raw, 2, (raw.Length - 2) & ~1)
             : Encoding.Latin1.GetString(raw);
+    }
+
+    private sealed class EngineDataWriter
+    {
+        private readonly List<byte> _bytes = [];
+
+        public void Ascii(string text) => _bytes.AddRange(Encoding.ASCII.GetBytes(text));
+
+        public void Utf16(string text)
+        {
+            _bytes.Add((byte)'(');
+            Escaped(0xFE);
+            Escaped(0xFF);
+            foreach (byte value in Encoding.BigEndianUnicode.GetBytes(text)) Escaped(value);
+            _bytes.Add((byte)')');
+        }
+
+        public byte[] ToArray() => [.. _bytes];
+
+        private void Escaped(byte value)
+        {
+            if (value is (byte)'(' or (byte)')' or (byte)'\\') _bytes.Add((byte)'\\');
+            _bytes.Add(value);
+        }
     }
 }
 

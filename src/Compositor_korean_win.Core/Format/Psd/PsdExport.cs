@@ -171,8 +171,6 @@ public static class PsdExport
                 Flags = Flags(layer, 0x08),
             };
 
-            if (layer.IsLiveText) Note(PsdNote.TextExportedAsPixels);
-
             // A clip Photoshop cannot say is applied to the pixels instead: the base goes into the
             // drawing hidden, where it still clips, as it does on screen.
             List<ImageLayer> sources = [];
@@ -213,6 +211,7 @@ public static class PsdExport
 
             AttachMask(record, layer);
             record.Blocks.Add(Unicode(layer.Name));
+            if (PsdType.Writer(layer) is PsdBlockWriter type) record.Blocks.Add(type);
             if (PsdEffects.Writer(layer.Effects) is Action<PsdWriter> effects) record.Blocks.Add(new PsdBlockWriter("lfx2", effects));
             return record;
         }

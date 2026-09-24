@@ -294,7 +294,12 @@ internal sealed partial class CanvasView : IDisposable
         // The desk the document lies on, and a checkerboard where the document is transparent.
         context.BeginDraw();
         context.PushAxisAlignedClip(Raw(_area), AntialiasMode.Aliased);
-        context.Clear(new Color4(0.12f, 0.12f, 0.125f, 1.0f));
+        // Clear ignores Direct2D clips and used to erase the panels on every interactive frame.
+        // The window repainted them afterwards, which was visible as a bright flash during the
+        // high-frequency Liquify preview. A filled canvas rectangle obeys the clip and leaves the
+        // rest of the window untouched.
+        using (ID2D1SolidColorBrush desk = context.CreateSolidColorBrush(new Color4(0.12f, 0.12f, 0.125f, 1.0f)))
+            context.FillRectangle(Raw(_area), desk);
 
         if (_document is not null)
         {
@@ -353,6 +358,11 @@ internal sealed partial class CanvasView : IDisposable
     public void PointerDown(Point view, bool pan, bool doubleClick = false)
     {
         if (_document is null) return;
+
+        // Auto-scroll starts on the press, before Windows necessarily sends a move. Keeping the
+        // previous hover point here could pan from a distant stale coordinate and replay a
+        // transform handle there, making its first update jump across a large zoomed-out document.
+        _pointer = view;
 
         if (pan)
         {
@@ -1984,8 +1994,9 @@ internal sealed partial class CanvasView : IDisposable
 
         DrawGuides(context, guide, projection, thickness);
 
-        // While a corner is being dragged free the shape is no longer a placement, so the outline
-        // follows the corners themselves. The handles stay on the box they started from.
+        // While a corner is being dragged free the shape is no longer a placement, so both the
+        // outline and its handles follow the quadrilateral. Leaving the handles on their starting
+        // box made the grabbed point appear to split from the pointer.
         IReadOnlyList<Point> shape = _distorting ?? TransformDrag.CornersOf(box);
         Point[] corners = [.. shape.Select(corner => projection.Apply(corner))];
         for (int i = 0; i < corners.Length; i++)
@@ -1994,14 +2005,25 @@ internal sealed partial class CanvasView : IDisposable
                              outline, thickness);
         }
 
-        Point rotation = RotationPoint(box, projection);
-        Point top = projection.Apply(box.PointAt(new Point(0.5, 0)));
-        context.DrawLine(Vector(top), Vector(rotation), outline, thickness);
-        Square(context, rotation, half, fill, outline, thickness);
-
-        foreach (Point unit in TransformDrag.Handles)
+        if (_distorting is null)
         {
-            Square(context, projection.Apply(box.PointAt(unit)), half, fill, outline, thickness);
+            Point rotation = RotationPoint(box, projection);
+            Point top = projection.Apply(box.PointAt(new Point(0.5, 0)));
+            context.DrawLine(Vector(top), Vector(rotation), outline, thickness);
+            Square(context, rotation, half, fill, outline, thickness);
+
+            foreach (Point unit in TransformDrag.Handles)
+                Square(context, projection.Apply(box.PointAt(unit)), half, fill, outline, thickness);
+        }
+        else
+        {
+            for (int i = 0; i < corners.Length; i++)
+            {
+                Point next = corners[(i + 1) % corners.Length];
+                Square(context, corners[i], half, fill, outline, thickness);
+                Square(context, new Point((corners[i].X + next.X) / 2, (corners[i].Y + next.Y) / 2),
+                       half, fill, outline, thickness);
+            }
         }
 
         context.PopAxisAlignedClip();

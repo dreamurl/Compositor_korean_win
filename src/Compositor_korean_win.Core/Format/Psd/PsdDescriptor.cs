@@ -217,6 +217,11 @@ internal sealed class PsdDescriptor
                 writer.Key("bool");
                 writer.U8(flag ? (byte)1 : (byte)0);
                 break;
+            case byte[] data:
+                writer.Key("tdta");
+                writer.U32((uint)data.Length);
+                writer.Bytes(data);
+                break;
             default:
                 throw new ArgumentException($"a descriptor cannot hold a {value.GetType().Name}", nameof(value));
         }

@@ -117,6 +117,15 @@ def main(folder: str):
         if "폴더" in by_name and not by_name["폴더"][1].has_mask():
             failures.append("structure.psd: 폴더 lost its mask")
 
+    editable = results.get("editable-text.psd")
+    if editable:
+        _, layers = editable
+        type_layers = [layer for _, layer in layers if layer.kind == "type"]
+        if len(type_layers) != 1:
+            failures.append(f"editable-text.psd: expected one editable type layer, found {len(type_layers)}")
+        elif type_layers[0].text.rstrip("\r") != "편집 가능한 글자":
+            failures.append(f"editable-text.psd: type text was {type_layers[0].text!r}")
+
     if failures:
         print("\n".join(["", "FAILED:"] + failures))
         sys.exit(1)

@@ -626,6 +626,20 @@ internal static class ToolsCheck
             Expect(canvas.HandleMode == TransformHandleMode.Skew, "Skew did not set what the handles do");
             canvas.Key(Win32.VK_ESCAPE, control: false);
             Expect(canvas.HandleMode == TransformHandleMode.Free, "Escape did not bring the plain handles back");
+
+            // A press must replace the old hover coordinate before the edge-scroll timer looks at
+            // it. Otherwise a stale point outside the view replays a newly grabbed corner there.
+            canvas.FitOnScreen();
+            canvas.SetTool(CanvasTool.Move);
+            canvas.PointerMoved(new Point(-500, -500), shift: false, alt: false, control: false);
+            Point transformCorner = canvas.Viewport.ViewPoint(canvas.ActiveLayer!.Transform.PointAt(Point.Zero),
+                                                               canvas.Document!.Size);
+            canvas.StartTransformMode(TransformHandleMode.Distort);
+            canvas.PointerDown(transformCorner, pan: false);
+            Expect(!canvas.WantsAutoScroll, "a transform press inherited a stale off-canvas pointer and started scrolling");
+            canvas.PointerUp();
+            canvas.Key(Win32.VK_ESCAPE, control: false);
+
             double turnedFrom = canvas.ActiveLayer!.Transform.Rotation;
             canvas.RotateChosen(90);
             Expect(Math.Abs(canvas.ActiveLayer!.Transform.Rotation - turnedFrom) > 1 && ReferenceEquals(canvas.ActiveLayer.Image, shaped),

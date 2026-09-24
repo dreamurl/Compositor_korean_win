@@ -87,8 +87,11 @@ internal static class Icons
 
     private static void Move(Ui ui, Rect area, Color4 colour)
     {
-        // An arrow pointer.
-        Stroke(ui, area, colour, (5, 2), (5, 16), (8.5, 12.5), (11, 18), (13, 17), (10.5, 11.5), (15, 11.5), (5, 2));
+        // Photoshop's four-way arrow makes this visibly a Move tool, not a generic pointer.
+        Stroke(ui, area, colour, (10, 2), (7, 5), (9, 5), (9, 9), (5, 9), (5, 7), (2, 10),
+               (5, 13), (5, 11), (9, 11), (9, 15), (7, 15), (10, 18), (13, 15), (11, 15),
+               (11, 11), (15, 11), (15, 13), (18, 10), (15, 7), (15, 9), (11, 9), (11, 5),
+               (13, 5), (10, 2));
     }
 
     private static void DashedRect(Ui ui, Rect area, Color4 colour)
