@@ -53,7 +53,7 @@ internal sealed partial class CanvasView
     }
 
     public bool CanEdit => _document is not null && !IsFiltering && _drag is null && _stroke is null && _warp is null
-                           && _floating is null && EditingText is null;
+                           && _floating is null && EditingText is null && _meshWarp is null && _liquify is null;
 
     public bool CanUndo => CanEdit && _history.CanUndo;
     public bool CanRedo => CanEdit && _history.CanRedo;

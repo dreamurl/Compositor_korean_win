@@ -393,6 +393,9 @@ internal sealed unsafe class MainWindow : IDisposable
                         }
                         canvas.PointerDown(view, IsPanning(message == WM_MBUTTONDOWN),
                                            doubleClick: message == WM_LBUTTONDBLCLK);
+                        // Liquify's Twirl, Pucker, Bloat and Reconstruct work while held still too,
+                        // on the same tick the edge scroll runs on.
+                        if (canvas.WantsAutoScroll) SetTimer(hwnd, AutoScrollTimer, 16, 0);
                     });
                     window.AfterInput();
                 }

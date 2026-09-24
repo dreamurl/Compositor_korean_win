@@ -96,6 +96,7 @@ internal sealed partial class CanvasView
     {
         if (_active < 0) return;
 
+        ForgetTransformTools();
         CommitGradient();
 
         _preview?.Dispose();

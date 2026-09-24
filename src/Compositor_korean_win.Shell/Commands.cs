@@ -124,6 +124,20 @@ internal static class CommandIds
     public const int Clear = 232;
     public const int ContentAwareFill = 233;
 
+    // Edit › Transform.
+    public const int TransformScale = 250;
+    public const int TransformRotate = 251;
+    public const int TransformSkew = 252;
+    public const int TransformDistort = 253;
+    public const int TransformPerspective = 254;
+    public const int TransformWarp = 255;
+    public const int Rotate180 = 256;
+    public const int RotateClockwise = 257;
+    public const int RotateCounterclockwise = 258;
+
+    /// <summary>Filter › Liquify, apart from the numbered filters since it is a session of its own.</summary>
+    public const int Liquify = 650;
+
     public const int Invert = 306;
 
     public const int LayerViaCut = 531;

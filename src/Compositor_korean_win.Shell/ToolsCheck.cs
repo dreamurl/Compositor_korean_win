@@ -598,6 +598,53 @@ internal static class ToolsCheck
             canvas.PointerMoved(Corner(0.9, 0.5), shift: false, alt: false, control: false);
             canvas.PointerUp();
             Expect(canvas.ActiveLayer!.Image is PixelBuffer line && Opaque(line) > 0, "a flat line did not draw");
+
+            // Edit › Transform's Warp: the grid holds the document, an untouched grid leaves no step,
+            // a bent one is one step that one undo takes away, and Escape drops it.
+            PixelBuffer? shaped = canvas.ActiveLayer!.Image;
+            string undoBeforeWarp = canvas.UndoName;
+            canvas.StartTransformMode(TransformHandleMode.Warp);
+            Expect(canvas.MeshWarping && canvas.Tool == CanvasTool.Move && !canvas.CanEdit,
+                   "Warp did not put the grid up and hold the document");
+            canvas.Key(Win32.VK_RETURN, control: false);
+            Expect(!canvas.MeshWarping && canvas.UndoName == undoBeforeWarp && ReferenceEquals(canvas.ActiveLayer!.Image, shaped),
+                   "an untouched warp grid left a step or changed the layer");
+            canvas.StartTransformMode(TransformHandleMode.Warp);
+            canvas.SetMeshStyle(new TextWarp { Style = TextWarpStyle.Arc, Bend = 60 });
+            canvas.Key(Win32.VK_RETURN, control: false);
+            Expect(!ReferenceEquals(canvas.ActiveLayer!.Image, shaped) && canvas.UndoName == Localizer.Text(TextKey.HistoryWarp),
+                   "an arched warp grid did not bend the layer as one step");
+            canvas.Undo();
+            Expect(ReferenceEquals(canvas.ActiveLayer!.Image, shaped), "one undo did not take the warp away");
+            canvas.StartTransformMode(TransformHandleMode.Warp);
+            canvas.SetMeshStyle(new TextWarp { Style = TextWarpStyle.Arc, Bend = 60 });
+            canvas.Key(Win32.VK_ESCAPE, control: false);
+            Expect(!canvas.MeshWarping && ReferenceEquals(canvas.ActiveLayer!.Image, shaped), "Escape did not drop the warp grid");
+
+            // Skew as a mode of the handles, which Escape ends; and a quarter turn, which resamples nothing.
+            canvas.StartTransformMode(TransformHandleMode.Skew);
+            Expect(canvas.HandleMode == TransformHandleMode.Skew, "Skew did not set what the handles do");
+            canvas.Key(Win32.VK_ESCAPE, control: false);
+            Expect(canvas.HandleMode == TransformHandleMode.Free, "Escape did not bring the plain handles back");
+            double turnedFrom = canvas.ActiveLayer!.Transform.Rotation;
+            canvas.RotateChosen(90);
+            Expect(Math.Abs(canvas.ActiveLayer!.Transform.Rotation - turnedFrom) > 1 && ReferenceEquals(canvas.ActiveLayer.Image, shaped),
+                   "Rotate 90° did not turn the layer by its placement alone");
+            canvas.Undo();
+
+            // Filter › Liquify: a Forward Warp stroke across the layer, kept with Enter as one step.
+            canvas.StartLiquify();
+            Expect(canvas.Liquifying && !canvas.CanEdit, "Liquify did not open over the layer");
+            canvas.LiquifyBrush = LiquifyTool.Forward;
+            canvas.LiquifySize = 400;
+            canvas.LiquifyPressure = 1;
+            canvas.PointerDown(Corner(0.45, 0.45), pan: false);
+            canvas.PointerMoved(Corner(0.5, 0.6), shift: false, alt: false, control: false);
+            canvas.PointerUp();
+            canvas.Key(Win32.VK_RETURN, control: false);
+            Expect(!canvas.Liquifying && !ReferenceEquals(canvas.ActiveLayer!.Image, shaped)
+                   && canvas.UndoName == Localizer.Text(TextKey.HistoryLiquify),
+                   "a Forward Warp stroke did not liquify the layer as one step");
         }
         catch (Exception exception)
         {

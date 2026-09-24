@@ -123,7 +123,7 @@ internal static class MenuCheck
 
                         // A command that leaves something open — a filter's sheet, pixels floating
                         // after Transform — is closed with Enter, as a user would.
-                        if (canvas.IsFiltering || canvas.IsFloating)
+                        if (canvas.IsFiltering || canvas.IsFloating || canvas.MeshWarping || canvas.Liquifying)
                         {
                             canvas.Key(VK_RETURN, control: false);
                             window.Render();

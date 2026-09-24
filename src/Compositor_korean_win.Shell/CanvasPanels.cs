@@ -12,6 +12,7 @@ internal sealed partial class CanvasView
         SettleFloating();
         if (tool != CanvasTool.Gradient) CommitGradient();
         if (tool != CanvasTool.Crop) _cropFrame = null;
+        if (tool != _tool) LeaveTransformMode();
         _tool = tool;
         NeedsRedraw = true;
     }

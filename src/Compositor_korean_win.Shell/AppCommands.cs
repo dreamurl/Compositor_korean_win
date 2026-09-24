@@ -296,6 +296,39 @@ internal static class AppCommands
             });
         }
 
+        // Edit › Transform. Scale and Rotate are the handles Ctrl+T puts up; the rest set what they do.
+        bool CanTransform() => canvas.CanTransformSelection || canvas.CanEdit && canvas.ActiveLayer is { IsGroup: false };
+        commands.Add(new Command(CommandIds.TransformScale, TextKey.CommandTransformScale, canvas.StartFreeTransform, CanTransform));
+        commands.Add(new Command(CommandIds.TransformRotate, TextKey.CommandTransformRotate, canvas.StartFreeTransform, CanTransform));
+        foreach ((int id, TextKey label, TransformHandleMode mode) in new[]
+                 {
+                     (CommandIds.TransformSkew, TextKey.CommandTransformSkew, TransformHandleMode.Skew),
+                     (CommandIds.TransformDistort, TextKey.CommandTransformDistort, TransformHandleMode.Distort),
+                     (CommandIds.TransformPerspective, TextKey.CommandTransformPerspective, TransformHandleMode.Perspective),
+                     (CommandIds.TransformWarp, TextKey.CommandTransformWarp, TransformHandleMode.Warp),
+                 })
+        {
+            commands.Add(new Command(id, label, () => canvas.StartTransformMode(mode), () => canvas.CanChangeShape)
+            {
+                Checked = () => canvas.HandleMode == mode,
+            });
+        }
+        foreach ((int id, TextKey label, double degrees) in new[]
+                 {
+                     (CommandIds.Rotate180, TextKey.CommandRotate180, 180.0),
+                     (CommandIds.RotateClockwise, TextKey.CommandRotateClockwise, 90.0),
+                     (CommandIds.RotateCounterclockwise, TextKey.CommandRotateCounterclockwise, -90.0),
+                 })
+        {
+            commands.Add(new Command(id, label, () => canvas.RotateChosen(degrees), () => canvas.CanRotateChosen));
+        }
+
+        commands.Add(new Command(CommandIds.Liquify, TextKey.CommandLiquify, canvas.StartLiquify, () => canvas.CanLiquify,
+                                 [new(VK_X, Control: true, Shift: true)])
+        {
+            DynamicLabel = Ellipsis(TextKey.CommandLiquify),
+        });
+
         foreach (FilterCommand filter in Filters.Concat(Distortions))
         {
             commands.Add(new Command(CommandIds.FilterFirst + (int)filter, CanvasView.FilterTitle(filter),
@@ -332,6 +365,7 @@ internal static class AppCommands
                 MenuEntry.Line,
                 Item(CommandIds.FillForeground), Item(CommandIds.FillBackground), Item(CommandIds.Clear),
                 Item(CommandIds.ContentAwareFill), MenuEntry.Line,
+                new MenuEntry.Submenu(TextKey.MenuTransform, TransformEntries), MenuEntry.Line,
                 new MenuEntry.Submenu(TextKey.MenuPreferences,
                 [
                     new MenuEntry.Submenu(TextKey.MenuLanguage,
@@ -380,6 +414,7 @@ internal static class AppCommands
             ]),
             new(TextKey.MenuFilter,
             [
+                Item(CommandIds.Liquify), MenuEntry.Line,
                 .. Filters.Select(filter => Item(CommandIds.FilterFirst + (int)filter)),
                 new MenuEntry.Submenu(TextKey.MenuDistort,
                     [.. Distortions.Select(filter => Item(CommandIds.FilterFirst + (int)filter))]),
@@ -410,10 +445,25 @@ internal static class AppCommands
     /// to one; without, the layer's everyday commands. Every entry is a menu bar command, so nothing
     /// here can be reached only by right click, and each shows its shortcut to learn from.
     /// </summary>
+    /// <summary>Edit › Transform, Photoshop's submenu; the canvas's right-click menu has it too.</summary>
+    private static readonly IReadOnlyList<MenuEntry> TransformEntries =
+    [
+        new MenuEntry.Item(CommandIds.TransformScale), new MenuEntry.Item(CommandIds.TransformRotate),
+        new MenuEntry.Item(CommandIds.TransformSkew), new MenuEntry.Item(CommandIds.TransformDistort),
+        new MenuEntry.Item(CommandIds.TransformPerspective), new MenuEntry.Item(CommandIds.TransformWarp), MenuEntry.Line,
+        new MenuEntry.Item(CommandIds.Rotate180), new MenuEntry.Item(CommandIds.RotateClockwise),
+        new MenuEntry.Item(CommandIds.RotateCounterclockwise), MenuEntry.Line,
+        new MenuEntry.Item(CommandIds.FlipLayerHorizontal), new MenuEntry.Item(CommandIds.FlipLayerVertical),
+    ];
+
     public static IReadOnlyList<MenuEntry> CanvasMenu(bool hasSelection)
     {
         MenuEntry[] undo = [Item(CommandIds.Undo), Item(CommandIds.Redo), MenuEntry.Line];
-        MenuEntry[] style = [MenuEntry.Line, Item(CommandIds.LayerStyle), Item(CommandIds.RasterizeType)];
+        MenuEntry[] style =
+        [
+            MenuEntry.Line, new MenuEntry.Submenu(TextKey.MenuTransform, TransformEntries), Item(CommandIds.Liquify),
+            MenuEntry.Line, Item(CommandIds.LayerStyle), Item(CommandIds.RasterizeType),
+        ];
 
         if (hasSelection)
         {

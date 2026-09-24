@@ -121,13 +121,25 @@ internal sealed unsafe class MenuBar : IDisposable
         nint popup = Populate(entries);
         try
         {
-            Refresh(popup);
+            // Nothing is told as a submenu opens here (TPM_NONOTIFY), so every level is brought up to date first.
+            RefreshAll(popup);
             int chosen = TrackPopupMenuEx(popup, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON, x, y, _window, 0);
             return chosen != 0 && Run(chosen);
         }
         finally
         {
             DestroyMenu(popup);
+        }
+    }
+
+    private void RefreshAll(nint popup)
+    {
+        Refresh(popup);
+        int count = GetMenuItemCount(popup);
+        for (int position = 0; position < count; position++)
+        {
+            nint submenu = GetSubMenu(popup, position);
+            if (submenu != 0) RefreshAll(submenu);
         }
     }
 

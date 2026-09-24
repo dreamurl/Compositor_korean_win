@@ -369,6 +369,9 @@ internal sealed partial class CanvasView : IDisposable
 
         if (BeginNavigation(view, pixel, Win32.IsKeyDown(Win32.VK_MENU))) return;
 
+        // An open Liquify or warp grid takes the click for its own.
+        if (LiquifyPointerDown(view) || MeshPointerDown(view, pixel)) return;
+
         if (_tool == CanvasTool.Idle) return;
 
         if (BeginSelectionDrag(pixel)) return;
@@ -447,8 +450,7 @@ internal sealed partial class CanvasView : IDisposable
                 if (HitHandle(floatingBox, view) is int floatingHandle)
                 {
                     TransformDragMode floatingMode = floatingHandle == RotationHandle ? TransformDragMode.Rotate
-                        : control ? TransformDragMode.Distort(floatingHandle)
-                        : TransformDragMode.Resize(floatingHandle);
+                        : CornerDrag(floatingHandle, control) ?? TransformDragMode.Resize(floatingHandle);
                     Begin(floatingBox, floatingMode, pixel);
                 }
                 else if (floatingBox.Contains(pixel))
@@ -477,9 +479,11 @@ internal sealed partial class CanvasView : IDisposable
                 ? TransformDragMode.Rotate
                 : TransformDragMode.Resize(handle);
 
-            if (control && handle != RotationHandle && _chosen.Count == 1 && !TransformsMask)
+            // Edit › Transform's Skew, Distort and Perspective do the same without Ctrl.
+            if (handle != RotationHandle && _chosen.Count == 1 && !TransformsMask
+                && CornerDrag(handle, control) is TransformDragMode corners)
             {
-                Begin(box, TransformDragMode.Distort(handle), pixel);
+                Begin(box, corners, pixel);
                 return;
             }
 
@@ -569,6 +573,8 @@ internal sealed partial class CanvasView : IDisposable
         _pointer = view;
 
         if (DragNavigation(view, _viewport.DocumentPoint(view, _document.Size))) return;
+
+        if (LiquifyPointerMoved(view) || MeshPointerMoved(_viewport.DocumentPoint(view, _document.Size))) return;
 
         if (_cropDragging)
         {
@@ -703,6 +709,8 @@ internal sealed partial class CanvasView : IDisposable
 
         if (EndNavigation()) return;
 
+        if (LiquifyPointerUp() || MeshPointerUp()) return;
+
         if (_cropDragging)
         {
             EndCrop();
@@ -813,6 +821,8 @@ internal sealed partial class CanvasView : IDisposable
     private LiveEdit? Live(int width, int height)
     {
         if (Previewing(width, height) is LiveEdit previewed) return previewed;
+        if (Liquified(width, height) is LiveEdit liquified) return liquified;
+        if (MeshWarped(width, height) is LiveEdit meshed) return meshed;
         if (GradientLive() is LiveEdit gradient) return gradient;
         if (Distorted(width, height) is LiveEdit distorted) return distorted;
         if (Warped() is LiveEdit warped) return warped;
@@ -1426,6 +1436,20 @@ internal sealed partial class CanvasView : IDisposable
 
         if (DraftKey(key)) return true;
 
+        if (LiquifyKey(key) || MeshKey(key))
+        {
+            NeedsRedraw = true;
+            return true;
+        }
+
+        // Enter or Escape ends Skew, Distort or Perspective and brings back the plain handles.
+        if (key is Win32.VK_RETURN or Win32.VK_ESCAPE && !IsFloating && _handleMode != TransformHandleMode.Free)
+        {
+            _handleMode = TransformHandleMode.Free;
+            NeedsRedraw = true;
+            return true;
+        }
+
         if (key == Win32.VK_ESCAPE && _tool == CanvasTool.Shape && _shapeFrom is not null)
         {
             _shapeFrom = null;
@@ -1607,6 +1631,7 @@ internal sealed partial class CanvasView : IDisposable
 
         // A frame belongs to the Crop tool; leaving the tool drops it, as upstream's does.
         if (_tool != CanvasTool.Crop) _cropFrame = null;
+        if (_tool != CanvasTool.Move) LeaveTransformMode();
         NeedsRedraw = true;
         return true;
     }
@@ -1736,7 +1761,9 @@ internal sealed partial class CanvasView : IDisposable
     {
         get
         {
-            if (_document is null || !AutoScrolls) return false;
+            if (_document is null) return false;
+            if (LiquifyHolding) return true;
+            if (!AutoScrolls) return false;
             Point delta = AutoScrollDelta(_pointer);
             return delta.X != 0 || delta.Y != 0;
         }
@@ -1749,6 +1776,11 @@ internal sealed partial class CanvasView : IDisposable
     public bool AutoScrollTick(bool shift, bool alt, bool control)
     {
         if (!WantsAutoScroll) return false;
+        if (LiquifyHolding)
+        {
+            LiquifyTick();
+            return true;
+        }
         _viewport = _viewport.Translated(AutoScrollDelta(_pointer));
         PointerMoved(_pointer, shift, alt, control);
         NeedsRedraw = true;
@@ -1907,7 +1939,7 @@ internal sealed partial class CanvasView : IDisposable
             Original = box,
             Start = pixel,
             Mode = mode,
-            OriginalCorners = mode.Kind == TransformDragKind.Distort ? TransformDrag.CornersOf(box) : null,
+            OriginalCorners = mode.MovesCorners ? TransformDrag.CornersOf(box) : null,
         };
 
         _targets = TransformSnap.TargetsFor(_document, _chosen);
@@ -1941,11 +1973,15 @@ internal sealed partial class CanvasView : IDisposable
         if (clone is CloneSourceView under) DrawClonePreview(context, projection, under);
         DrawSelection(context, projection, fill, shadow, thickness);
         if (clone is CloneSourceView source) DrawCloneCrosshair(context, projection, source, fill, shadow, thickness);
+        DrawMesh(context, projection, fill, shadow, thickness);
+        DrawLiquifyBrush(context, projection, fill, shadow, thickness);
         DrawCrop(context, projection, fill, outline, thickness, half);
         DrawSampleRing(context);
 
         // Floating pixels always show their handles: they are there to be transformed.
-        if (_tool != CanvasTool.Move || Box() is not LayerTransform box || !ShowTransformControls && !IsFloating)
+        // The warp grid stands in for the box while it is up.
+        if (_tool != CanvasTool.Move || _meshWarp is not null || Box() is not LayerTransform box
+            || !ShowTransformControls && !IsFloating)
         {
             context.PopAxisAlignedClip();
         context.EndDraw().CheckError();
@@ -2305,6 +2341,8 @@ internal sealed partial class CanvasView : IDisposable
         _maskWorking?.Release();
         _cloneSample?.Release();
         ReleaseClonePreview();
+        _meshPreview?.Dispose();
+        _liquifyPreview?.Dispose();
         _preview?.Dispose();
         ReleaseSource();
         ReleaseComposite();

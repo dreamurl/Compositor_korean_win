@@ -125,7 +125,9 @@ internal sealed unsafe class Chrome : IDisposable
         _ui.Rule(new Point(0, bar.MaxY - 0.5), new Point(bar.MaxX, bar.MaxY - 0.5), Ui.Line);
 
         CanvasTool tool = _canvas.Tool;
-        string title = Localizer.Text(CanvasView.Name(tool));
+        string title = Localizer.Text(_canvas.Liquifying ? TextKey.HistoryLiquify
+                                      : _canvas.MeshWarping ? TextKey.HistoryWarp
+                                      : CanvasView.Name(tool));
         float titleWidth = _ui.Measure(title, Ui.TextSize.Title) + _ui.P(24);
         _ui.Text(title, new Rect(bar.X + _ui.P(14), bar.Y, titleWidth, bar.Height), Ui.Ink, Ui.TextSize.Title);
 
@@ -156,6 +158,18 @@ internal sealed unsafe class Chrome : IDisposable
             var area = new Rect(x, y, _ui.P(points), h);
             x += _ui.P(points + 18);
             return area;
+        }
+
+        // Liquify and the warp grid have bars of their own while they are open.
+        if (_canvas.Liquifying)
+        {
+            LiquifyControls(ref x, y, h, Next);
+            return;
+        }
+        if (_canvas.MeshWarping)
+        {
+            WarpControls(Next);
+            return;
         }
 
         switch (tool)
@@ -390,6 +404,9 @@ internal sealed unsafe class Chrome : IDisposable
             case CanvasTool.Move when _canvas.ActiveLayer is { } layer && (!layer.IsGroup || _canvas.TransformsMask)
                                       && _canvas.TransformTarget is LayerTransform t:
             {
+                // What the handles do: Edit › Transform's modes, reachable here without the menu.
+                TransformModeButton(Next(120));
+
                 // Upstream's TransformInspector: the chosen layer's placement — or an unlinked mask's,
                 // when that is the target — typed. Each number typed is one history step, as a drag is.
                 _ui.Check(Next(110), Localizer.Text(TextKey.LabelAutoSelect), _canvas.AutoSelect,
@@ -445,6 +462,113 @@ internal sealed unsafe class Chrome : IDisposable
                 break;
             }
         }
+    }
+
+    private static readonly (TransformHandleMode Mode, TextKey Label)[] HandleModes =
+    [
+        (TransformHandleMode.Free, TextKey.TransformModeFree),
+        (TransformHandleMode.Skew, TextKey.CommandTransformSkew),
+        (TransformHandleMode.Distort, TextKey.CommandTransformDistort),
+        (TransformHandleMode.Perspective, TextKey.CommandTransformPerspective),
+        (TransformHandleMode.Warp, TextKey.CommandTransformWarp),
+    ];
+
+    /// <summary>The Move tool's list of handle modes: a button naming the current one.</summary>
+    private void TransformModeButton(Rect area)
+    {
+        TransformHandleMode mode = _canvas.HandleMode;
+        // The menu's labels carry their access keys; the bar shows them plain.
+        static string Plain(TextKey label) => Localizer.Text(label).Replace("&", "", StringComparison.Ordinal)
+                                                  .Split('(')[0].Trim();
+
+        _ui.Fill(area, Ui.Raised);
+        _ui.Button(area, () =>
+        {
+            int picked = Popup([.. HandleModes.Select(entry => (Plain(entry.Label), entry.Mode == mode))]);
+            if (picked >= 0) _canvas.StartTransformMode(HandleModes[picked].Mode);
+        }, Localizer.Text(TextKey.LabelTransformMode));
+        string shown = Plain(HandleModes.First(entry => entry.Mode == mode).Label);
+        _ui.Text(shown, new Rect(area.X + _ui.P(8), area.Y, area.Width - _ui.P(24), area.Height), Ui.Ink);
+        _ui.Text("\u25BE", new Rect(area.MaxX - _ui.P(16), area.Y, _ui.P(12), area.Height), Ui.Dim);
+    }
+
+    /// <summary>A text button sized to its words.</summary>
+    private void WordButton(Func<double, Rect> next, TextKey label, Action click, bool primary = false)
+    {
+        string text = Localizer.Text(label);
+        Rect button = next(_ui.Measure(text) / _ui.Scale + 24);
+        if (!primary) _ui.Fill(button, Ui.Raised);
+        _ui.Button(button, click, null, label: text, primary: primary);
+    }
+
+    private static readonly (LiquifyTool Tool, TextKey Label)[] LiquifyBrushes =
+    [
+        (LiquifyTool.Forward, TextKey.LiquifyForward),
+        (LiquifyTool.Reconstruct, TextKey.LiquifyReconstruct),
+        (LiquifyTool.Twirl, TextKey.LiquifyTwirl),
+        (LiquifyTool.Pucker, TextKey.LiquifyPucker),
+        (LiquifyTool.Bloat, TextKey.LiquifyBloat),
+        (LiquifyTool.PushLeft, TextKey.LiquifyPushLeft),
+        (LiquifyTool.Freeze, TextKey.LiquifyFreeze),
+        (LiquifyTool.Thaw, TextKey.LiquifyThaw),
+    ];
+
+    /// <summary>Filter › Liquify's bar: the brushes, their size and pressure, Restore All, and OK or Cancel.</summary>
+    private void LiquifyControls(ref double x, double y, double h, Func<double, Rect> next)
+    {
+        LiquifyTool brush = _canvas.LiquifyBrush;
+        Segment(ref x, y, h, "",
+                [.. LiquifyBrushes.Select(entry => (Localizer.Text(entry.Label), entry.Tool == brush,
+                                                   (Action)(() => _canvas.LiquifyBrush = entry.Tool)))]);
+
+        double size = _canvas.LiquifySize;
+        _ui.Slider(next(180), Localizer.Text(TextKey.LabelSize), Math.Log(Math.Max(1, size)) / Math.Log(2000), Pixels(size),
+                   f => _canvas.LiquifySize = Math.Round(Math.Clamp(Math.Exp(f * Math.Log(2000)), 1, 2000)));
+        _ui.Slider(next(150), Localizer.Text(TextKey.LabelPressure), _canvas.LiquifyPressure, Percent(_canvas.LiquifyPressure),
+                   f => _canvas.LiquifyPressure = Math.Max(0.01, Math.Round(f, 2)));
+
+        WordButton(next, TextKey.ButtonRestoreAll, _canvas.ResetLiquify);
+        WordButton(next, TextKey.DialogCancel, () => _canvas.FinishLiquify(keep: false));
+        WordButton(next, TextKey.DialogOk, () => _canvas.FinishLiquify(keep: true), primary: true);
+    }
+
+    /// <summary>The warp grid's bar: a shape to start from, how far it bends, and OK or Cancel.</summary>
+    private void WarpControls(Func<double, Rect> next)
+    {
+        TextWarp style = _canvas.MeshStyle;
+        TextWarpStyle[] shapes = [.. Enum.GetValues<TextWarpStyle>().Where(shape => shape != TextWarpStyle.None)];
+        string Named(TextWarpStyle shape) =>
+            Localizer.Text(shape == TextWarpStyle.None ? TextKey.WarpCustom : TextWarpSheet.Name(shape));
+
+        string label = Localizer.Text(TextKey.LabelStyle);
+        Rect caption = next(_ui.Measure(label) / _ui.Scale + 4);
+        _ui.Text(label, caption, Ui.Dim);
+
+        Rect list = next(150);
+        _ui.Fill(list, Ui.Raised);
+        _ui.Button(list, () =>
+        {
+            int picked = Popup([(Named(TextWarpStyle.None), style.Style == TextWarpStyle.None),
+                                .. shapes.Select(shape => (Named(shape), shape == style.Style))],
+                               separatorsAfter: [0]);
+            if (picked == 0) _canvas.SetMeshStyle(new TextWarp());
+            else if (picked > 0) _canvas.SetMeshStyle(style with { Style = shapes[picked - 1] });
+        }, label);
+        _ui.Text(Named(style.Style), new Rect(list.X + _ui.P(8), list.Y, list.Width - _ui.P(24), list.Height), Ui.Ink);
+        _ui.Text("\u25BE", new Rect(list.MaxX - _ui.P(16), list.Y, _ui.P(12), list.Height), Ui.Dim);
+
+        if (style.Style != TextWarpStyle.None)
+        {
+            _ui.Slider(next(190), Localizer.Text(TextKey.LabelBend), (style.Bend + 100) / 200, $"{style.Bend:0}%",
+                       f => _canvas.SetMeshStyle(style with { Bend = Math.Round(f * 200 - 100) }));
+        }
+
+        WordButton(next, TextKey.DialogCancel, _canvas.CancelMeshWarp);
+        WordButton(next, TextKey.DialogOk, _canvas.CommitMeshWarp, primary: true);
+
+        string note = Localizer.Text(TextKey.NoteWarpGrid);
+        Rect noteArea = next(_ui.Measure(note) / _ui.Scale + 8);
+        _ui.Text(note, noteArea, Ui.Dim);
     }
 
     /// <summary>A labelled row of mutually exclusive buttons.</summary>
