@@ -217,7 +217,7 @@ public sealed partial class McpTools
                 }
 
                 EditorSession.Open open = Doc(arguments);
-                ImageLayer layer = Placed(open.Document, pixels, "Generated", arguments);
+                ImageLayer layer = Placed(open.Document, pixels, "Generated", arguments, sized: false);
                 ToolResult added = AddLayer(open, arguments, "Generate Image", layer, "generated image");
                 added.Content.Insert(0, ToolContent.Of($"Generated with {generator.Name}.{saved}"));
                 return added;

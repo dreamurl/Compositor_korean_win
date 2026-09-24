@@ -444,7 +444,11 @@ public sealed partial class McpTools
     }
 
     /// <summary>A picture's layer, sized and placed as the arguments ask.</summary>
-    private static ImageLayer Placed(CanvasDocument document, PixelBuffer pixels, string name, ToolArguments arguments)
+    /// <param name="sized">
+    /// Whether 'width' and 'height' place the picture. generate_image uses them for the size of the
+    /// picture it asks for, so its placement comes from 'fit' and x/y only.
+    /// </param>
+    private static ImageLayer Placed(CanvasDocument document, PixelBuffer pixels, string name, ToolArguments arguments, bool sized = true)
     {
         double width = pixels.Width, height = pixels.Height;
         string fit = arguments.String("fit") ?? "none";
@@ -460,7 +464,7 @@ public sealed partial class McpTools
             };
         }
 
-        double? givenWidth = arguments.Number("width"), givenHeight = arguments.Number("height");
+        double? givenWidth = sized ? arguments.Number("width") : null, givenHeight = sized ? arguments.Number("height") : null;
         if (givenWidth is double w && givenHeight is double h) (width, height) = (w, h);
         else if (givenWidth is double onlyWidth) (width, height) = (onlyWidth, height * onlyWidth / width);
         else if (givenHeight is double onlyHeight) (width, height) = (width * onlyHeight / height, onlyHeight);
