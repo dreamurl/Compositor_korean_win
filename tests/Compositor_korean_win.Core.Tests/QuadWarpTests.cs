@@ -230,6 +230,21 @@ public class QuadWarpTests
     }
 
     [Fact]
+    public void TheDistortPreviewCapsVeryLargeVisibleFrames()
+    {
+        using PixelBuffer pixels = RenderFixture.Gradient(64, 48);
+        ImageLayer layer = RenderFixture.Layer("large on screen", pixels);
+        using var preview = new DistortPreview(layer);
+        IReadOnlyList<Point> corners =
+            [new Point(0, 0), new Point(4000, 0), new Point(4000, 3000), new Point(0, 3000)];
+
+        LiveEdit? frame = preview.Frame(corners, CanvasProjection.Identity, 4000, 3000);
+
+        Assert.NotNull(frame);
+        Assert.InRange(preview.LastPixelsWarped, 1, 1_600_000);
+    }
+
+    [Fact]
     public void ADistortionOutOfViewStillStandsInForTheLayer()
     {
         using PixelBuffer pixels = RenderFixture.Solid(10, 10, 50, 100, 150);

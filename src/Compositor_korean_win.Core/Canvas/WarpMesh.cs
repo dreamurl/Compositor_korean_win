@@ -88,7 +88,8 @@ public sealed record WarpMesh
     {
         (double a0, double a1, double a2, double a3) = Weights(u);
         (double b0, double b1, double b2, double b3) = Weights(v);
-        double[] across = [a0, a1, a2, a3], down = [b0, b1, b2, b3];
+        Span<double> across = stackalloc double[] { a0, a1, a2, a3 };
+        Span<double> down = stackalloc double[] { b0, b1, b2, b3 };
         double x = 0, y = 0;
         for (int row = 0; row < Side; row++)
         {
@@ -213,7 +214,7 @@ public sealed record WarpMesh
     /// folds over itself the later triangle in reading order wins, in every band alike.
     /// </remarks>
     public static (PixelBuffer Pixels, PixelRect Box)? Draw(WarpMesh mesh, PixelBuffer source, Func<Point, Point> onto,
-                                                             PixelRect? clip = null)
+                                                             PixelRect? clip = null, int maximumCells = 96)
     {
         // Coarse first, to size the job: the triangles only need to be small on the output.
         Point[,] coarse = Tessellate(mesh, 8, onto);
@@ -232,9 +233,10 @@ public sealed record WarpMesh
         var extent = PixelRect.FromBounds((int)Math.Floor(minX - reach * 0.05) - 2, (int)Math.Floor(minY - reach * 0.05) - 2,
                                           (int)Math.Ceiling(maxX + reach * 0.05) + 2, (int)Math.Ceiling(maxY + reach * 0.05) + 2);
         if (clip is PixelRect within) extent = extent.Intersect(within);
-        if (extent.IsEmpty || (long)extent.Width * extent.Height > 300_000_000L) return null;
+        if (extent.IsEmpty || extent.Width > ProjectLimits.MaximumSide || extent.Height > ProjectLimits.MaximumSide
+                           || (long)extent.Width * extent.Height > ProjectLimits.MaximumPixels) return null;
 
-        int cells = Math.Clamp((int)Math.Ceiling(reach / 12), 12, 96);
+        int cells = Math.Clamp((int)Math.Ceiling(reach / 12), 12, Math.Clamp(maximumCells, 12, 96));
         Point[,] destination = Tessellate(mesh, cells, onto);
 
         // Every triangle, with where its corners read from in the source.
@@ -252,35 +254,51 @@ public sealed record WarpMesh
             }
         }
 
-        PixelBuffer result = PixelBuffer.Allocate(extent.Width, extent.Height);
         const int band = 32;
         int bands = (extent.Height + band - 1) / band;
-        Parallel.For(0, bands, b =>
+        var byBand = new List<(Point A, Point B, Point C, Point Sa, Point Sb, Point Sc)>[bands];
+        foreach ((Point a, Point b, Point c, Point sa, Point sb, Point sc) in triangles)
         {
-            int top = extent.Y + b * band, bottom = Math.Min(extent.Bottom, top + band);
-            foreach ((Point a, Point bb, Point c, Point sa, Point sb, Point sc) in triangles)
-            {
-                double tMinY = Math.Min(a.Y, Math.Min(bb.Y, c.Y)), tMaxY = Math.Max(a.Y, Math.Max(bb.Y, c.Y));
-                int y0 = Math.Max(top, (int)Math.Floor(tMinY - 0.5)), y1 = Math.Min(bottom - 1, (int)Math.Ceiling(tMaxY - 0.5));
-                if (y0 > y1) continue;
-                double tMinX = Math.Min(a.X, Math.Min(bb.X, c.X)), tMaxX = Math.Max(a.X, Math.Max(bb.X, c.X));
-                int x0 = Math.Max(extent.X, (int)Math.Floor(tMinX - 0.5)), x1 = Math.Min(extent.Right - 1, (int)Math.Ceiling(tMaxX - 0.5));
-                if (x0 > x1) continue;
+            int first = Math.Clamp(((int)Math.Floor(Math.Min(a.Y, Math.Min(b.Y, c.Y)) - 0.5) - extent.Y) / band, 0, bands - 1);
+            int last = Math.Clamp(((int)Math.Ceiling(Math.Max(a.Y, Math.Max(b.Y, c.Y)) - 0.5) - extent.Y) / band, 0, bands - 1);
+            for (int i = first; i <= last; i++) (byBand[i] ??= []).Add((a, b, c, sa, sb, sc));
+        }
 
-                for (int y = y0; y <= y1; y++)
+        PixelBuffer result = PixelBuffer.Allocate(extent.Width, extent.Height);
+        try
+        {
+            Parallel.For(0, bands, b =>
+            {
+                int top = extent.Y + b * band, bottom = Math.Min(extent.Bottom, top + band);
+                foreach ((Point a, Point bb, Point c, Point sa, Point sb, Point sc) in byBand[b] ?? [])
                 {
-                    Span<byte> row = result.Row(y - extent.Y);
-                    for (int x = x0; x <= x1; x++)
+                    double tMinY = Math.Min(a.Y, Math.Min(bb.Y, c.Y)), tMaxY = Math.Max(a.Y, Math.Max(bb.Y, c.Y));
+                    int y0 = Math.Max(top, (int)Math.Floor(tMinY - 0.5)), y1 = Math.Min(bottom - 1, (int)Math.Ceiling(tMaxY - 0.5));
+                    if (y0 > y1) continue;
+                    double tMinX = Math.Min(a.X, Math.Min(bb.X, c.X)), tMaxX = Math.Max(a.X, Math.Max(bb.X, c.X));
+                    int x0 = Math.Max(extent.X, (int)Math.Floor(tMinX - 0.5)), x1 = Math.Min(extent.Right - 1, (int)Math.Ceiling(tMaxX - 0.5));
+                    if (x0 > x1) continue;
+
+                    for (int y = y0; y <= y1; y++)
                     {
-                        if (!Inside(a, bb, c, new Point(x + 0.5, y + 0.5), out double w0, out double w1, out double w2)) continue;
-                        double px = sa.X * w0 + sb.X * w1 + sc.X * w2, py = sa.Y * w0 + sb.Y * w1 + sc.Y * w2;
-                        PixelSampling.Bilinear(source, px, py, row.Slice((x - extent.X) * 4, 4));
+                        Span<byte> row = result.Row(y - extent.Y);
+                        for (int x = x0; x <= x1; x++)
+                        {
+                            if (!Inside(a, bb, c, new Point(x + 0.5, y + 0.5), out double w0, out double w1, out double w2)) continue;
+                            double px = sa.X * w0 + sb.X * w1 + sc.X * w2, py = sa.Y * w0 + sb.Y * w1 + sc.Y * w2;
+                            PixelSampling.Bilinear(source, px, py, row.Slice((x - extent.X) * 4, 4));
+                        }
                     }
                 }
-            }
-        });
+            });
 
-        return (result, extent);
+            return (result, extent);
+        }
+        catch
+        {
+            result.Release();
+            throw;
+        }
     }
 
     /// <summary>
@@ -342,36 +360,45 @@ public sealed record WarpMesh
 
 /// <summary>
 /// A layer shown bent over a warp grid while the grid is being edited: the same drawing as the
-/// commit, run into the frame's pixels from the reduced level the size calls for.
+/// commit, run into a bounded number of frame pixels while the pointer is moving.
 /// </summary>
 public sealed class WarpPreview(ImageLayer layer) : IDisposable
 {
-    private readonly DownsamplePyramid _pyramid = new();
+    private const long PreviewPixelBudget = 1_500_000;
     private PixelBuffer? _last;
 
     public ImageLayer Layer { get; } = layer;
+
+    /// <summary>Pixels allocated for the last frame, for performance checks.</summary>
+    public long LastPixelsWarped { get; private set; }
 
     public LiveEdit? Frame(WarpMesh mesh, CanvasProjection projection, int width, int height)
     {
         if (Layer.Image is not PixelBuffer image) return null;
 
-        // The reduction the drawn size asks for, judged from the grid's corners on the surface.
-        Point a = projection.Apply(mesh[0, 0]), b = projection.Apply(mesh[0, 3]), c = projection.Apply(mesh[3, 0]);
-        double across = Math.Sqrt((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y));
-        double down = Math.Sqrt((c.X - a.X) * (c.X - a.X) + (c.Y - a.Y) * (c.Y - a.Y));
-        double factor = Math.Sqrt(Math.Max(1, across * down) / Math.Max(1, (double)image.Width * image.Height));
-        (PixelBuffer reduced, _) = _pyramid.Reduced(image, DownsamplePyramid.LevelFor(factor));
+        Point[] controls = [.. mesh.Points.Select(projection.Apply)];
+        double rasterScale = PreviewScale(controls, width, height);
+        Point Onto(Point point)
+        {
+            Point surface = projection.Apply(point);
+            return new Point(surface.X * rasterScale, surface.Y * rasterScale);
+        }
+        int rasterWidth = Math.Max(1, (int)Math.Ceiling(width * rasterScale));
+        int rasterHeight = Math.Max(1, (int)Math.Ceiling(height * rasterScale));
 
-        if (WarpMesh.Draw(mesh, reduced, projection.Apply, new PixelRect(0, 0, width, height))
+        // Sampling the original directly avoids building a full-image pyramid merely to show a
+        // small placed copy. The bounded surface buffer keeps interaction responsive; commit is full quality.
+        if (WarpMesh.Draw(mesh, image, Onto, new PixelRect(0, 0, rasterWidth, rasterHeight), maximumCells: 64)
             is not (PixelBuffer pixels, PixelRect box)) return null;
 
         _last?.Release();
         _last = pixels;
+        LastPixelsWarped = (long)pixels.Width * pixels.Height;
 
         // Back onto the document, where the compositor projects it again onto the same whole pixels.
         var onDocument = new LayerTransform(
-            projection.Invert(new Point(box.X, box.Y)),
-            new Size(box.Width / projection.Scale, box.Height / projection.Scale))
+            projection.Invert(new Point(box.X / rasterScale, box.Y / rasterScale)),
+            new Size(box.Width / rasterScale / projection.Scale, box.Height / rasterScale / projection.Scale))
         {
             Sampling = LayerSampling.Nearest,
         };
@@ -382,10 +409,20 @@ public sealed class WarpPreview(ImageLayer layer) : IDisposable
         return new LiveEdit(Layer.Id, new BufferSource(pixels) { Cacheable = false }) { Placement = onDocument, Mask = mask };
     }
 
+    private static double PreviewScale(IReadOnlyList<Point> controls, int width, int height)
+    {
+        Rect bounds = Rect.Around(controls);
+        double reach = Math.Max(bounds.Width, bounds.Height);
+        double margin = reach * 0.05 + 2;
+        double left = Math.Max(0, bounds.X - margin), top = Math.Max(0, bounds.Y - margin);
+        double right = Math.Min(width, bounds.MaxX + margin), bottom = Math.Min(height, bounds.MaxY + margin);
+        double pixels = Math.Max(1, right - left) * Math.Max(1, bottom - top);
+        return pixels <= PreviewPixelBudget ? 1 : Math.Sqrt(PreviewPixelBudget / pixels);
+    }
+
     public void Dispose()
     {
         _last?.Release();
         _last = null;
-        _pyramid.Dispose();
     }
 }

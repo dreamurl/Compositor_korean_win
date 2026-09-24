@@ -90,12 +90,25 @@ internal sealed partial class CanvasView
     public bool CanEdit => _document is not null && !IsFiltering && _drag is null && _stroke is null && _warp is null
                            && _floating is null && EditingText is null && _meshWarp is null && _liquify is null;
 
-    public bool CanUndo => CanEdit && _history.CanUndo;
+    public bool CanUndo => _liquify?.CanUndo == true || CanEdit && _history.CanUndo;
     public bool CanRedo => CanEdit && _history.CanRedo;
-    public string UndoName => _history.UndoName;
+    public string UndoName => _liquify?.CanUndo == true ? Localizer.Text(TextKey.HistoryLiquify) : _history.UndoName;
     public string RedoName => _history.RedoName;
 
-    public void Undo() => Restore(_history.Undo());
+    public void Undo()
+    {
+        if (_liquify is LiquifyField field)
+        {
+            if (field.Undo())
+            {
+                _liquifyLast = null;
+                _liquifyPendingView = null;
+                NeedsRedraw = true;
+            }
+            return;
+        }
+        Restore(_history.Undo());
+    }
 
     public void Redo() => Restore(_history.Redo());
 

@@ -75,7 +75,7 @@ public static class QuadWarp
     /// </remarks>
     public static (PixelBuffer Pixels, LayerTransform Placement)? Resample(
         PixelBuffer source, IReadOnlyList<Point> corners, DownsamplePyramid? pyramid = null,
-        PixelRect? clip = null)
+        PixelRect? clip = null, bool reduce = true)
     {
         if (!IsUsable(corners)) return null;
 
@@ -86,7 +86,8 @@ public static class QuadWarp
             if (box.IsEmpty) box = new PixelRect(within.X, within.Y, 1, 1);
         }
 
-        if (box.IsEmpty || (long)box.Width * box.Height > 300_000L * 300_000L) return null;
+        if (box.IsEmpty || box.Width > ProjectLimits.MaximumSide || box.Height > ProjectLimits.MaximumSide
+                        || (long)box.Width * box.Height > ProjectLimits.MaximumPixels) return null;
 
         double[] forward = Map(corners);
         double[]? inverse = Invert(forward);
@@ -95,7 +96,7 @@ public static class QuadWarp
         // How much of the source one destination pixel covers, taken over the whole shape.
         double area = Math.Abs(Area(corners));
         double factor = Math.Sqrt(area / Math.Max(1, (double)source.Width * source.Height));
-        int level = DownsamplePyramid.LevelFor(factor);
+        int level = reduce ? DownsamplePyramid.LevelFor(factor) : 0;
 
         PixelBuffer reduced = source;
         bool owned = false;
@@ -119,34 +120,41 @@ public static class QuadWarp
         }
 
         PixelBuffer result = PixelBuffer.Allocate(box.Width, box.Height);
-        Span<byte> pixel = stackalloc byte[4];
-
-        for (int y = 0; y < box.Height; y++)
+        try
         {
-            Span<byte> row = result.Row(y);
-
-            for (int x = 0; x < box.Width; x++)
+            Parallel.For(0, box.Height, y =>
             {
-                double destinationX = box.X + x + 0.5;
+                Span<byte> row = result.Row(y);
+                Span<byte> pixel = stackalloc byte[4];
                 double destinationY = box.Y + y + 0.5;
+                for (int x = 0; x < box.Width; x++)
+                {
+                    double destinationX = box.X + x + 0.5;
+                    double w = inverse[6] * destinationX + inverse[7] * destinationY + inverse[8];
+                    if (Math.Abs(w) < 1e-12) continue;
 
-                double w = inverse[6] * destinationX + inverse[7] * destinationY + inverse[8];
-                if (Math.Abs(w) < 1e-12) continue;
+                    double u = (inverse[0] * destinationX + inverse[1] * destinationY + inverse[2]) / w;
+                    double v = (inverse[3] * destinationX + inverse[4] * destinationY + inverse[5]) / w;
+                    if (u < 0 || u > 1 || v < 0 || v > 1) continue;
 
-                double u = (inverse[0] * destinationX + inverse[1] * destinationY + inverse[2]) / w;
-                double v = (inverse[3] * destinationX + inverse[4] * destinationY + inverse[5]) / w;
-                if (u < 0 || u > 1 || v < 0 || v > 1) continue;
+                    Sample(reduced, u * reduced.Width, v * reduced.Height, pixel);
+                    if (pixel[3] == 0) continue;
+                    pixel.CopyTo(row.Slice(x * 4, 4));
+                }
+            });
 
-                Sample(reduced, u * reduced.Width, v * reduced.Height, pixel);
-                if (pixel[3] == 0) continue;
-                pixel.CopyTo(row.Slice(x * 4, 4));
-            }
+            var placement = new LayerTransform(new Point(box.X, box.Y), new Size(box.Width, box.Height));
+            return (result, placement);
         }
-
-        if (owned) reduced.Release();
-
-        var placement = new LayerTransform(new Point(box.X, box.Y), new Size(box.Width, box.Height));
-        return (result, placement);
+        catch
+        {
+            result.Release();
+            throw;
+        }
+        finally
+        {
+            if (owned) reduced.Release();
+        }
     }
 
     /// <summary>
@@ -217,9 +225,10 @@ public static class QuadWarp
     /// show its edge.
     /// </summary>
     public static (PixelBuffer Pixels, LayerTransform Placement)? MaskInto(
-        PixelBuffer coverage, IReadOnlyList<Point> corners, byte? outside, DownsamplePyramid? pyramid, PixelRect? clip)
+        PixelBuffer coverage, IReadOnlyList<Point> corners, byte? outside, DownsamplePyramid? pyramid, PixelRect? clip,
+        bool reduce = true)
     {
-        if (Resample(coverage, corners, pyramid, clip) is not (PixelBuffer warped, LayerTransform placement)) return null;
+        if (Resample(coverage, corners, pyramid, clip, reduce) is not (PixelBuffer warped, LayerTransform placement)) return null;
         Opaque(warped, outside);
         return (warped, placement);
     }

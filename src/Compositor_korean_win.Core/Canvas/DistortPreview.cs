@@ -7,15 +7,16 @@ namespace Compositor_korean_win.Core;
 /// <para>
 /// Letting go resamples the layer into its corners once, at full size (<see cref="QuadWarp"/>).
 /// Until then the canvas used to show only the outline. Here the same resampling runs every frame,
-/// but into the frame's own pixels: the corners are carried onto the surface, the pyramid level is
-/// chosen from how large the shape is there, and only the part of it inside the window is filled.
+/// but into the frame's own pixels: the corners are carried onto the surface and only the part of
+/// it inside the window is filled. Large frames use a bounded interaction resolution and sample
+/// the original directly instead of first building full-image pyramid levels.
 /// So a frame of the drag costs at most the window, whatever the layer — the property M3 fixed for
 /// drawing and M5 for filter previews.
 /// </para>
 /// <para>
 /// The M3 notes put this on <c>D2D13DPerspectiveTransform</c> (docs/windows-port.md 10.4). Doing it with the
-/// resampler that commits the drag instead means the preview is the result, not an approximation of
-/// it, and both backends draw the same pixels (docs/progress.md 6).
+/// resampler that commits the drag keeps the two paths consistent. At ordinary window sizes the
+/// preview is exact; an unusually large frame is temporarily reduced while the pointer moves.
 /// </para>
 /// <para>
 /// A linked mask sharing the layer's grid is warped with the pixels into the same box every frame,
@@ -25,10 +26,9 @@ namespace Compositor_korean_win.Core;
 /// </remarks>
 public sealed class DistortPreview(ImageLayer layer) : IDisposable
 {
-    private readonly DownsamplePyramid _pyramid = new();
+    private const long PreviewPixelBudget = 1_500_000;
     private PixelBuffer? _last;
     private PixelBuffer? _lastMask;
-    private readonly DownsamplePyramid _maskPyramid = new();
 
     public ImageLayer Layer { get; } = layer;
 
@@ -44,8 +44,15 @@ public sealed class DistortPreview(ImageLayer layer) : IDisposable
         if (Layer.Image is not PixelBuffer image) return null;
 
         Point[] onSurface = [.. corners.Select(point => projection.Apply(point))];
+        double rasterScale = PreviewScale(onSurface, width, height);
+        Point[] rasterCorners = rasterScale == 1
+            ? onSurface
+            : [.. onSurface.Select(point => new Point(point.X * rasterScale, point.Y * rasterScale))];
+        int rasterWidth = Math.Max(1, (int)Math.Ceiling(width * rasterScale));
+        int rasterHeight = Math.Max(1, (int)Math.Ceiling(height * rasterScale));
         (PixelBuffer Pixels, LayerTransform Placement)? warped =
-            QuadWarp.Resample(image, onSurface, _pyramid, new PixelRect(0, 0, width, height));
+            QuadWarp.Resample(image, rasterCorners, null, new PixelRect(0, 0, rasterWidth, rasterHeight),
+                              reduce: false);
         if (warped is not (PixelBuffer pixels, LayerTransform placed)) return null;
 
         _last?.Release();
@@ -55,8 +62,9 @@ public sealed class DistortPreview(ImageLayer layer) : IDisposable
         // Back onto the document, where the compositor expects a placement; it projects it again,
         // landing on the same whole pixels, which is why nothing resamples them a second time.
         var onDocument = new LayerTransform(
-            projection.Invert(placed.Origin),
-            new Size(placed.Size.Width / projection.Scale, placed.Size.Height / projection.Scale))
+            projection.Invert(new Point(placed.Origin.X / rasterScale, placed.Origin.Y / rasterScale)),
+            new Size(placed.Size.Width / rasterScale / projection.Scale,
+                     placed.Size.Height / rasterScale / projection.Scale))
         {
             Sampling = LayerSampling.Nearest,
         };
@@ -73,13 +81,22 @@ public sealed class DistortPreview(ImageLayer layer) : IDisposable
             else
             {
                 _lastMask?.Release();
-                _lastMask = QuadWarp.MaskInto(owned.Coverage, onSurface, outside: null, _maskPyramid,
-                                              new PixelRect(0, 0, width, height))?.Pixels;
+                _lastMask = QuadWarp.MaskInto(owned.Coverage, rasterCorners, outside: null, null,
+                                              new PixelRect(0, 0, rasterWidth, rasterHeight), reduce: false)?.Pixels;
                 mask = _lastMask;
             }
         }
 
         return new LiveEdit(Layer.Id, new BufferSource(pixels) { Cacheable = false }) { Placement = onDocument, Mask = mask };
+    }
+
+    private static double PreviewScale(IReadOnlyList<Point> corners, int width, int height)
+    {
+        Rect bounds = Rect.Around(corners);
+        double left = Math.Max(0, bounds.X), top = Math.Max(0, bounds.Y);
+        double right = Math.Min(width, bounds.MaxX), bottom = Math.Min(height, bounds.MaxY);
+        double pixels = Math.Max(1, right - left) * Math.Max(1, bottom - top);
+        return pixels <= PreviewPixelBudget ? 1 : Math.Sqrt(PreviewPixelBudget / pixels);
     }
 
     public void Dispose()
@@ -88,7 +105,5 @@ public sealed class DistortPreview(ImageLayer layer) : IDisposable
         _last = null;
         _lastMask?.Release();
         _lastMask = null;
-        _pyramid.Dispose();
-        _maskPyramid.Dispose();
     }
 }

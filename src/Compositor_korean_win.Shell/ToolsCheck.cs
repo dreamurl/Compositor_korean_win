@@ -243,6 +243,9 @@ internal static class ToolsCheck
             canvas.SelectionMode = SelectionModeChoice.Replace;
             canvas.SelectionAntialiased = true;
 
+            Expect(canvas.Tool == CanvasTool.Move, "a new canvas did not start with the Move tool");
+            Expect(canvas.AutoSelect, "the Move tool's Auto Select option did not start on");
+            canvas.AutoSelect = false;
             canvas.AutoSelect = true;
             Expect(canvas.AutoSelect, "the Move tool did not retain Auto Select");
             canvas.AutoSelect = false;
@@ -665,6 +668,12 @@ internal static class ToolsCheck
             // Small against the check image, so the drag is many dab spacings long, and across the line.
             canvas.LiquifySize = 24;
             canvas.LiquifyPressure = 1;
+            canvas.PointerDown(Corner(0.5, 0.3), pan: false);
+            canvas.PointerMoved(Corner(0.5, 0.7), shift: false, alt: false, control: false);
+            canvas.PointerUp();
+            Expect(canvas.CanUndo, "a finished Liquify stroke did not enable Ctrl+Z");
+            menu.Run(CommandIds.Undo);
+            Expect(canvas.Liquifying && !canvas.CanUndo, "Ctrl+Z did not undo one Liquify stroke inside the session");
             canvas.PointerDown(Corner(0.5, 0.3), pan: false);
             canvas.PointerMoved(Corner(0.5, 0.7), shift: false, alt: false, control: false);
             canvas.PointerUp();

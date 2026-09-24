@@ -196,7 +196,7 @@ internal sealed partial class CanvasView : IDisposable
     public bool SelectionAntialiased { get; set; } = true;
 
     /// <summary>Whether the Move tool chooses the topmost layer under the pointer.</summary>
-    public bool AutoSelect { get; set; }
+    public bool AutoSelect { get; set; } = true;
 
     public CanvasView(GraphicsDevice device)
     {

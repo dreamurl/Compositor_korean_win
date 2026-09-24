@@ -365,6 +365,7 @@ internal sealed partial class CanvasView
     {
         if (_liquify is not LiquifyField field) return false;
         if (LiquifyPoint(view) is not Point at) return true;
+        field.BeginStroke();
         _liquifyLast = at;
         _liquifyPendingView = null;
         // Brushes that act where they stand take their first dab at once; the pushing ones need a move.
@@ -412,8 +413,9 @@ internal sealed partial class CanvasView
 
     private bool LiquifyPointerUp()
     {
-        if (_liquify is null) return false;
+        if (_liquify is not LiquifyField field) return false;
         FlushLiquifyPointer();
+        field.EndStroke();
         _liquifyLast = null;
         _liquifyPendingView = null;
         return true;

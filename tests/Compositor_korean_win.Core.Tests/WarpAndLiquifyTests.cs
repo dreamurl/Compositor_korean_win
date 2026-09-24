@@ -137,6 +137,22 @@ public class WarpAndLiquifyTests
         Assert.Equal(flat.Points, WarpMesh.Preset(box, new TextWarp()).Points);
     }
 
+    [Fact]
+    public void WarpPreviewCapsAFrameInsteadOfBuildingAFullImagePyramid()
+    {
+        using PixelBuffer pixels = Gradient(64, 48);
+        ImageLayer layer = Layer("large on screen", pixels, 0, 0) with
+        {
+            Transform = Box(0, 0, 4000, 3000),
+        };
+        using var preview = new WarpPreview(layer);
+
+        LiveEdit frame = preview.Frame(WarpMesh.Flat(layer.Transform), CanvasProjection.Identity, 4000, 3000)!;
+
+        Assert.NotNull(frame);
+        Assert.InRange(preview.LastPixelsWarped, 1, 1_600_000);
+    }
+
     // MARK: Liquify
 
     [Fact]
@@ -157,6 +173,28 @@ public class WarpAndLiquifyTests
         (double x, _) = field.Source(32, 32);
         Assert.True(x < 30, $"the centre reads from {x}");
         Assert.False(field.IsIdentity);
+    }
+
+    [Fact]
+    public void LiquifyUndoRestoresOnlyTheLatestStroke()
+    {
+        var field = new LiquifyField(64, 64);
+        field.BeginStroke();
+        field.Dab(LiquifyTool.Forward, new Point(20, 20), 12, 1, new Point(4, 0));
+        field.EndStroke();
+        double afterFirst = field.Source(20, 20).X;
+
+        field.BeginStroke();
+        field.Dab(LiquifyTool.Forward, new Point(44, 44), 12, 1, new Point(0, 5));
+        field.EndStroke();
+
+        Assert.True(field.CanUndo);
+        Assert.True(field.Undo());
+        Assert.Equal(afterFirst, field.Source(20, 20).X, 6);
+        Assert.Equal(44, field.Source(44, 44).Y, 6);
+        Assert.True(field.Undo());
+        Assert.True(field.IsIdentity);
+        Assert.False(field.CanUndo);
     }
 
     [Fact]

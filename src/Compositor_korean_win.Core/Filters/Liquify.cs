@@ -51,10 +51,25 @@ public enum LiquifyTool
 /// </remarks>
 public sealed class LiquifyField
 {
+    private const long UndoBudget = 64L * 1024 * 1024;
+
     private readonly float[] _dx, _dy, _frozen;
     private float[] _nextX = [];
     private float[] _nextY = [];
     private float[] _nextFrozen = [];
+    private readonly int[] _strokeMarks;
+    private int _strokeSerial;
+    private List<int>? _strokeIndices;
+    private List<float>? _strokeX;
+    private List<float>? _strokeY;
+    private List<float>? _strokeFrozen;
+    private readonly List<Change> _undo = [];
+    private long _undoBytes;
+
+    private sealed record Change(int[] Indices, float[] X, float[] Y, float[] Frozen)
+    {
+        public long Bytes => (long)Indices.Length * (sizeof(int) + sizeof(float) * 3);
+    }
 
     public LiquifyField(int width, int height)
     {
@@ -67,6 +82,7 @@ public sealed class LiquifyField
         _dx = new float[Columns * Rows];
         _dy = new float[Columns * Rows];
         _frozen = new float[Columns * Rows];
+        _strokeMarks = new int[Columns * Rows];
     }
 
     /// <summary>The layer's size in its own pixels.</summary>
@@ -98,6 +114,9 @@ public sealed class LiquifyField
     /// <summary>Counts every change, so a preview can tell whether it is still showing the field.</summary>
     public int Revision { get; private set; }
 
+    /// <summary>Whether the current or an earlier brush stroke can be taken back.</summary>
+    public bool CanUndo => _strokeIndices is { Count: > 0 } || _undo.Count > 0;
+
     private PixelRect _dirty;
 
     /// <summary>
@@ -118,15 +137,108 @@ public sealed class LiquifyField
                                                                Math.Max(_dirty.Right, area.Right), Math.Max(_dirty.Bottom, area.Bottom));
     }
 
+    /// <summary>Starts one undoable pointer stroke without copying the whole displacement field.</summary>
+    public void BeginStroke()
+    {
+        EndStroke();
+        if (_strokeSerial == int.MaxValue)
+        {
+            Array.Clear(_strokeMarks);
+            _strokeSerial = 1;
+        }
+        else
+        {
+            _strokeSerial++;
+        }
+        _strokeIndices = [];
+        _strokeX = [];
+        _strokeY = [];
+        _strokeFrozen = [];
+    }
+
+    /// <summary>Finishes the current stroke and keeps only a bounded sparse undo journal.</summary>
+    public void EndStroke()
+    {
+        if (_strokeIndices is not { Count: > 0 } indices)
+        {
+            _strokeIndices = null;
+            _strokeX = null;
+            _strokeY = null;
+            _strokeFrozen = null;
+            return;
+        }
+
+        var change = new Change([.. indices], [.. _strokeX!], [.. _strokeY!], [.. _strokeFrozen!]);
+        _undo.Add(change);
+        _undoBytes += change.Bytes;
+        while (_undo.Count > 1 && _undoBytes > UndoBudget)
+        {
+            _undoBytes -= _undo[0].Bytes;
+            _undo.RemoveAt(0);
+        }
+
+        _strokeIndices = null;
+        _strokeX = null;
+        _strokeY = null;
+        _strokeFrozen = null;
+    }
+
+    /// <summary>Takes back the latest pointer stroke or Restore All operation.</summary>
+    public bool Undo()
+    {
+        EndStroke();
+        if (_undo.Count == 0) return false;
+
+        Change change = _undo[^1];
+        _undo.RemoveAt(_undo.Count - 1);
+        _undoBytes -= change.Bytes;
+        int left = Columns, top = Rows, right = 0, bottom = 0;
+        for (int k = 0; k < change.Indices.Length; k++)
+        {
+            int i = change.Indices[k];
+            _dx[i] = change.X[k];
+            _dy[i] = change.Y[k];
+            _frozen[i] = change.Frozen[k];
+            int row = i / Columns, column = i % Columns;
+            left = Math.Min(left, column);
+            right = Math.Max(right, column);
+            top = Math.Min(top, row);
+            bottom = Math.Max(bottom, row);
+        }
+
+        HasFrozen = Array.Exists(_frozen, value => value > 0);
+        Changed(PixelRect.FromBounds((left - 1) * Step, (top - 1) * Step,
+                                     (right + 1) * Step + 1, (bottom + 1) * Step + 1)
+                         .Intersect(new PixelRect(0, 0, Width, Height)));
+        return true;
+    }
+
+    private void Remember(int index)
+    {
+        if (_strokeIndices is null || _strokeMarks[index] == _strokeSerial) return;
+        _strokeMarks[index] = _strokeSerial;
+        _strokeIndices.Add(index);
+        _strokeX!.Add(_dx[index]);
+        _strokeY!.Add(_dy[index]);
+        _strokeFrozen!.Add(_frozen[index]);
+    }
+
     /// <summary>Everything back to how it began, frozen parts excepted — Photoshop's Restore All.</summary>
     public void Reset()
     {
+        BeginStroke();
         for (int i = 0; i < _dx.Length; i++)
         {
             float keep = _frozen[i];
-            _dx[i] *= keep;
-            _dy[i] *= keep;
+            float x = _dx[i] * keep, y = _dy[i] * keep;
+            if (_dx[i] != x || _dy[i] != y)
+            {
+                Remember(i);
+                _dx[i] = x;
+                _dy[i] = y;
+            }
         }
+        EndStroke();
         Changed(new PixelRect(0, 0, Width, Height));
     }
 
@@ -258,6 +370,7 @@ public sealed class LiquifyField
             for (int column = left; column <= right; column++)
             {
                 int i = row * Columns + column, k = (row - top) * span + (column - left);
+                if (_dx[i] != _nextX[k] || _dy[i] != _nextY[k] || _frozen[i] != _nextFrozen[k]) Remember(i);
                 _dx[i] = _nextX[k];
                 _dy[i] = _nextY[k];
                 _frozen[i] = _nextFrozen[k];
