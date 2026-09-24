@@ -299,7 +299,7 @@ public sealed partial class McpTools
                 Guid merged = Guid.Empty;
                 _session.Edit(open, "Merge Layers", document =>
                 {
-                    MergePlan plan = LayerCommands.PlanMerge(document, ids, ids.LastOrDefault()) ?? throw new ToolException("Those layers cannot be merged.");
+                    LayerCommands.MergePlan plan = LayerCommands.PlanMerge(document, ids, ids.LastOrDefault()) ?? throw new ToolException("Those layers cannot be merged.");
                     (CanvasDocument next, Guid layer) = LayerCommands.Merge(document, plan) ?? throw new ToolException("Those layers cannot be merged.");
                     merged = layer;
                     return next;
