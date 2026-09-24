@@ -508,7 +508,11 @@ internal sealed class Ui : IDisposable
     private void Tooltip(string text, Point at)
     {
         float width = Measure(text, TextSize.Small) + P(12), height = P(22);
-        double x = Math.Max(0, at.X + P(14)), y = at.Y + P(18);
+        // Kept inside the window: the Layers panel sits against its right edge, so a tip opening to
+        // the right of the pointer there was cut off mid-word. Near the bottom it opens above.
+        Vortice.Mathematics.SizeI window = Context.PixelSize;
+        double x = Math.Max(0, Math.Min(at.X + P(14), window.Width - width - P(4)));
+        double y = at.Y + P(18) + height > window.Height ? at.Y - height - P(6) : at.Y + P(18);
         var area = new Rect(x, y, width, height);
         Fill(area, new Color4(0.08f, 0.08f, 0.09f, 0.96f));
         Frame(area, Raised);
