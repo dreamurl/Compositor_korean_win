@@ -470,7 +470,6 @@ public enum TextKey
     StrokeInside,
     StrokeCenter,
     LabelColour,
-    LabelBlendMode,
 }
 
 /// <summary>
@@ -922,7 +921,6 @@ public static class TextTable
         (TextKey.StrokeInside, "Inside", "안쪽"),
         (TextKey.StrokeCenter, "Center", "가운데"),
         (TextKey.LabelColour, "Color", "색상"),
-        (TextKey.LabelBlendMode, "Blend Mode", "혼합 모드"),
     ];
 
     /// <summary>Phrases that are the same in both languages on purpose — names, not words.</summary>
