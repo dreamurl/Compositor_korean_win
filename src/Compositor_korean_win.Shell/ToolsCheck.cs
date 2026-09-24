@@ -169,7 +169,7 @@ internal static class ToolsCheck
                 canvas.BlurMode = mode;
                 canvas.Brush = canvas.Brush with { Diameter = Math.Max(8, h / 6), Hardness = 0.5, Opacity = 1 };
                 PixelBuffer before = canvas.Document!.Layer(id)!.Image!;
-                string undoBefore = canvas.UndoName;
+                string undoBeforeStroke = canvas.UndoName;
                 Drag(w * 0.3, w * 0.7, h * 0.5);
                 PixelBuffer after = canvas.Document!.Layer(id)!.Image!;
                 Expect(!ReferenceEquals(before, after), $"{mode} did not change the layer");
@@ -486,12 +486,12 @@ internal static class ToolsCheck
             // Escape mid-stroke leaves the layer and the history as they were.
             canvas.SetTool(CanvasTool.Brush);
             ImageLayer unpainted = canvas.ActiveLayer!;
-            string undoBefore = canvas.UndoName;
+            string undoBeforeStroke = canvas.UndoName;
             canvas.PointerDown(Corner(0.3, 0.3), pan: false);
             canvas.PointerMoved(Corner(0.6, 0.6), shift: false, alt: false, control: false);
             canvas.Key(Win32.VK_ESCAPE, control: false);
             canvas.PointerUp();
-            Expect(ReferenceEquals(canvas.ActiveLayer!.Image, unpainted.Image) && canvas.UndoName == undoBefore,
+            Expect(ReferenceEquals(canvas.ActiveLayer!.Image, unpainted.Image) && canvas.UndoName == undoBeforeStroke,
                    "Escape mid-stroke left paint or a history step behind");
 
             Point snapped = CanvasView.SnappedToEighths(new Point(10, 1), Point.Zero);
