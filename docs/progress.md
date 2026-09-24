@@ -3,7 +3,7 @@
 설계는 [`windows-port.md`](windows-port.md)에 있다. 이 문서는 **무엇을 어디까지 만들었고,
 왜 그렇게 했으며, 무엇을 일부러 남겼는지**를 마일스톤 단위로 적은 기록이다.
 
-마지막 갱신: 2026-09-24 (텍스트·도형·레이어 효과 추가, 13절)
+마지막 갱신: 2026-09-24 (PSD 가져오기·내보내기, 14절)
 
 ---
 
@@ -21,12 +21,13 @@
 | M7 AI | ✅ | 배경 제거(BiRefNet-lite, ONNX Runtime+DirectML), 포함판/미포함판 — 8절 |
 | M8 배포 | ✅ | 설치 파일 2종(사용자별, 완전 제거), 업데이트 확인, 태그→릴리스 자동화 — 9절 |
 | 후속: 텍스트·도형·효과 | ✅ CI / 실사용 확인 남음 | 문자 도구, 뒤틀기 15종, 다각형·별·선·외곽선, 레이어 스타일 — 13절 |
+| 후속: PSD | ✅ CI / Photoshop에서 열어 보기 남음 | PSD·PSB 열기, PSD 저장·내보내기, 누락 알림 — 14절 |
 
 **측정치**(CI 최신 실행 기준)
 
 | 항목 | 값 |
 |---|---|
-| Core 테스트 | 545개 통과 |
+| Core 테스트 | 624개 통과 (PSD 79개 포함) |
 | 셸 도구 자체검사 | 45개 통과 (일반판·AI 포함판) |
 | 단일 exe | 미포함판 7.30 MiB, AI 포함판 7.81 MiB (M0 시점 2.63 MB) |
 | 프로세스 생성 → 첫 프레임 | 64 ms (AI 포함판) |
@@ -52,6 +53,7 @@ Core (플랫폼 무관, System.* 와 C 커널만 참조 — 테스트 전부 여
 ├─ Document/               CanvasDocument, ImageLayer, LayerTransform, LayerMask
 ├─ Adjustments/            Levels·Curves·HueSat·Exposure·GradientMap·Grain (설정만, 적용은 M5)
 ├─ Format/                 .comp v1~7 리더/라이터, 검증
+│   └─ Psd/                PSD·PSB 읽기, PSD 쓰기                          ← 14절
 ├─ History/                DocumentHistory (값 스냅샷, 픽셀 참조 공유)
 ├─ Rendering/
 │   ├─ RenderBackend.cs    IRenderBackend / IRenderSurface / IPixelSource
@@ -1151,7 +1153,8 @@ Alt+Space 시스템 메뉴 차단, 확대율 칸 직접 입력, 브러시 우클
 | 묶음 | 상태 | 커밋 |
 |---|---|---|
 | Core: PSD/PSB 읽기, PSD 쓰기, 테스트 | 완료 | `84b85da` |
-| 셸: 열기·끌어다 놓기, 다른 이름으로 저장, PSD로 내보내기, 누락 알림, 자체검사 | 완료 | `60b84d8` |
+| 셸: 열기·끌어다 놓기, 다른 이름으로 저장, PSD로 내보내기, 누락 알림, 자체검사 | 완료 | `60b84d8`, `87f3c70` |
+| CI 전체 통과 (Core 624개, psd-tools 검사, 셸 자체검사, 설치 파일) | 완료 (`CI 35956427894`) | — |
 | 실제 Photoshop에서 우리가 쓴 PSD 열어 보기 | **남음** (14.6) | — |
 
 ### 14.2 무엇이 어떻게 옮겨지나
