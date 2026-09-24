@@ -279,6 +279,9 @@ internal static class SelfTest
         if (exePath is not null && File.Exists(exePath)) exeBytes = new FileInfo(exePath).Length;
 
         image.Release();
+        // Layer effects keep what they drew in a process-wide cache so a redraw does not rebuild
+        // them; those buffers are held on purpose, not leaked, so they go before the count.
+        EffectRendering.ClearCache();
         if (PixelBuffer.LiveCount != 0)
             failures.Add($"{PixelBuffer.LiveCount} pixel buffers leaked");
 
