@@ -51,6 +51,8 @@ internal static class ToolsCheck
 
         try
         {
+            Expect(canvas.Tool == CanvasTool.Move, "a new canvas did not start with the Move tool");
+            Expect(canvas.AutoSelect, "the Move tool's Auto Select option did not start on");
             canvas.Open(DocumentFiles.FromImage(PixelRegion.Copy(image, new PixelRect(0, 0, image.Width, image.Height)), "photo"),
                         path: null, "photo");
             canvas.ChooseTopImageLayer();
@@ -243,8 +245,6 @@ internal static class ToolsCheck
             canvas.SelectionMode = SelectionModeChoice.Replace;
             canvas.SelectionAntialiased = true;
 
-            Expect(canvas.Tool == CanvasTool.Move, "a new canvas did not start with the Move tool");
-            Expect(canvas.AutoSelect, "the Move tool's Auto Select option did not start on");
             canvas.AutoSelect = false;
             canvas.AutoSelect = true;
             Expect(canvas.AutoSelect, "the Move tool did not retain Auto Select");
