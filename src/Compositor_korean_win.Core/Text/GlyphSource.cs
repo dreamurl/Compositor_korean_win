@@ -40,4 +40,10 @@ public interface IGlyphSource
     FontMetricsEm Metrics(TextFace face);
 
     GlyphShape Glyph(TextFace face, int codepoint);
+
+    /// <summary>
+    /// The font's own kerning between two characters, in ems — Photoshop's "Metrics" kerning. A
+    /// source without kerning, or a pair drawn from a fallback font, gives 0.
+    /// </summary>
+    double Kerning(TextFace face, int left, int right) => 0;
 }

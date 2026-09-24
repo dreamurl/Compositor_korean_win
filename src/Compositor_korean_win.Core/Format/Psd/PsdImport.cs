@@ -7,6 +7,9 @@ public sealed class PsdImportResult
 
     /// <summary>How many times each kind of loss happened; empty when the file came across whole.</summary>
     public required IReadOnlyDictionary<PsdNote, int> Notes { get; init; }
+
+    /// <summary>Families the type asks for that are not installed, so the person knows what to install.</summary>
+    public IReadOnlyList<string> MissingFonts { get; init; } = [];
 }
 
 /// <summary>
@@ -21,8 +24,10 @@ public sealed class PsdImportResult
 /// drop shadow, outer glow and stroke become its layer effects.
 /// </para>
 /// <para>
-/// Type, smart objects and shape layers arrive as the pixels Photoshop last drew for them, which
-/// every PSD stores for exactly this purpose. What cannot be carried — a blend mode or an
+/// Point type arrives as this editor's text over the pixels Photoshop drew for it, so it looks the
+/// same until the words are changed and is set again from then on (<see cref="PsdType"/>). Box
+/// type, turned type, smart objects and shape layers arrive as the pixels Photoshop last drew for
+/// them, which every PSD stores for exactly this purpose. What cannot be carried — a blend mode or an
 /// adjustment this editor lacks, an effect it does not draw — is counted in
 /// <see cref="PsdImportResult.Notes"/> so the person is told, and the rest of the document still
 /// opens: refusing a whole file over one Soft Light layer would help no one.
@@ -35,9 +40,17 @@ public sealed class PsdImportResult
 /// </remarks>
 public static class PsdImport
 {
-    public static PsdImportResult Read(byte[] data) => new Importer(PsdFile.Read(data)).Run();
+    public static PsdImportResult Read(byte[] data) => Read(data, null);
 
-    public static PsdImportResult Read(string path) => Read(File.ReadAllBytes(path));
+    /// <param name="installedFamilies">
+    /// The font families installed, by English name, for finding the ones the type names; null to
+    /// guess every family from its PostScript name.
+    /// </param>
+    public static PsdImportResult Read(byte[] data, IReadOnlyCollection<string>? installedFamilies) =>
+        new Importer(PsdFile.Read(data), installedFamilies).Run();
+
+    public static PsdImportResult Read(string path, IReadOnlyCollection<string>? installedFamilies = null) =>
+        Read(File.ReadAllBytes(path), installedFamilies);
 
     /// <summary>Whether <paramref name="start"/> begins a PSD or PSB, whatever the file is called.</summary>
     public static bool IsPsd(ReadOnlySpan<byte> start) => PsdFile.LooksLikePsd(start);
@@ -49,7 +62,7 @@ public static class PsdImport
     public static PixelBuffer Composite(byte[] data)
     {
         PsdFile file = PsdFile.Read(data);
-        return new Importer(file).Flattened();
+        return new Importer(file, null).Flattened();
     }
 
     private sealed class Node
@@ -58,9 +71,10 @@ public static class PsdImport
         public List<Node>? Children { get; init; }
     }
 
-    private sealed class Importer(PsdFile file)
+    private sealed class Importer(PsdFile file, IReadOnlyCollection<string>? families)
     {
         private readonly Dictionary<PsdNote, int> _notes = [];
+        private readonly SortedSet<string> _missingFonts = new(StringComparer.OrdinalIgnoreCase);
         private List<ImageLayer> _layers = [];
         private readonly LayerTransform _canvas = new(Point.Zero, new Size(file.Width, file.Height));
 
@@ -99,7 +113,7 @@ public static class PsdImport
                 // PSD can never put the editor in a state its own format would refuse.
                 ManifestValidator.Validate(ProjectMapping.ToSnapshot(document, activeLayerId: null).Manifest);
 
-                return new PsdImportResult { Document = document, Notes = _notes };
+                return new PsdImportResult { Document = document, Notes = _notes, MissingFonts = [.. _missingFonts] };
             }
             catch
             {
@@ -252,7 +266,7 @@ public static class PsdImport
                 return null;
             }
 
-            if (record.Blocks.ContainsKey("TySh") || record.Blocks.ContainsKey("tySh")) Note(PsdNote.TypeRasterized);
+            bool typed = record.Blocks.ContainsKey("TySh") || record.Blocks.ContainsKey("tySh");
             if (record.Blocks.ContainsKey("SoLd") || record.Blocks.ContainsKey("PlLd") || record.Blocks.ContainsKey("SoLE"))
                 Note(PsdNote.SmartObjectRasterized);
 
@@ -266,6 +280,10 @@ public static class PsdImport
             LayerTransform placement = _canvas;
             if (pixels is { } found)
                 placement = new LayerTransform(new Point(found.Box.X, found.Box.Y), new Size(found.Box.Width, found.Box.Height));
+
+            LayerText? text = typed ? TypeLayer(record, pixels) : null;
+            if (typed && text is null) Note(PsdNote.TypeRasterized);
+
             var made = new ImageLayer
             {
                 Id = Guid.NewGuid(),
@@ -278,9 +296,52 @@ public static class PsdImport
                 BlendMode = Blend(record.BlendKey),
                 Mask = Mask(record, pixels?.Box),
                 Effects = PsdEffects.Read(file, record, Note),
+                Text = text,
             };
             _layers.Add(made);
             return made;
+        }
+
+        /// <summary>
+        /// A type layer as live text over Photoshop's own pixels — it looks exactly as it did until
+        /// the words change — or null to keep it as pixels.
+        /// </summary>
+        private LayerText? TypeLayer(PsdLayerRecord record, (PixelBuffer Pixels, PixelRect Box)? pixels)
+        {
+            // Fill opacity is multiplied into the pixels (see Pixels); set again, the words would lose it.
+            if (pixels is not (PixelBuffer image, PixelRect box) || Fill(record) != 255) return null;
+            if (file.Block(record, "TySh") is not PsdReader block) return null;
+
+            PsdTypeLayer? type;
+            try
+            {
+                type = PsdType.Read(block);
+            }
+            catch (ProjectException)
+            {
+                return null;
+            }
+            if (type is null || string.IsNullOrWhiteSpace(type.PostScriptName)) return null;
+
+            TextFace face = PsdFonts.Resolve(type.PostScriptName, families, out bool installed);
+            if (!installed)
+            {
+                Note(PsdNote.FontMissing);
+                _missingFonts.Add(face.Family);
+            }
+            if (type.Simplified) Note(PsdNote.TypeSimplified);
+
+            LayerText text = type.Text with
+            {
+                Font = face.Family,
+                Weight = Math.Max(type.Text.Weight, face.Weight),
+                Italic = type.Text.Italic || face.Italic,
+                // The anchor is kept in the raster's own pixels; Photoshop's origin is on the document.
+                AnchorX = type.AnchorX - box.X,
+                AnchorY = type.AnchorY - box.Y,
+                Rendered = image,
+            };
+            return text.IsValid ? text : null;
         }
 
         private string Name(PsdLayerRecord record)

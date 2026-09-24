@@ -536,6 +536,11 @@ public enum TextKey
     TransformModeFree,
     NoteWarpGrid,
     NoteLiquify,
+
+    // PSD type opened as editable text.
+    PsdNoteTypeSimplified,
+    PsdNoteFontMissing,
+    PsdMissingFontNames,
 }
 
 /// <summary>
@@ -1049,6 +1054,10 @@ public static class TextTable
         (TextKey.TransformModeFree, "Scale and Rotate", "크기·회전"),
         (TextKey.NoteWarpGrid, "Drag the grid's points or the picture itself. Enter applies, Esc cancels.", "격자의 점이나 그림을 끌어 모양을 바꿉니다. Enter로 적용, Esc로 취소합니다."),
         (TextKey.NoteLiquify, "Alt turns Twirl the other way.", "Alt를 누르면 반대로 돌립니다."),
+
+        (TextKey.PsdNoteTypeSimplified, "Text layers opened in a single style (mixed styles or settings merged): {0}", "한 가지 서식으로 연 문자 레이어(글자별 서식이나 일부 설정을 합침): {0}개"),
+        (TextKey.PsdNoteFontMissing, "Text layers in fonts that are not installed (shown as saved; edits use a substitute): {0}", "PC에 없는 글꼴을 쓰는 문자 레이어(저장된 모습 그대로 보이고, 고치면 대체 글꼴로 그림): {0}개"),
+        (TextKey.PsdMissingFontNames, "Not installed: {0}", "설치되지 않은 글꼴: {0}"),
     ];
 
     /// <summary>Phrases that are the same in both languages on purpose — names, not words.</summary>

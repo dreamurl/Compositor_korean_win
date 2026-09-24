@@ -145,11 +145,12 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
             }
             else if (IsPsd(path))
             {
-                PsdImportResult opened = PsdImport.Read(path);
+                // The installed families by English name, so the type finds its fonts.
+                PsdImportResult opened = PsdImport.Read(path, [.. DirectWriteGlyphs.Shared.Families(korean: false).Select(f => f.Name)]);
                 // A PSD is saved back where it came from; a PSB is not, as only PSDs are written.
                 bool writable = string.Equals(Path.GetExtension(path), ".psd", StringComparison.OrdinalIgnoreCase);
                 canvas.Open(opened.Document, writable ? path : null, Path.GetFileNameWithoutExtension(path));
-                ShowNotes(opened.Notes, TextKey.PsdNotesOpened, path);
+                ShowNotes(opened.Notes, TextKey.PsdNotesOpened, path, opened.MissingFonts);
             }
             else
             {
@@ -345,13 +346,16 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
     /// Tells the person what a PSD could not carry exactly, in one message; nothing when all of it
     /// came across. The self-test only logs it.
     /// </summary>
-    private void ShowNotes(IReadOnlyDictionary<PsdNote, int> notes, TextKey header, string path)
+    private void ShowNotes(IReadOnlyDictionary<PsdNote, int> notes, TextKey header, string path,
+                           IReadOnlyList<string>? missingFonts = null)
     {
         if (notes.Count == 0) return;
 
         var lines = new List<string> { Localizer.Format(header, Path.GetFileName(path)), string.Empty };
         foreach ((PsdNote note, int count) in notes.OrderBy(pair => pair.Key))
             lines.Add("• " + Localizer.Format(NoteText(note), count));
+        if (missingFonts is { Count: > 0 })
+            lines.Add("   " + Localizer.Format(TextKey.PsdMissingFontNames, string.Join(", ", missingFonts)));
         string message = string.Join("\n", lines);
 
         Console.Error.WriteLine(message);
@@ -366,6 +370,8 @@ internal sealed unsafe class DocumentFiles(nint owner, CanvasView canvas, Format
         PsdNote.EffectDropped => TextKey.PsdNoteEffectDropped,
         PsdNote.EffectSimplified => TextKey.PsdNoteEffectSimplified,
         PsdNote.TypeRasterized => TextKey.PsdNoteTypeRasterized,
+        PsdNote.TypeSimplified => TextKey.PsdNoteTypeSimplified,
+        PsdNote.FontMissing => TextKey.PsdNoteFontMissing,
         PsdNote.SmartObjectRasterized => TextKey.PsdNoteSmartObjectRasterized,
         PsdNote.VectorMaskDropped => TextKey.PsdNoteVectorMaskDropped,
         PsdNote.MaskParametersDropped => TextKey.PsdNoteMaskParametersDropped,

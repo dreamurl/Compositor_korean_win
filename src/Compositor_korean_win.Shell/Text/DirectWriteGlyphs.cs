@@ -210,6 +210,62 @@ internal sealed unsafe class DirectWriteGlyphs : IGlyphSource, IDisposable
         return new GlyphShape(advance, result >= 0 ? collector.Figures : []);
     }
 
+    private readonly Dictionary<nint, FontKerning?> _kerning = [];
+    private readonly Dictionary<(nint, int), ushort> _indices = [];
+
+    /// <summary>
+    /// The face's own pair kerning (GPOS <c>kern</c>, or the old <c>kern</c> table) between two
+    /// characters, in ems. A character the face lacks is drawn from a fallback font, which the pair
+    /// table knows nothing of, so it kerns by nothing.
+    /// </summary>
+    public double Kerning(TextFace face, int left, int right)
+    {
+        if (Resolve(face) is not Face resolved) return 0;
+        ushort first = GlyphIndex(resolved, left), second = GlyphIndex(resolved, right);
+        if (first == 0 || second == 0) return 0;
+
+        if (!_kerning.TryGetValue(resolved.Pointer, out FontKerning? kerning))
+        {
+            kerning = FontKerning.Read(Table(resolved.Pointer, "GPOS"), Table(resolved.Pointer, "kern"), resolved.UnitsPerEm);
+            _kerning[resolved.Pointer] = kerning;
+        }
+        return kerning?.Pair(first, second) ?? 0;
+    }
+
+    private ushort GlyphIndex(Face face, int codepoint)
+    {
+        if (_indices.TryGetValue((face.Pointer, codepoint), out ushort known)) return known;
+        uint point = (uint)codepoint;
+        ushort index = 0;
+        int result = ((delegate* unmanaged[Stdcall]<nint, uint*, uint, ushort*, int>)Slot(face.Pointer, 11))(
+            face.Pointer, &point, 1, &index);
+        if (result < 0) index = 0;
+        _indices[(face.Pointer, codepoint)] = index;
+        return index;
+    }
+
+    /// <summary>A whole OpenType table of the face, copied out; empty when the font has none.</summary>
+    private static byte[] Table(nint fontFace, string tag)
+    {
+        // DWRITE_MAKE_OPENTYPE_TAG: the first letter in the low byte.
+        uint code = (uint)(tag[0] | tag[1] << 8 | tag[2] << 16 | tag[3] << 24);
+        void* data;
+        uint size;
+        void* context;
+        int exists;
+        int result = ((delegate* unmanaged[Stdcall]<nint, uint, void**, uint*, void**, int*, int>)Slot(fontFace, 12))(
+            fontFace, code, &data, &size, &context, &exists);
+        if (result < 0 || exists == 0 || data == null) return [];
+        try
+        {
+            return new ReadOnlySpan<byte>(data, (int)size).ToArray();
+        }
+        finally
+        {
+            ((delegate* unmanaged[Stdcall]<nint, void*, void>)Slot(fontFace, 13))(fontFace, context);
+        }
+    }
+
     /// <summary>A family, weight and slant made into a font face — or null when no such family is installed.</summary>
     private Face? Resolve(TextFace face)
     {

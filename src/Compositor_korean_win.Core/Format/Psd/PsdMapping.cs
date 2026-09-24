@@ -18,6 +18,10 @@ public enum PsdNote
     EffectSimplified,
     /// <summary>Type kept as the pixels Photoshop last drew for it; the words are no longer editable.</summary>
     TypeRasterized,
+    /// <summary>Type whose runs differed, or used a setting this editor lacks, opened as editable text in one style.</summary>
+    TypeSimplified,
+    /// <summary>Type in a font that is not installed; it shows as Photoshop drew it until the words are changed.</summary>
+    FontMissing,
     /// <summary>A smart object kept as the pixels Photoshop last drew for it.</summary>
     SmartObjectRasterized,
     /// <summary>A vector mask on a layer whose pixels do not already carry it; left out.</summary>

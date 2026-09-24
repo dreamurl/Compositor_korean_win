@@ -164,13 +164,58 @@ public sealed class PsdTests
     }
 
     [Fact]
-    public void TypeAndSmartObjectsArriveAsTheirPixels()
+    public void PointTypeArrivesAsEditableTextOverPhotoshopsPixels()
     {
         using var type = Open("text.psd");
-        using var placed = Open("placedLayer.psd");
+        ImageLayer layer = type.Document.Layers[1];
 
-        Assert.NotNull(type.Document.Layers[1].Image);
-        Assert.True(type.Notes.ContainsKey(PsdNote.TypeRasterized));
+        // Live text whose raster is still the one Photoshop drew, so it looks the same until edited.
+        Assert.True(layer.IsLiveText, "the type did not come in as text");
+        LayerText text = layer.Text!;
+        Assert.Equal("Line 1\nLine 2\nLine 3 and text", text.Text);
+        Assert.Equal("Arial", text.Font);
+        Assert.Equal(400, text.Weight);
+        Assert.Equal(13, text.Size, 3);
+        Assert.Equal(TextAlign.Left, text.Align);
+        Assert.Equal(1.2, text.Leading, 3);
+
+        // Photoshop's origin is the start of the first baseline, a little left of the first letter's
+        // ink and some way down the raster.
+        Assert.InRange(text.AnchorX, -1, 1);
+        Assert.InRange(text.AnchorY, 5, 15);
+
+        Assert.False(type.Notes.ContainsKey(PsdNote.TypeRasterized));
+        // No font list was given, so the family is guessed from "ArialMT" and counted as missing.
+        Assert.True(type.Notes.ContainsKey(PsdNote.FontMissing));
+        Assert.Equal(new[] { "Arial" }, type.MissingFonts);
+    }
+
+    [Fact]
+    public void TypeFindsAnInstalledFamilyAndSaysNothingIsMissing()
+    {
+        using var type = new Opened(PsdImport.Read(Fixture("text.psd"), ["Arial Black", "Arial", "Times New Roman"]));
+        Assert.Equal("Arial", type.Document.Layers[1].Text!.Font);
+        Assert.False(type.Notes.ContainsKey(PsdNote.FontMissing));
+        Assert.Empty(type.MissingFonts);
+    }
+
+    [Theory]
+    [InlineData("ArialMT", "Arial", 400, false, true)]
+    [InlineData("Arial-BoldItalicMT", "Arial", 700, true, true)]
+    [InlineData("MalgunGothicBold", "Malgun Gothic", 700, false, true)]
+    [InlineData("WixMadeforDisplay-SemiBold", "Wix Madefor Display", 600, false, false)]
+    [InlineData("NotoSansKR-Light", "Noto Sans KR", 300, false, true)]
+    public void APostScriptNameIsAFamilyWeightAndSlant(string postScript, string family, int weight, bool italic, bool found)
+    {
+        TextFace face = PsdFonts.Resolve(postScript, ["Arial Black", "Arial", "Malgun Gothic", "Noto Sans KR"], out bool installed);
+        Assert.Equal(new TextFace(family, weight, italic), face);
+        Assert.Equal(found, installed);
+    }
+
+    [Fact]
+    public void SmartObjectsArriveAsTheirPixels()
+    {
+        using var placed = Open("placedLayer.psd");
         Assert.True(placed.Notes.ContainsKey(PsdNote.SmartObjectRasterized));
     }
 
@@ -584,6 +629,7 @@ public sealed class PsdTests
     {
         public CanvasDocument Document => result.Document;
         public IReadOnlyDictionary<PsdNote, int> Notes => result.Notes;
+        public IReadOnlyList<string> MissingFonts => result.MissingFonts;
         public void Dispose() => Release(result.Document);
     }
 

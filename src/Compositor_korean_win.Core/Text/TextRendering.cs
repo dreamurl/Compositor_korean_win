@@ -16,8 +16,8 @@ public sealed record RenderedText(PixelBuffer Pixels, Point Anchor);
 /// Sets a <see cref="LayerText"/>: lines, alignment, tracking, the warp, and the fill.
 /// </summary>
 /// <remarks>
-/// Layout is deliberately simple — one run per line, glyph advances plus tracking, no kerning, no
-/// shaping and no line wrapping — because what the text tool is for is the kind of display type a
+/// Layout is deliberately simple — one run per line, glyph advances plus the font's pair kerning
+/// plus tracking, no shaping and no line wrapping — because what the text tool is for is the kind of display type a
 /// poster uses, set line by line. Hangul syllables are precomposed in Unicode, so a Korean line
 /// needs no shaping to come out right; scripts that do (Arabic, Devanagari) would.
 /// </remarks>
@@ -50,12 +50,17 @@ public static class TextRendering
             double baseline = ascent + index * step;
             double pen = 0;
             bool any = false;
+            int previous = -1;
             var loops = new List<List<Point>>();
 
             foreach (Rune rune in lines[index].EnumerateRunes())
             {
                 int codepoint = rune.Value == '\t' ? ' ' : rune.Value;
                 GlyphShape glyph = glyphs.Glyph(face, codepoint);
+
+                // Kerning moves the pair before tracking is added, as Photoshop's Metrics kerning does.
+                if (previous >= 0) pen += glyphs.Kerning(face, previous, codepoint) * size;
+                previous = codepoint;
                 foreach (GlyphFigure figure in glyph.Figures)
                 {
                     List<Point> loop = Flatten(figure, pen, baseline, size);
