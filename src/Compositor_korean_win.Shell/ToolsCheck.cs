@@ -506,6 +506,98 @@ internal static class ToolsCheck
             Point snapped = CanvasView.SnappedToEighths(new Point(10, 1), Point.Zero);
             Expect(Math.Abs(snapped.Y) < 1e-9 && Math.Abs(snapped.X - Math.Sqrt(101)) < 1e-9,
                    "Shift did not hold the gradient line to a 45° step");
+
+            // The Type tool: T picks it, a click opens a new text layer for typing, the words set it
+            // as they are typed, and the whole edit is one history step named for it.
+            canvas.Key(Win32.VK_T, control: false);
+            Expect(canvas.Tool == CanvasTool.Text, "T did not pick the Type tool");
+            Action<Guid>? opened = canvas.TextEditRequested;
+            Guid? requested = null;
+            canvas.TextEditRequested = each => requested = each;
+            int layerCount = canvas.Document!.Layers.Count;
+            canvas.PointerDown(Corner(0.2, 0.4), pan: false);
+            canvas.PointerUp();
+            Expect(requested is Guid && canvas.EditingText == requested, "a click with the Type tool did not open a text layer");
+            canvas.UpdateEditedText("가나 AB");
+            canvas.UpdateEditedText("가나다 ABC");
+            ImageLayer typed = canvas.ActiveLayer!;
+            Expect(typed.IsLiveText && typed.Name == "가나다 ABC", "typing did not set a live text layer named for its words");
+            Expect(typed.Image is PixelBuffer typedPixels && Opaque(typedPixels) > 0, "the typed words drew nothing");
+            canvas.EndTextEdit(commit: true);
+            Expect(canvas.Document!.Layers.Count == layerCount + 1 && canvas.UndoName == Localizer.Text(TextKey.HistoryAddText),
+                   "the typed text was not one Add Text step");
+            canvas.Undo();
+            Expect(canvas.Document!.Layers.Count == layerCount, "one undo did not take the text layer away");
+            canvas.Redo();
+
+            // A bigger size sets the words again from the same anchor on the document.
+            ImageLayer small = canvas.ActiveLayer!;
+            Point anchor = LayerGeometry.ToDocument(small.Transform, new Point(small.Text!.AnchorX, small.Text.AnchorY),
+                                                    small.Image!.Width, small.Image.Height);
+            canvas.ChangeTextStyle(text => text with { Size = text.Size * 2 });
+            ImageLayer large = canvas.ActiveLayer!;
+            Point moved = LayerGeometry.ToDocument(large.Transform, new Point(large.Text!.AnchorX, large.Text.AnchorY),
+                                                   large.Image!.Width, large.Image.Height);
+            Expect(large.IsLiveText && large.Image.Height > small.Image.Height * 1.5, "a bigger size did not set bigger text");
+            Expect(Math.Abs(moved.X - anchor.X) < 0.5 && Math.Abs(moved.Y - anchor.Y) < 0.5, "setting the text again moved its anchor");
+
+            // A warp bends it: Bulge makes the line taller.
+            canvas.ChangeTextStyle(text => text with { Warp = new TextWarp { Style = TextWarpStyle.Bulge, Bend = 60 } });
+            Expect(canvas.ActiveLayer!.Image!.Height > large.Image.Height, "Bulge did not make the text taller");
+
+            // A new text layer left empty goes away without a step.
+            string undoBeforeEmpty = canvas.UndoName;
+            canvas.PointerDown(Corner(0.8, 0.8), pan: false);
+            canvas.PointerUp();
+            canvas.EndTextEdit(commit: true);
+            Expect(canvas.Document!.Layers.Count == layerCount + 1 && canvas.UndoName == undoBeforeEmpty,
+                   "an empty text layer was kept");
+
+            // Escape puts edited words back.
+            Guid textId = canvas.ActiveLayer!.Id;
+            PixelBuffer? before = canvas.ActiveLayer.Image;
+            Expect(canvas.BeginTextEdit(textId), "a live text layer would not open for editing");
+            canvas.UpdateEditedText("XYZ");
+            canvas.EndTextEdit(commit: false);
+            Expect(ReferenceEquals(canvas.Document!.Layer(textId)!.Image, before), "Escape did not put the words back");
+            canvas.TextEditRequested = opened;
+
+            // Layer Style: one step for a whole visit to the sheet, however many changes it makes.
+            string undoBeforeStyle = canvas.UndoName;
+            canvas.BeginSession(TextKey.HistoryLayerStyle);
+            canvas.SetEffects(new LayerEffects { Stroke = new StrokeEffect { Size = 2 } });
+            canvas.SetEffects(new LayerEffects { Stroke = new StrokeEffect { Size = 6 }, Shadow = new ShadowEffect() });
+            canvas.EndSession(keep: true);
+            Expect(canvas.ActiveLayer!.Effects is { Stroke.Size: 6, Shadow: not null } && canvas.UndoName == Localizer.Text(TextKey.HistoryLayerStyle),
+                   "the layer style sheet did not land as one step");
+            canvas.Undo();
+            Expect(canvas.ActiveLayer!.Effects is null && canvas.UndoName == undoBeforeStyle, "one undo did not take the style off");
+            canvas.Redo();
+            canvas.BeginSession(TextKey.HistoryLayerStyle);
+            canvas.SetEffects(null);
+            canvas.EndSession(keep: false);
+            Expect(canvas.ActiveLayer!.Effects is not null, "cancelling the style sheet did not keep the style there was");
+            using (PixelBuffer styled = LayerCompositor.Render(canvas.Document!, new SoftwareRenderBackend()))
+                Expect(Opaque(styled) > 0, "a styled text layer composited to nothing");
+
+            // Rasterize Type makes it pixels for good.
+            menu.Run(CommandIds.RasterizeType);
+            Expect(canvas.ActiveLayer!.Text is null && canvas.ActiveLayer.Image is not null, "Rasterize Type did not drop the text");
+
+            // The shapes the Shape tool gained: a curved star and a line, each drawn on a blank layer.
+            canvas.AddLayer();
+            canvas.SetTool(CanvasTool.Shape);
+            canvas.Shape = canvas.Shape with { Kind = ShapeKind.Star, Sides = 4, Inset = 0.2, Curved = true, Filled = true };
+            canvas.PointerDown(Corner(0.3, 0.3), pan: false);
+            canvas.PointerMoved(Corner(0.6, 0.6), shift: false, alt: false, control: false);
+            canvas.PointerUp();
+            Expect(canvas.ActiveLayer!.Image is PixelBuffer star && Opaque(star) > 0, "a star did not draw");
+            canvas.AddLayer();
+            canvas.Shape = canvas.Shape with { Kind = ShapeKind.Line, LineWidth = 4 };
+            canvas.PointerDown(Corner(0.1, 0.5), pan: false);
+            canvas.PointerMoved(Corner(0.9, 0.5), shift: false, alt: false, control: false);
+            canvas.PointerUp();
+            Expect(canvas.ActiveLayer!.Image is PixelBuffer line && Opaque(line) > 0, "a flat line did not draw");
         }
         catch (Exception exception)
         {
@@ -514,6 +606,18 @@ internal static class ToolsCheck
         }
 
         return new Result(checks, errors);
+    }
+
+    /// <summary>How many pixels of a buffer have any alpha at all.</summary>
+    private static int Opaque(PixelBuffer pixels)
+    {
+        int count = 0;
+        for (int y = 0; y < pixels.Height; y++)
+        {
+            ReadOnlySpan<byte> row = pixels.Row(y);
+            for (int x = 0; x < pixels.Width; x++) if (row[x * 4 + 3] > 0) count++;
+        }
+        return count;
     }
 
     /// <summary>The mask's level at a fraction of its width and height.</summary>

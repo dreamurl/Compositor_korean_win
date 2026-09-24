@@ -173,7 +173,8 @@ public class TextAndEffectsTests
         LayerText text = Text("AB C", 90) with { Warp = new TextWarp { Style = style, Bend = 100, Horizontal = 30 } };
         RenderedText rendered = TextRendering.Render(text, Glyphs);
         using PixelBuffer pixels = rendered.Pixels;
-        Assert.True(Enumerable.Range(0, pixels.Height).Any(y => pixels.Row(y).ToArray().Where((_, i) => i % 4 == 3).Any(a => a > 0)));
+        int inked = Enumerable.Range(0, pixels.Height).Sum(y => pixels.Row(y).ToArray().Where((_, i) => i % 4 == 3).Count(a => a > 0));
+        Assert.True(inked > 0, $"{style} drew nothing");
     }
 
     [Fact]

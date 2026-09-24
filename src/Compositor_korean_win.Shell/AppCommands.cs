@@ -234,6 +234,13 @@ internal static class AppCommands
             {
                 DynamicLabel = Ellipsis(TextKey.CommandEditAdjustment),
             },
+            new(CommandIds.LayerStyle, TextKey.CommandLayerStyle,
+                () => { if (files.Chrome is Chrome chrome) chrome.Open(new LayerStyleSheet(canvas, chrome)); },
+                () => canvas.CanStyleLayers, Interactive: true)
+            {
+                DynamicLabel = Ellipsis(TextKey.CommandLayerStyle),
+            },
+            new(CommandIds.RasterizeType, TextKey.CommandRasterizeType, canvas.RasterizeText, () => canvas.CanRasterizeText),
             new(CommandIds.ZoomIn, TextKey.CommandZoomIn, () => canvas.Zoom(closer: true), () => canvas.HasDocument,
                 [new(VK_OEM_PLUS, Control: true), new(VK_ADD, Control: true)]),
             new(CommandIds.ZoomOut, TextKey.CommandZoomOut, () => canvas.Zoom(closer: false), () => canvas.HasDocument,
@@ -347,6 +354,8 @@ internal static class AppCommands
                 new MenuEntry.Submenu(TextKey.MenuNewAdjustmentLayer,
                     [.. Adjustments.Select(adjustment => Item(CommandIds.AdjustmentLayerFirst + (int)adjustment))]),
                 Item(CommandIds.EditAdjustment),
+                MenuEntry.Line,
+                Item(CommandIds.LayerStyle), Item(CommandIds.RasterizeType),
                 MenuEntry.Line,
                 Item(CommandIds.ToggleClipping), MenuEntry.Line,
                 Item(CommandIds.GroupLayers), Item(CommandIds.MoveOutOfGroup), MenuEntry.Line,

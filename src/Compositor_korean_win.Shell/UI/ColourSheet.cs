@@ -20,7 +20,8 @@ internal sealed class ColourSheet(
     TextKey title,
     (double Red, double Green, double Blue) initial,
     Action<(double Red, double Green, double Blue)> change,
-    Func<Point, (double Red, double Green, double Blue)?>? sample) : Sheet
+    Func<Point, (double Red, double Green, double Blue)?>? sample,
+    Action<bool>? closed = null) : Sheet
 {
     private Hsb _hsb = Hsb.FromRgb(initial.Red, initial.Green, initial.Blue);
 
@@ -45,9 +46,13 @@ internal sealed class ColourSheet(
         Set(next.Saturation == 0 ? next with { Hue = _hsb.Hue } : next);
     }
 
-    public override void Accept() { }
+    public override void Accept() => closed?.Invoke(true);
 
-    public override void Cancel() => change(initial);
+    public override void Cancel()
+    {
+        change(initial);
+        closed?.Invoke(false);
+    }
 
     public override void CanvasPress(Point document, bool control) => Sample(document);
 

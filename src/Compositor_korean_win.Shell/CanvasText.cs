@@ -1,0 +1,306 @@
+using Compositor_korean_win.Core;
+using Point = Compositor_korean_win.Core.Point;
+using Size = Compositor_korean_win.Core.Size;
+
+namespace Compositor_korean_win.Shell;
+
+/// <summary>
+/// The Type tool: setting words on a layer of their own, and setting them again.
+/// </summary>
+/// <remarks>
+/// <para>
+/// A click on the canvas starts a text layer there, or picks up the live text layer under the
+/// pointer; the window then opens a native edit box for the words (<see cref="TextEditRequested"/>)
+/// — native because Korean goes through the IME, which a self-drawn box would have to reimplement.
+/// Every change to the words or their style sets the layer again from its recipe, keeping the point
+/// the text was set from where it was on the document.
+/// </para>
+/// <para>
+/// A whole edit, from the click to the box closing, is one history step: typing a word is one
+/// thing to undo, not one per letter. Escape puts the document back as it was, and a new layer
+/// left empty goes away, as Photoshop's does.
+/// </para>
+/// </remarks>
+internal sealed partial class CanvasView
+{
+    /// <summary>What the Type tool sets next, and what a style change applies to: the words are ignored.</summary>
+    public LayerText TextStyle { get; set; } = new() { Font = "Malgun Gothic", Size = 72 };
+
+    /// <summary>Where glyphs come from. The self-test may swap in its own.</summary>
+    public static IGlyphSource Glyphs { get; set; } = DirectWriteGlyphs.Shared;
+
+    /// <summary>Raised when a text layer wants its words typed — a new one, or one clicked on.</summary>
+    public Action<Guid>? TextEditRequested { get; set; }
+
+    /// <summary>The text layer whose words are being typed, if any.</summary>
+    public Guid? EditingText { get; private set; }
+
+    private CanvasDocument? _textBefore;
+    private bool _textIsNew;
+
+    /// <summary>
+    /// Pixels set during the open edit that no history step holds. Each is released as soon as the
+    /// next setting replaces it; history only ever sees the first and the last.
+    /// </summary>
+    private readonly HashSet<PixelBuffer> _textInterim = [];
+
+    /// <summary>Puts a newly set edited layer in the document, freeing the setting it replaces.</summary>
+    private void ReplaceEdited(ImageLayer layer)
+    {
+        if (_document?.Layer(layer.Id)?.Image is PixelBuffer previous && _textInterim.Remove(previous))
+            previous.Release();
+        if (layer.Image is PixelBuffer made) _textInterim.Add(made);
+        _document = _document!.Replacing(layer);
+    }
+
+    private void ReleaseInterim()
+    {
+        foreach (PixelBuffer buffer in _textInterim) buffer.Release();
+        _textInterim.Clear();
+    }
+
+    /// <summary>A click with the Type tool.</summary>
+    private void TextClick(Point document)
+    {
+        if (_document is null || EditingText is not null) return;
+
+        if (TextLayerAt(document) is Guid existing)
+        {
+            if (BeginTextEdit(existing)) TextEditRequested?.Invoke(existing);
+            return;
+        }
+
+        if (AddTextLayer(document, "") is Guid added) TextEditRequested?.Invoke(added);
+    }
+
+    /// <summary>The topmost visible live text layer whose box covers a document point.</summary>
+    public Guid? TextLayerAt(Point document)
+    {
+        if (_document is null) return null;
+        for (int i = _document.Layers.Count - 1; i >= 0; i--)
+        {
+            ImageLayer layer = _document.Layers[i];
+            if (!layer.IsVisible || !layer.IsLiveText || layer.Image is not PixelBuffer image) continue;
+            Point pixel = LayerGeometry.ToPixels(layer.Transform, document, image.Width, image.Height);
+            if (pixel.X >= 0 && pixel.Y >= 0 && pixel.X < image.Width && pixel.Y < image.Height) return layer.Id;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// A new text layer above the active one, set from <paramref name="document"/> in the current
+    /// style, opened for typing. Returns its id.
+    /// </summary>
+    public Guid? AddTextLayer(Point document, string text)
+    {
+        if (_document is null || !CanEdit || EditingText is not null) return null;
+
+        (CanvasDocument next, Guid id) = LayerCommands.AddBlankLayer(_document, Primary);
+        _history.Begin(TextKey.HistoryAddText, _document, Primary);
+        _textBefore = _document;
+        _textIsNew = true;
+        EditingText = id;
+
+        ImageLayer blank = next.Layer(id)!;
+        LayerText recipe = TextStyle with { Text = text, Rendered = null };
+        _document = next;
+        ReplaceEdited(Set(blank, recipe, document));
+        _chosen.Clear();
+        _chosen.Add(id);
+        NeedsRedraw = true;
+        return id;
+    }
+
+    /// <summary>Opens an existing live text layer for typing.</summary>
+    public bool BeginTextEdit(Guid id)
+    {
+        if (_document is null || !CanEdit || EditingText is not null) return false;
+        if (_document.Layer(id) is not { IsLiveText: true } layer) return false;
+
+        _history.Begin(TextKey.HistoryEditText, _document, id);
+        _textBefore = _document;
+        _textIsNew = false;
+        EditingText = id;
+        _chosen.Clear();
+        _chosen.Add(id);
+        // The tool takes on the style of what is being edited, as Photoshop's options bar does.
+        TextStyle = layer.Text! with { Text = "", Rendered = null };
+        NeedsRedraw = true;
+        return true;
+    }
+
+    /// <summary>The words of the layer being typed, as they stand.</summary>
+    public string EditedText =>
+        EditingText is Guid id && _document?.Layer(id)?.Text is LayerText text ? text.Text : "";
+
+    /// <summary>Sets the edited layer's words again.</summary>
+    public void UpdateEditedText(string words)
+    {
+        if (_document is null || EditingText is not Guid id || _document.Layer(id) is not { Text: LayerText recipe } layer) return;
+        if (recipe.Text == words) return;
+
+        ImageLayer set = Set(layer, recipe with { Text = words }, anchor: null);
+        ReplaceEdited(set with { Name = NameFor(words, layer.Name, _textIsNew) });
+        NeedsRedraw = true;
+    }
+
+    /// <summary>Closes the edit: kept as one history step, or put back as it was.</summary>
+    public void EndTextEdit(bool commit)
+    {
+        if (EditingText is not Guid id) return;
+
+        bool discard = !commit
+            // Nothing typed into a new layer: the layer goes, and the edit comes to nothing.
+            || (_textIsNew && _document?.Layer(id) is { Text: LayerText { Text: var words } } && string.IsNullOrWhiteSpace(words));
+        if (discard && _textBefore is not null)
+        {
+            _document = _textBefore;
+            ReleaseInterim();
+        }
+        // Kept: the last setting now belongs to the document, and history takes it from here.
+        _textInterim.Clear();
+
+        EditingText = null;
+        _textBefore = null;
+        _chosen.RemoveWhere(each => _document?.Layer(each) is null);
+        if (_chosen.Count == 0 && _document?.Layers.Count > 0) _chosen.Add(_document.Layers[^1].Id);
+        _history.End(_document, Primary);
+        NeedsRedraw = true;
+    }
+
+    /// <summary>
+    /// Changes the Type tool's style and, with it, the live text layers chosen — or the one being
+    /// typed, inside the edit already open.
+    /// </summary>
+    public void ChangeTextStyle(Func<LayerText, LayerText> change)
+    {
+        TextStyle = change(TextStyle) with { Text = "", Rendered = null };
+        if (_document is null) return;
+
+        IEnumerable<Guid> targets = EditingText is Guid editing ? [editing] : _chosen.ToList();
+
+        if (EditingText is not null || InSession)
+        {
+            foreach (Guid id in targets)
+                if (_document.Layer(id) is { IsLiveText: true, Text: LayerText recipe } layer)
+                    ReplaceEdited(Set(layer, change(recipe) with { Text = recipe.Text }, anchor: null));
+            NeedsRedraw = true;
+            return;
+        }
+
+        Edit(TextKey.HistoryTextStyle, document =>
+        {
+            CanvasDocument next = document;
+            bool changed = false;
+            foreach (Guid id in targets)
+            {
+                if (next.Layer(id) is not { IsLiveText: true, Text: LayerText recipe } layer) continue;
+                next = next.Replacing(Set(layer, change(recipe) with { Text = recipe.Text }, anchor: null));
+                changed = true;
+            }
+            return changed ? (next, null) : null;
+        });
+    }
+
+    /// <summary>The style of the text being typed, or of the first chosen text layer, or the tool's.</summary>
+    public LayerText ShownTextStyle =>
+        (EditingText is Guid editing ? _document?.Layer(editing)?.Text : null)
+        ?? _chosen.Select(id => _document?.Layer(id)).FirstOrDefault(layer => layer?.IsLiveText == true)?.Text
+        ?? TextStyle;
+
+    /// <summary>Whether a style change would reach a layer, rather than only the tool.</summary>
+    public bool ChosenLiveText => _chosen.Any(id => _document?.Layer(id)?.IsLiveText == true);
+
+    /// <summary>
+    /// <paramref name="layer"/> set from <paramref name="recipe"/>: new pixels, and a placement that
+    /// keeps the text's anchor where it was — or puts it at <paramref name="anchor"/>.
+    /// </summary>
+    /// <remarks>
+    /// A layer that has been scaled or rotated keeps its scale and rotation; only its size follows the
+    /// new pixels. The anchor is found on the document through the old placement and the new one is
+    /// moved until the anchor lands on the same point, which works for any rotation or flip because
+    /// a placement's origin only ever translates.
+    /// </remarks>
+    private static ImageLayer Set(ImageLayer layer, LayerText recipe, Point? anchor)
+    {
+        RenderedText rendered = TextRendering.Render(recipe, Glyphs);
+        PixelBuffer pixels = rendered.Pixels;
+
+        double scaleX = 1, scaleY = 1;
+        LayerTransform current = layer.Transform;
+        Point target;
+        if (anchor is Point given)
+        {
+            target = given;
+            current = new LayerTransform(Point.Zero, new Size(1, 1)) { Sampling = layer.Transform.Sampling };
+        }
+        else if (layer.Image is PixelBuffer old && layer.Text is LayerText previous)
+        {
+            scaleX = current.Size.Width / old.Width;
+            scaleY = current.Size.Height / old.Height;
+            target = LayerGeometry.ToDocument(current, new Point(previous.AnchorX, previous.AnchorY), old.Width, old.Height);
+        }
+        else
+        {
+            target = current.Origin;
+        }
+
+        LayerTransform placed = current with
+        {
+            Origin = Point.Zero,
+            Size = new Size(pixels.Width * scaleX, pixels.Height * scaleY),
+        };
+        Point landed = LayerGeometry.ToDocument(placed, rendered.Anchor, pixels.Width, pixels.Height);
+        placed = placed with { Origin = new Point(target.X - landed.X, target.Y - landed.Y) };
+
+        return layer with
+        {
+            Image = pixels,
+            Transform = placed,
+            Text = recipe with { AnchorX = rendered.Anchor.X, AnchorY = rendered.Anchor.Y, Rendered = pixels },
+            // Painting on a text layer made it pixels; setting its words again makes it text.
+            Shape = null,
+        };
+    }
+
+    /// <summary>A text layer is named after its first line, as Photoshop names it, until renamed.</summary>
+    private static string NameFor(string words, string current, bool isNew)
+    {
+        string first = words.Replace("\r", "").Split('\n')[0].Trim();
+        if (first.Length > 40) first = first[..40];
+        if (first.Length == 0) return current;
+        return isNew ? first : current;
+    }
+
+    /// <summary>Makes a text layer's words its pixels for good, as Photoshop's Rasterize Type does.</summary>
+    public void RasterizeText()
+    {
+        Edit(TextKey.CommandRasterizeType, document =>
+        {
+            CanvasDocument next = document;
+            bool changed = false;
+            foreach (Guid id in _chosen)
+            {
+                if (next.Layer(id) is not { Text: not null } layer) continue;
+                next = next.Replacing(layer with { Text = null });
+                changed = true;
+            }
+            return changed ? (next, null) : null;
+        });
+    }
+
+    public bool CanRasterizeText => CanEdit && _chosen.Any(id => _document?.Layer(id)?.Text is not null);
+
+    /// <summary>
+    /// Sets a new text layer in one step, without an edit box — for callers that have the words
+    /// already, such as the self-test and automation.
+    /// </summary>
+    public Guid? PlaceText(Point document, string words, LayerText? style = null)
+    {
+        if (style is not null) TextStyle = style with { Text = "", Rendered = null };
+        if (AddTextLayer(document, "") is not Guid id) return null;
+        UpdateEditedText(words);
+        EndTextEdit(commit: true);
+        return _document?.Layer(id) is null ? null : id;
+    }
+}

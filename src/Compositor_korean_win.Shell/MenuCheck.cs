@@ -64,6 +64,9 @@ internal static class MenuCheck
         canvas.AddLayer();
         canvas.AddMask();
 
+        // A text layer, for Rasterize Type.
+        canvas.PlaceText(new Core.Point(4, 4), "Check");
+
         var files = new DocumentFiles(window.Handle, canvas, format);
         (List<Command> commands, List<MenuEntry.Submenu> layout) = AppCommands.Create(canvas, files, window.Handle);
         using var menu = new MenuBar(window.Handle, commands, layout);

@@ -32,6 +32,12 @@ internal static class Icons
             case CanvasTool.MagicWand: Wand(ui, area, colour); break;
             case CanvasTool.Gradient: Gradient(ui, area, colour); break;
             case CanvasTool.Shape: Shape(ui, area, colour); break;
+            case CanvasTool.Text:
+                // A serifed capital T.
+                Stroke(ui, area, colour, (4, 6), (4, 3), (16, 3), (16, 6));
+                Stroke(ui, area, colour, (10, 3), (10, 17));
+                Stroke(ui, area, colour, (7, 17), (13, 17));
+                break;
             case CanvasTool.Eyedropper:
                 // A pipette: the bulb up right, the tube down to the tip.
                 Stroke(ui, area, colour, (3, 17), (12, 8));

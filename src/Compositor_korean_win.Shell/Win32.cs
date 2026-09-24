@@ -275,6 +275,12 @@ internal static unsafe partial class Win32
     internal const uint WS_CHILD = 0x40000000;
     internal const uint WS_BORDER = 0x00800000;
     internal const uint ES_AUTOHSCROLL = 0x0080;
+    internal const uint ES_MULTILINE = 0x0004;
+    internal const uint ES_AUTOVSCROLL = 0x0040;
+    internal const uint ES_WANTRETURN = 0x1000;
+    internal const uint WS_VSCROLL = 0x00200000;
+    internal const int EN_CHANGE = 0x0300;
+    internal const uint WM_GETTEXTLENGTH = 0x000E;
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct POINTSTRUCT

@@ -33,6 +33,7 @@ internal sealed unsafe class Chrome : IDisposable
         (CanvasTool.Lasso, 'L'), (CanvasTool.PolygonLasso, 'L'), (CanvasTool.MagicWand, 'W'),
         (CanvasTool.Brush, 'B'), (CanvasTool.Eraser, 'E'), (CanvasTool.CloneStamp, 'S'),
         (CanvasTool.Heal, 'J'), (CanvasTool.Blur, 'R'), (CanvasTool.Gradient, 'G'), (CanvasTool.Shape, 'U'),
+        (CanvasTool.Text, 'T'),
         (CanvasTool.Eyedropper, 'I'), (CanvasTool.Hand, 'H'), (CanvasTool.Zoom, 'Z'),
     ];
 
@@ -70,6 +71,7 @@ internal sealed unsafe class Chrome : IDisposable
         _canvas = canvas;
         _open = open;
         _runCommand = runCommand;
+        _canvas.TextEditRequested = StartTextBox;
     }
 
     public Ui Ui => _ui;
@@ -339,14 +341,51 @@ internal sealed unsafe class Chrome : IDisposable
                      () => _canvas.Shape = _canvas.Shape with { Kind = ShapeKind.Rectangle }),
                     (Localizer.Text(TextKey.ShapeEllipse), shape.Kind == ShapeKind.Ellipse,
                      () => _canvas.Shape = _canvas.Shape with { Kind = ShapeKind.Ellipse }),
+                    (Localizer.Text(TextKey.ShapePolygon), shape.Kind == ShapeKind.Polygon,
+                     () => _canvas.Shape = _canvas.Shape with { Kind = ShapeKind.Polygon }),
+                    (Localizer.Text(TextKey.ShapeStar), shape.Kind == ShapeKind.Star,
+                     () => _canvas.Shape = _canvas.Shape with { Kind = ShapeKind.Star }),
+                    (Localizer.Text(TextKey.ShapeLine), shape.Kind == ShapeKind.Line,
+                     () => _canvas.Shape = _canvas.Shape with { Kind = ShapeKind.Line }),
                 ]);
                 if (shape.Kind == ShapeKind.Rectangle)
-                    _ui.Slider(Next(220), Localizer.Text(TextKey.LabelCornerRadius), shape.CornerRadius / 200, Pixels(shape.CornerRadius),
+                    _ui.Slider(Next(200), Localizer.Text(TextKey.LabelCornerRadius), shape.CornerRadius / 200, Pixels(shape.CornerRadius),
                                f => _canvas.Shape = _canvas.Shape with { CornerRadius = Math.Round(f * 200) });
-                _ui.Slider(Next(180), Localizer.Text(TextKey.LabelOpacity), shape.Opacity, Percent(shape.Opacity),
+                if (shape.Kind is ShapeKind.Polygon or ShapeKind.Star)
+                {
+                    int span = ShapeSettings.MaximumSides - ShapeSettings.MinimumSides;
+                    _ui.Slider(Next(160), Localizer.Text(shape.Kind == ShapeKind.Star ? TextKey.LabelPoints : TextKey.LabelSides),
+                               (shape.Sides - ShapeSettings.MinimumSides) / (double)span,
+                               shape.Sides.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                               f => _canvas.Shape = _canvas.Shape with { Sides = ShapeSettings.MinimumSides + (int)Math.Round(f * span) });
+                }
+                if (shape.Kind == ShapeKind.Star)
+                {
+                    _ui.Slider(Next(170), Localizer.Text(TextKey.LabelInset), shape.Inset, Percent(shape.Inset),
+                               f => _canvas.Shape = _canvas.Shape with { Inset = Math.Clamp(Math.Round(f, 2), 0.05, 0.95) });
+                    _ui.Check(Next(70), Localizer.Text(TextKey.LabelCurved), shape.Curved,
+                              () => _canvas.Shape = _canvas.Shape with { Curved = !_canvas.Shape.Curved });
+                }
+                if (shape.Kind == ShapeKind.Line)
+                {
+                    _ui.Slider(Next(170), Localizer.Text(TextKey.LabelLineWidth), (shape.LineWidth - 1) / 99, Pixels(shape.LineWidth),
+                               f => _canvas.Shape = _canvas.Shape with { LineWidth = Math.Round(1 + f * 99) });
+                }
+                else
+                {
+                    _ui.Check(Next(56), Localizer.Text(TextKey.LabelFill), shape.Filled,
+                              () => _canvas.Shape = _canvas.Shape with { Filled = !_canvas.Shape.Filled });
+                    _ui.Slider(Next(160), Localizer.Text(TextKey.LabelStroke), shape.StrokeWidth / 50, Pixels(shape.StrokeWidth),
+                               f => _canvas.Shape = _canvas.Shape with { StrokeWidth = Math.Round(f * 50) });
+                }
+                _ui.Slider(Next(160), Localizer.Text(TextKey.LabelOpacity), shape.Opacity, Percent(shape.Opacity),
                            f => _canvas.Shape = _canvas.Shape with { Opacity = Math.Max(0.01, Math.Round(f, 2)) });
                 break;
             }
+
+            case CanvasTool.Text:
+                TextControls(ref x, y, h, Next);
+                break;
 
             case CanvasTool.Move when _canvas.ActiveLayer is { } layer && (!layer.IsGroup || _canvas.TransformsMask)
                                       && _canvas.TransformTarget is LayerTransform t:
@@ -424,6 +463,82 @@ internal sealed unsafe class Chrome : IDisposable
             x += width + _ui.P(2);
         }
         x += _ui.P(16);
+    }
+
+    /// <summary>
+    /// The Type tool's options, Photoshop's order: font, weight and slant, size, alignment, colour,
+    /// then tracking, leading and Warp. They set the next text and, as in Photoshop, the text layers
+    /// chosen or being typed.
+    /// </summary>
+    private void TextControls(ref double x, double y, double h, Func<double, Rect> next)
+    {
+        LayerText style = _canvas.ShownTextStyle;
+        bool korean = Localizer.Current == Language.Korean;
+
+        // The font: a button naming it, opening the list of installed families.
+        IReadOnlyList<DirectWriteGlyphs.FontFamilyName> families = DirectWriteGlyphs.Shared.Families(korean);
+        string shown = families.FirstOrDefault(f => string.Equals(f.Name, style.Font, StringComparison.OrdinalIgnoreCase))?.Shown ?? style.Font;
+        Rect font = next(190);
+        _ui.Fill(font, Ui.Raised);
+        _ui.Button(font, () =>
+        {
+            int picked = Popup([.. families.Select(f => (f.Shown, string.Equals(f.Name, style.Font, StringComparison.OrdinalIgnoreCase)))]);
+            if (picked >= 0) _canvas.ChangeTextStyle(t => t with { Font = families[picked].Name });
+        }, Localizer.Text(TextKey.LabelFont));
+        _ui.Text(shown, new Rect(font.X + _ui.P(8), font.Y, font.Width - _ui.P(24), font.Height), Ui.Ink, user: true);
+        _ui.Text("▾", new Rect(font.MaxX - _ui.P(16), font.Y, _ui.P(12), font.Height), Ui.Dim);
+
+        _ui.Check(next(62), Localizer.Text(TextKey.LabelBold), style.Weight >= 600,
+                  () => _canvas.ChangeTextStyle(t => t with { Weight = t.Weight >= 600 ? 400 : 700 }));
+        _ui.Check(next(70), Localizer.Text(TextKey.LabelItalic), style.Italic,
+                  () => _canvas.ChangeTextStyle(t => t with { Italic = !t.Italic }));
+
+        void Box(TextKey label, double value, int points, int decimals, Action<double> set, string suffix)
+        {
+            string name = Localizer.Text(label);
+            float nameWidth = _ui.Measure(name) + _ui.P(6);
+            Rect area = next(points);
+            _ui.Text(name, new Rect(area.X, area.Y, nameWidth, area.Height), Ui.Dim);
+            float suffixWidth = _ui.Measure(suffix) + _ui.P(4);
+            _ui.Field(new Rect(area.X + nameWidth, area.Y, area.Width - nameWidth - suffixWidth, area.Height),
+                      "text " + label, value, decimals, set);
+            _ui.Text(suffix, new Rect(area.MaxX - suffixWidth + _ui.P(4), area.Y, suffixWidth, area.Height), Ui.Dim, user: true);
+        }
+
+        Box(TextKey.LabelSize, style.Size, 104, 1,
+            value => _canvas.ChangeTextStyle(t => t with { Size = Math.Clamp(value, 1, 5000) }), "px");
+
+        Segment(ref x, y, h, "",
+        [
+            (Localizer.Text(TextKey.AlignLeft), style.Align == TextAlign.Left, () => _canvas.ChangeTextStyle(t => t with { Align = TextAlign.Left })),
+            (Localizer.Text(TextKey.AlignCenter), style.Align == TextAlign.Center, () => _canvas.ChangeTextStyle(t => t with { Align = TextAlign.Center })),
+            (Localizer.Text(TextKey.AlignRight), style.Align == TextAlign.Right, () => _canvas.ChangeTextStyle(t => t with { Align = TextAlign.Right })),
+        ]);
+
+        // The colour: a swatch opening the picker; a whole visit to the picker is one step.
+        Rect swatch = next(26);
+        Rgba colour = style.Colour;
+        _ui.Fill(swatch, new Color4(colour.R / 255f, colour.G / 255f, colour.B / 255f, 1));
+        _ui.Frame(swatch, Ui.Line);
+        _ui.Button(swatch, () =>
+        {
+            _canvas.BeginSession(TextKey.HistoryTextStyle);
+            PickColour(TextKey.LabelColour, colour, c => _canvas.ChangeTextStyle(t => t.WithColour(c)),
+                       closed: keep => _canvas.EndSession(keep));
+        }, Localizer.Text(TextKey.LabelColour));
+
+        Box(TextKey.LabelTracking, style.Tracking, 100, 0,
+            value => _canvas.ChangeTextStyle(t => t with { Tracking = Math.Clamp(value, -1000, 10_000) }), "");
+        Box(TextKey.LabelLeading, style.Leading * 100, 100, 0,
+            value => _canvas.ChangeTextStyle(t => t with { Leading = Math.Clamp(value / 100, 0.1, 20) }), "%");
+
+        string warp = Localizer.Text(TextKey.ButtonWarp);
+        Rect warpArea = next(_ui.Measure(warp) / _ui.Scale + 24);
+        _ui.Fill(warpArea, style.Warp is { IsIdentity: false } ? Ui.Selected : Ui.Raised);
+        _ui.Button(warpArea, () => Open(new TextWarpSheet(_canvas, this)), null, label: warp);
+
+        if (!_canvas.ChosenLiveText && _canvas.EditingText is null)
+            _ui.Text(Localizer.Text(TextKey.NoteTypeHint), new Rect(x, y, _ui.P(420), h), Ui.Dim);
     }
 
     private void SelectionControls(ref double x, double y, double h)
@@ -796,13 +911,13 @@ internal sealed unsafe class Chrome : IDisposable
     /// The program's own colour picker on a tool colour. The colour changes as it is picked, and
     /// Cancel puts the old one back.
     /// </summary>
-    public void PickColour(TextKey title, Rgba current, Action<Rgba> set)
+    public void PickColour(TextKey title, Rgba current, Action<Rgba> set, Action<bool>? closed = null)
     {
         static Rgba Bytes((double Red, double Green, double Blue) c) =>
             new((byte)Math.Round(c.Red * 255), (byte)Math.Round(c.Green * 255), (byte)Math.Round(c.Blue * 255));
 
         Open(new ColourSheet(title, (current.R / 255.0, current.G / 255.0, current.B / 255.0),
-                             colour => set(Bytes(colour)), _canvas.CompositeColour));
+                             colour => set(Bytes(colour)), _canvas.CompositeColour, closed));
     }
 
     // MARK: The Layers panel
@@ -1124,6 +1239,14 @@ internal sealed unsafe class Chrome : IDisposable
             }
             separators.Add(entries.Count - 1);
 
+            if (!layer.IsGroup && layer.Adjustment is null)
+            {
+                entries.Add((Localizer.Text(TextKey.CommandLayerStyle) + "…", () => _runCommand(CommandIds.LayerStyle)));
+                if (layer.Text is not null)
+                    entries.Add((Localizer.Text(TextKey.CommandRasterizeType), () => _runCommand(CommandIds.RasterizeType)));
+                separators.Add(entries.Count - 1);
+            }
+
             if (!layer.IsGroup)
                 entries.Add((Localizer.Text(layer.MaskSourceId is null ? TextKey.CommandCreateClippingMask : TextKey.CommandReleaseClippingMask),
                              () => _runCommand(CommandIds.ToggleClipping)));
@@ -1380,6 +1503,83 @@ internal sealed unsafe class Chrome : IDisposable
         _renaming = id;
     }
 
+    // MARK: Typing
+
+    private nint _textBox;
+    private nint _textFont;
+
+    /// <summary>The Type tool's edit box, while words are being typed.</summary>
+    public nint TextBox => _textBox;
+
+    /// <summary>
+    /// A native, multi-line edit box for the words of a text layer — native so Korean goes through
+    /// the IME as it does in any Windows program, the same reason the rename box is one. It opens
+    /// beside where the canvas was clicked; every keystroke sets the layer again, so the words
+    /// appear on the canvas as they are typed. Ctrl+Enter or a click elsewhere keeps them; Escape
+    /// puts everything back.
+    /// </summary>
+    private void StartTextBox(Guid id)
+    {
+        FinishRename(commit: true);
+        if (_textBox != 0) return;
+
+        _textFont = CreateFontW(-(int)_ui.P(15), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0,
+                                Localizer.Current == Language.Korean ? "Malgun Gothic" : "Segoe UI");
+        GetCursorPos(out POINTSTRUCT at);
+        _textBox = CreateWindowExW(WS_EX_TOOLWINDOW, "EDIT", _canvas.EditedText.Replace("\n", "\r\n"),
+                                   WS_POPUP | WS_VISIBLE | WS_BORDER | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN,
+                                   at.X + (int)_ui.P(14), at.Y + (int)_ui.P(18), (int)_ui.P(380), (int)_ui.P(104),
+                                   _window, 0, GetModuleHandleW(0), 0);
+        SendMessageW(_textBox, WM_SETFONT, (nuint)_textFont, 1);
+        SendMessageW(_textBox, EM_SETSEL, 0, -1);
+        SetFocus(_textBox);
+        WriteHangul(_textBox, HangulMode);
+    }
+
+    private string TextBoxWords()
+    {
+        int length = (int)SendMessageW(_textBox, WM_GETTEXTLENGTH, 0, 0);
+        char[] buffer = new char[Math.Max(1, length + 1)];
+        int read;
+        fixed (char* text = buffer) read = GetWindowTextW(_textBox, text, buffer.Length);
+        return new string(buffer, 0, Math.Max(0, read)).Replace("\r\n", "\n");
+    }
+
+    /// <summary>The box's words changed: set the layer again.</summary>
+    public void TextBoxChanged()
+    {
+        if (_textBox == 0) return;
+        _canvas.UpdateEditedText(TextBoxWords());
+        InvalidateRect(_window, 0, false);
+    }
+
+    /// <summary>Ctrl+Enter and Escape in the typing box. True when the message was the box's.</summary>
+    public bool TextBoxKey(in MSG message)
+    {
+        if (_textBox == 0 || message.hwnd != _textBox || message.message != WM_KEYDOWN) return false;
+        if ((int)message.wParam == VK_ESCAPE) FinishTextBox(commit: false);
+        else if ((int)message.wParam == VK_RETURN && IsKeyDown(VK_CONTROL)) FinishTextBox(commit: true);
+        else return false;
+        return true;
+    }
+
+    /// <summary>Closes the typing box, keeping the words or not. True when there was one.</summary>
+    public bool FinishTextBox(bool commit)
+    {
+        if (_textBox == 0) return false;
+        if (ReadHangul(_textBox) is bool hangul) HangulMode = hangul;
+        if (commit) _canvas.UpdateEditedText(TextBoxWords());
+
+        DestroyWindow(_textBox);
+        DeleteObject(_textFont);
+        _textBox = 0;
+        _textFont = 0;
+        _canvas.EndTextEdit(commit);
+        SetFocus(_window);
+        InvalidateRect(_window, 0, false);
+        return true;
+    }
+
     /// <summary>Enter and Escape in the rename box. True when the message was the box's.</summary>
     public bool RenameKey(in MSG message)
     {
@@ -1489,6 +1689,7 @@ internal sealed unsafe class Chrome : IDisposable
         if (_disposed) return;
         _disposed = true;
         FinishRename(commit: false);
+        FinishTextBox(commit: true);
         foreach (ID2D1Bitmap1 bitmap in _thumbnails.Values) bitmap.Dispose();
         _thumbnails.Clear();
         _ui.Dispose();

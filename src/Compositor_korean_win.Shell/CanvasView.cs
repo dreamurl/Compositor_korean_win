@@ -47,8 +47,11 @@ internal enum CanvasTool
     /// <summary>Drags out a gradient.</summary>
     Gradient,
 
-    /// <summary>Drags out a rectangle, a rounded rectangle or an ellipse.</summary>
+    /// <summary>Drags out a rectangle, an ellipse, a polygon, a star or a line.</summary>
     Shape,
+
+    /// <summary>Sets words on a layer of their own.</summary>
+    Text,
 
     /// <summary>Frames what the canvas becomes.</summary>
     Crop,
@@ -381,6 +384,12 @@ internal sealed partial class CanvasView : IDisposable
         if (_tool == CanvasTool.Crop)
         {
             BeginCrop(pixel, view, symmetric: Win32.IsKeyDown(Win32.VK_MENU));
+            return;
+        }
+
+        if (_tool == CanvasTool.Text)
+        {
+            TextClick(pixel);
             return;
         }
 
@@ -1218,8 +1227,14 @@ internal sealed partial class CanvasView : IDisposable
 
         var box = Rect.FromBounds(Math.Min(from.X, to.X), Math.Min(from.Y, to.Y),
                                   Math.Max(from.X, to.X), Math.Max(from.Y, to.Y));
-        if (box.IsEmpty) return;
-        PixelBuffer drawn = ShapeTool.Draw(layer.Image, width, height, box, Shape, restricted);
+        // A line needs only length; every other shape needs area.
+        bool line = Shape.Kind == ShapeKind.Line;
+        if (line ? box.Width + box.Height < 1 : box.IsEmpty) return;
+        if (!line && !Shape.Filled && Shape.StrokeWidth <= 0) return;
+        // A shape's outline is the background colour, as Photoshop's shape stroke defaults to the
+        // second swatch.
+        PixelBuffer drawn = ShapeTool.Draw(layer.Image, width, height, from, to,
+                                           Shape with { StrokeColor = BackgroundColor }, restricted);
 
         _history.Begin(Name(_tool), _document, id);
         _document = _document.Replacing(layer with { Image = drawn, Transform = placement });
@@ -1295,6 +1310,7 @@ internal sealed partial class CanvasView : IDisposable
         CanvasTool.MagicWand => TextKey.ToolMagicWand,
         CanvasTool.Gradient => TextKey.ToolGradient,
         CanvasTool.Shape => TextKey.ToolShape,
+        CanvasTool.Text => TextKey.ToolText,
         CanvasTool.Crop => TextKey.ToolCrop,
         CanvasTool.Eyedropper => TextKey.ToolEyedropper,
         CanvasTool.Hand => TextKey.ToolHand,
@@ -1557,8 +1573,12 @@ internal sealed partial class CanvasView : IDisposable
             // tool it picks the Shape tool, as plain U does.
             case Win32.VK_U when !control:
                 if (shift && _tool == CanvasTool.Shape)
-                    Shape = Shape with { Kind = Shape.Kind == ShapeKind.Rectangle ? ShapeKind.Ellipse : ShapeKind.Rectangle };
+                    Shape = Shape with { Kind = (ShapeKind)(((int)Shape.Kind + 1) % Enum.GetValues<ShapeKind>().Length) };
                 else _tool = CanvasTool.Shape;
+                break;
+
+            case Win32.VK_T when !control:
+                _tool = CanvasTool.Text;
                 break;
 
             // The bracket keys size the brush tools and, with Shift, step their hardness. Other
@@ -2047,7 +2067,16 @@ internal sealed partial class CanvasView : IDisposable
         {
             var box = Rect.FromBounds(Math.Min(corner.X, _shapeTo.X), Math.Min(corner.Y, _shapeTo.Y),
                                       Math.Max(corner.X, _shapeTo.X), Math.Max(corner.Y, _shapeTo.Y));
-            if (!box.IsEmpty) Outline(ShapeTool.Outline(box, Shape).Shapes[0].Loops[0].Points);
+            if (Shape.Kind == ShapeKind.Line) Outline([corner, _shapeTo]);
+            else if (!box.IsEmpty) Outline(ShapeTool.Outline(box, Shape).Shapes[0].Loops[0].Points);
+        }
+
+        // The box of the words being typed, so it is plain which layer the typing goes to.
+        if (EditingText is Guid typed && _document?.Layer(typed) is { Image: not null } typedLayer)
+        {
+            LayerTransform t = typedLayer.Transform;
+            Outline([t.PointAt(new Point(0, 0)), t.PointAt(new Point(1, 0)), t.PointAt(new Point(1, 1)),
+                     t.PointAt(new Point(0, 1))]);
         }
 
         void Handle(Point point) => Square(context, projection.Apply(point), (float)(4 * _scale), light, dark, thickness);

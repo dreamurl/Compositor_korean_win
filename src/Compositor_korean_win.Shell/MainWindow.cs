@@ -303,7 +303,7 @@ internal sealed unsafe class MainWindow : IDisposable
     /// <summary>
     /// Keys meant for a panel's own text box, looked at before they are dispatched. True when taken.
     /// </summary>
-    public bool PreTranslate(in MSG message) => Chrome?.RenameKey(message) == true;
+    public bool PreTranslate(in MSG message) => Chrome?.RenameKey(message) == true || Chrome?.TextBoxKey(message) == true;
 
     private void AfterInput()
     {
@@ -343,6 +343,15 @@ internal sealed unsafe class MainWindow : IDisposable
                     {
                         // A click anywhere ends a rename in progress, keeping what was typed.
                         window.Chrome?.FinishRename(commit: true);
+
+                        // A click on the canvas while words are being typed only keeps them, as
+                        // Photoshop's does; on a panel it goes on to do what it does there too.
+                        if (window.Chrome?.FinishTextBox(commit: true) == true && message != WM_MBUTTONDOWN
+                            && window.Chrome.OverPanels(at) == false)
+                        {
+                            window.Invalidate();
+                            return;
+                        }
 
                         if (message != WM_MBUTTONDOWN && window.Chrome?.Ui.PointerDown(at, message == WM_LBUTTONDBLCLK) == true)
                         {
@@ -558,6 +567,12 @@ internal sealed unsafe class MainWindow : IDisposable
                 break;
 
             case WM_COMMAND:
+                // The typing box reports each change to its owner.
+                if (window?.Chrome is Chrome typing && typing.TextBox != 0 && lParam == typing.TextBox)
+                {
+                    if ((int)(wParam >> 16) == EN_CHANGE) window.Guarded(typing.TextBoxChanged);
+                    return 0;
+                }
                 // The high word is 0 for a menu; accelerators and controls are not in play.
                 if (window is not null && (wParam >> 16) == 0)
                 {
