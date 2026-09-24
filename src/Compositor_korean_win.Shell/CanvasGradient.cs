@@ -51,14 +51,25 @@ internal sealed partial class CanvasView
     private static bool NearDocument(Point a, Point b, double reach) =>
         Math.Abs(a.X - b.X) <= reach && Math.Abs(a.Y - b.Y) <= reach;
 
-    private void DragGradient(Point point)
+    private void DragGradient(Point point, bool shift = false)
     {
         if (_gradientFrom is not Point start) return;
+        // Shift holds the line to 45° steps round the other end, as in Photoshop.
+        if (shift) point = SnappedToEighths(point, _gradientHandle == 0 ? _gradientTo : start);
         if (_gradientHandle == 0) _gradientFrom = point;
         else _gradientTo = point;
         _shapeFrom = _gradientFrom;
         _shapeTo = _gradientTo;
         RefreshGradient();
+    }
+
+    /// <summary><paramref name="point"/> turned onto the nearest eighth-turn round <paramref name="anchor"/>, its length kept.</summary>
+    internal static Point SnappedToEighths(Point point, Point anchor)
+    {
+        double dx = point.X - anchor.X, dy = point.Y - anchor.Y;
+        double length = Math.Sqrt(dx * dx + dy * dy);
+        double angle = Math.Round(Math.Atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+        return new Point(anchor.X + Math.Cos(angle) * length, anchor.Y + Math.Sin(angle) * length);
     }
 
     private void EndGradientDrag()

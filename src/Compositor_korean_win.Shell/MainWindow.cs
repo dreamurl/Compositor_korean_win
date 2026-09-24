@@ -333,7 +333,8 @@ internal sealed unsafe class MainWindow : IDisposable
                         }
 
                         canvas.PointerDown(canvas.ToView(PositionX(lParam), PositionY(lParam)),
-                                           IsPanning(message == WM_MBUTTONDOWN));
+                                           IsPanning(message == WM_MBUTTONDOWN),
+                                           doubleClick: message == WM_LBUTTONDBLCLK);
                     });
                     window.AfterInput();
                 }

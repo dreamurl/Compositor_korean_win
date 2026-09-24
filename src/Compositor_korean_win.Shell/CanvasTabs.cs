@@ -174,6 +174,8 @@ internal sealed partial class CanvasView
         _lasso = null;
         _marqueeFrom = null;
         _shapeFrom = null;
+        _outlineFrom = null;
+        _outlineBase = null;
         CancelGradient();
         _movingFrom = null;
         _distortPreview?.Dispose();

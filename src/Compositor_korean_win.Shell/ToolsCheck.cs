@@ -419,6 +419,84 @@ internal static class ToolsCheck
             Expect(!canvas.WantsAutoScroll, "the edge scroll wanted to run with no drag under way");
             canvas.Key(Win32.VK_A, control: false);
             Expect(canvas.Tool == CanvasTool.Idle, "A did not select the inert inspection tool");
+
+            // A selection tool dragged inside the selection in New mode moves the outline, and its
+            // arrows move the outline too — never the layer, which only Move nudges.
+            canvas.SetTool(CanvasTool.RectangleMarquee);
+            canvas.SelectionMode = SelectionModeChoice.Replace;
+            CanvasDocument selecting = canvas.Document!;
+            canvas.SelectAll();
+            Core.Rect outlineBefore = canvas.Selection!.Bounds;
+            Point centre = canvas.Viewport.ViewPoint(new Point(selecting.Width / 2.0, selecting.Height / 2.0), selecting.Size);
+            canvas.PointerDown(centre, pan: false);
+            canvas.PointerMoved(new Point(centre.X + 20, centre.Y), shift: false, alt: false, control: false);
+            canvas.PointerUp();
+            Core.Rect outlineAfter = canvas.Selection?.Bounds ?? default;
+            Expect(outlineAfter.X > outlineBefore.X && outlineAfter.Y == outlineBefore.Y
+                   && outlineAfter.Width == outlineBefore.Width,
+                   "a drag inside the selection did not move its outline");
+            LayerTransform layerPlaced = canvas.ActiveLayer!.Transform;
+            canvas.Key(Win32.VK_LEFT, control: false);
+            Expect(canvas.Selection is { } nudged && Math.Abs(nudged.Bounds.X - (outlineAfter.X - 1)) < 1e-9
+                   && canvas.ActiveLayer!.Transform == layerPlaced,
+                   "an arrow with a selection tool did not move the outline alone");
+            canvas.Deselect();
+            canvas.SetTool(CanvasTool.Brush);
+            Expect(!canvas.Key(Win32.VK_LEFT, control: false) && canvas.ActiveLayer!.Transform == layerPlaced,
+                   "an arrow with the Brush moved the layer");
+
+            // Shift squares a marquee or shape, Alt draws a shape from its centre, and Shift holds a
+            // gradient to 45° steps.
+            Expect(CanvasView.Squared(new Point(10, 10), new Point(40, 20)) == new Point(40, 40),
+                   "Shift did not square a drag");
+            (Point shapeFrom, Point shapeTo) = CanvasView.ShapeCorners(new Point(10, 10), new Point(20, 15),
+                                                                       square: true, fromCentre: true);
+            Expect(shapeFrom == new Point(0, 0) && shapeTo == new Point(20, 20),
+                   "Shift and Alt did not draw a square shape out from its centre");
+            // The polygonal lasso: Backspace takes back a corner, Escape drops the outline, and a
+            // double-click closes it.
+            canvas.SetTool(CanvasTool.PolygonLasso);
+            Point Corner(double u, double v) =>
+                canvas.Viewport.ViewPoint(new Point(selecting.Width * u, selecting.Height * v), selecting.Size);
+            canvas.PointerDown(Corner(0.2, 0.2), pan: false);
+            canvas.PointerUp();
+            canvas.PointerDown(Corner(0.8, 0.2), pan: false);
+            canvas.PointerUp();
+            canvas.PointerDown(Corner(0.8, 0.8), pan: false);
+            canvas.PointerUp();
+            canvas.Key(Win32.VK_BACK, control: false);
+            canvas.PointerDown(Corner(0.5, 0.8), pan: false);
+            canvas.PointerUp();
+            canvas.PointerDown(Corner(0.5, 0.8), pan: false, doubleClick: true);
+            canvas.PointerUp();
+            // The triangle left after Backspace holds its middle but not the corner taken back.
+            Expect(canvas.Selection is { } closed
+                   && closed.Contains(new Point(selecting.Width * 0.5, selecting.Height * 0.4))
+                   && !closed.Contains(new Point(selecting.Width * 0.75, selecting.Height * 0.7)),
+                   "a double-click did not close the polygonal lasso after Backspace took a corner back");
+            canvas.Deselect();
+            canvas.PointerDown(Corner(0.2, 0.2), pan: false);
+            canvas.PointerUp();
+            canvas.PointerDown(Corner(0.8, 0.2), pan: false);
+            canvas.PointerUp();
+            canvas.Key(Win32.VK_ESCAPE, control: false);
+            canvas.Key(Win32.VK_RETURN, control: false);
+            Expect(canvas.Selection is null, "Escape did not drop the polygonal lasso's corners");
+
+            // Escape mid-stroke leaves the layer and the history as they were.
+            canvas.SetTool(CanvasTool.Brush);
+            ImageLayer unpainted = canvas.ActiveLayer!;
+            string undoBefore = canvas.UndoName;
+            canvas.PointerDown(Corner(0.3, 0.3), pan: false);
+            canvas.PointerMoved(Corner(0.6, 0.6), shift: false, alt: false, control: false);
+            canvas.Key(Win32.VK_ESCAPE, control: false);
+            canvas.PointerUp();
+            Expect(ReferenceEquals(canvas.ActiveLayer!.Image, unpainted.Image) && canvas.UndoName == undoBefore,
+                   "Escape mid-stroke left paint or a history step behind");
+
+            Point snapped = CanvasView.SnappedToEighths(new Point(10, 1), Point.Zero);
+            Expect(Math.Abs(snapped.Y) < 1e-9 && Math.Abs(snapped.X - Math.Sqrt(101)) < 1e-9,
+                   "Shift did not hold the gradient line to a 45° step");
         }
         catch (Exception exception)
         {

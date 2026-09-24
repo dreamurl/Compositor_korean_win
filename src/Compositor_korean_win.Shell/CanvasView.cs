@@ -78,6 +78,11 @@ internal static class CanvasTools
         is CanvasTool.Brush or CanvasTool.Eraser or CanvasTool.CloneStamp
         or CanvasTool.Blur or CanvasTool.Heal;
 
+    /// <summary>Upstream's selection tools: the marquees, the lassos and the magic wand.</summary>
+    public static bool Selects(this CanvasTool tool) => tool
+        is CanvasTool.RectangleMarquee or CanvasTool.EllipseMarquee or CanvasTool.Lasso
+        or CanvasTool.PolygonLasso or CanvasTool.MagicWand;
+
     public static bool DragsOutAShape(this CanvasTool tool) =>
         tool is CanvasTool.Gradient or CanvasTool.Shape;
 
@@ -158,6 +163,10 @@ internal sealed partial class CanvasView : IDisposable
     private Point? _cloneOffset;
     private Point? _shapeFrom;
     private Point _shapeTo;
+    private Point _shapeAnchor;
+    private bool _marqueeSquareArmed;
+    private Point? _outlineFrom;
+    private DocumentSelection? _outlineBase;
     private List<Point>? _polygon;
     private Point? _movingFrom;
     private Point _movingTo;
@@ -330,7 +339,7 @@ internal sealed partial class CanvasView : IDisposable
     // MARK: Input
 
     /// <summary>A button went down at <paramref name="view"/>, in view points.</summary>
-    public void PointerDown(Point view, bool pan)
+    public void PointerDown(Point view, bool pan, bool doubleClick = false)
     {
         if (_document is null) return;
 
@@ -350,9 +359,13 @@ internal sealed partial class CanvasView : IDisposable
 
         if (_tool == CanvasTool.Idle) return;
 
+        if (BeginSelectionDrag(pixel)) return;
+
         if (_tool == CanvasTool.PolygonLasso)
         {
-            AddCorner(pixel);
+            // The double-click's first press has already put its corner down; the second closes.
+            if (doubleClick && _polygon is not null) ClosePolygon();
+            else AddCorner(pixel);
             return;
         }
 
@@ -377,6 +390,7 @@ internal sealed partial class CanvasView : IDisposable
 
         if (_tool.DragsOutAShape())
         {
+            _shapeAnchor = pixel;
             _shapeFrom = pixel;
             _shapeTo = pixel;
             NeedsRedraw = true;
@@ -396,6 +410,8 @@ internal sealed partial class CanvasView : IDisposable
             _marqueeTo = pixel;
             _lasso = _tool == CanvasTool.Lasso ? [pixel] : null;
             (_marqueeAdds, _marqueeTakesAway) = SelectionOperationForHeldKeys();
+            // A Shift held at the press means Add; it squares the marquee only once pressed afresh.
+            _marqueeSquareArmed = !Win32.IsKeyDown(Win32.VK_SHIFT);
             NeedsRedraw = true;
             return;
         }
@@ -567,15 +583,32 @@ internal sealed partial class CanvasView : IDisposable
         if (_shapeFrom is not null)
         {
             Point shapeAt = _viewport.DocumentPoint(view, _document.Size);
-            if (_tool == CanvasTool.Gradient) DragGradient(shapeAt);
-            else _shapeTo = shapeAt;
+            if (_tool == CanvasTool.Gradient) DragGradient(shapeAt, shift);
+            else (_shapeFrom, _shapeTo) = ShapeCorners(_shapeAnchor, shapeAt, square: shift, fromCentre: alt);
             NeedsRedraw = true;
             return;
         }
 
-        if (_marqueeFrom is not null)
+        if (_outlineFrom is Point grabbed && _outlineBase is DocumentSelection outline)
+        {
+            Point at = _viewport.DocumentPoint(view, _document.Size);
+            double dx = at.X - grabbed.X, dy = at.Y - grabbed.Y;
+            // Shift keeps the move on one axis: whichever way the drag has gone further.
+            if (shift)
+            {
+                if (Math.Abs(dx) >= Math.Abs(dy)) dy = 0;
+                else dx = 0;
+            }
+            _selection = outline.Transformed(point => new Point(point.X + dx, point.Y + dy));
+            NeedsRedraw = true;
+            return;
+        }
+
+        if (_marqueeFrom is Point marqueeStart)
         {
             _marqueeTo = _viewport.DocumentPoint(view, _document.Size);
+            if (!shift) _marqueeSquareArmed = true;
+            if (_lasso is null && shift && _marqueeSquareArmed) _marqueeTo = Squared(marqueeStart, _marqueeTo);
 
             // A freehand outline keeps every point the pointer passed through, thinned so that a
             // slow drag does not pile up thousands of them a pixel apart.
@@ -679,6 +712,14 @@ internal sealed partial class CanvasView : IDisposable
         if (_shapeFrom is Point corner)
         {
             EndShape(corner);
+            return;
+        }
+
+        if (_outlineFrom is not null)
+        {
+            _outlineFrom = null;
+            _outlineBase = null;
+            NeedsRedraw = true;
             return;
         }
 
@@ -939,6 +980,82 @@ internal sealed partial class CanvasView : IDisposable
     /// One history entry at the end of the drag rather than a floating selection carried between
     /// them: floating is a state the format cannot store, and the result is the same.
     /// </remarks>
+    /// <summary>
+    /// A press inside the selection with a selection tool: upstream's drag that moves the outline in
+    /// New mode, or — with Control, its Command — cuts the pixels and moves them, Alt leaving a copy.
+    /// </summary>
+    /// <remarks>
+    /// With Shift or Alt alone the press still draws, adding or taking away, as a press outside
+    /// would. A polygonal outline being clicked out owns its clicks.
+    /// </remarks>
+    private bool BeginSelectionDrag(Point pixel)
+    {
+        if (!_tool.Selects() || _polygon is not null) return false;
+        if (_selection is not DocumentSelection current || !current.Contains(pixel)) return false;
+
+        if (Win32.IsKeyDown(Win32.VK_CONTROL))
+        {
+            if (ActiveLayer is { Image: not null })
+            {
+                _movingFrom = pixel;
+                _movingTo = pixel;
+                _movingDuplicates = Win32.IsKeyDown(Win32.VK_MENU);
+            }
+            return true;
+        }
+
+        (bool add, bool subtract) = SelectionOperationForHeldKeys();
+        if (add || subtract) return false;
+
+        _outlineFrom = pixel;
+        _outlineBase = current;
+        return true;
+    }
+
+    /// <summary>A drag's far corner pulled out to a square round <paramref name="anchor"/>.</summary>
+    internal static Point Squared(Point anchor, Point to)
+    {
+        double dx = to.X - anchor.X, dy = to.Y - anchor.Y;
+        double side = Math.Max(Math.Abs(dx), Math.Abs(dy));
+        return new Point(anchor.X + (dx < 0 ? -side : side), anchor.Y + (dy < 0 ? -side : side));
+    }
+
+    /// <summary>
+    /// The shape tool's box: Shift makes it a square (a circle for the ellipse) and Alt draws it out
+    /// from the press rather than from a corner, as upstream's and Photoshop's do.
+    /// </summary>
+    internal static (Point From, Point To) ShapeCorners(Point anchor, Point pointer, bool square, bool fromCentre)
+    {
+        Point to = square ? Squared(anchor, pointer) : pointer;
+        Point from = fromCentre ? new Point(2 * anchor.X - to.X, 2 * anchor.Y - to.Y) : anchor;
+        return (from, to);
+    }
+
+    /// <summary>
+    /// Arrow keys with a selection up, as upstream reads them: Control moves the selected pixels in
+    /// any tool, a selection tool moves the outline. False when the key is not theirs.
+    /// </summary>
+    private bool NudgeSelection(int key, bool control, double step)
+    {
+        if (_selection is not DocumentSelection selection || _polygon is not null) return false;
+
+        double dx = key == Win32.VK_LEFT ? -step : key == Win32.VK_RIGHT ? step : 0;
+        double dy = key == Win32.VK_UP ? -step : key == Win32.VK_DOWN ? step : 0;
+
+        if (control)
+        {
+            // One history step per press, as a layer nudge is.
+            _movingTo = new Point(dx, dy);
+            _movingDuplicates = false;
+            MoveSelected(Point.Zero);
+            return true;
+        }
+
+        if (!_tool.Selects()) return false;
+        _selection = selection.Transformed(point => new Point(point.X + dx, point.Y + dy));
+        return true;
+    }
+
     private void MoveSelected(Point lifted)
     {
         Point dropped = _movingTo;
@@ -969,6 +1086,45 @@ internal sealed partial class CanvasView : IDisposable
         _document = _document.Replacing(layer with { Image = result });
         _selection = selection.Transformed(point => new Point(point.X + offset.X, point.Y + offset.Y));
         _history.End(_document, id);
+    }
+
+    /// <summary>
+    /// Drops the stroke under way. The document is as it was before the press — a mask stroke's
+    /// working copy is put back — so closing the history edit records nothing.
+    /// </summary>
+    private void CancelStroke()
+    {
+        if (_warp is WarpStroke warp)
+        {
+            _warp = null;
+            warp.Dispose();
+            _history.End(_document, _painting);
+            NeedsRedraw = true;
+            return;
+        }
+
+        if (_stroke is not BrushStroke stroke) return;
+        _stroke = null;
+
+        if (_strokeOnMask && _maskBefore is ImageLayer before && _document is not null)
+            _document = _document.Replacing(before);
+        _history.End(_document, _painting);
+
+        stroke.Dispose();
+        _strokeBase?.Release();
+        _strokeBase = null;
+        _cloneSample?.Release();
+        _cloneSample = null;
+        if (_strokeOnMask)
+        {
+            _strokeOnMask = false;
+            _maskBefore = null;
+            _maskShown?.Release();
+            _maskShown = null;
+            _maskWorking?.Release();
+            _maskWorking = null;
+        }
+        NeedsRedraw = true;
     }
 
     /// <summary>Commits the stroke as one history entry, healing first if that is what it was.</summary>
@@ -1209,6 +1365,21 @@ internal sealed partial class CanvasView : IDisposable
             return true;
         }
 
+        // Mid-stroke, Escape drops the stroke and every other key waits, as upstream's canvas does:
+        // a tool key taken half-way through would change what the stroke is committed as.
+        if (_stroke is not null || _warp is not null)
+        {
+            if (key == Win32.VK_ESCAPE) CancelStroke();
+            return true;
+        }
+
+        if (key == Win32.VK_ESCAPE && _tool == CanvasTool.Shape && _shapeFrom is not null)
+        {
+            _shapeFrom = null;
+            NeedsRedraw = true;
+            return true;
+        }
+
         if (HasPendingGradient)
         {
             if (key == Win32.VK_RETURN)
@@ -1292,6 +1463,16 @@ internal sealed partial class CanvasView : IDisposable
                 ClosePolygon();
                 break;
 
+            case Win32.VK_ESCAPE when _polygon is not null:
+                _polygon = null;
+                break;
+
+            // Backspace takes back the last corner; taking back the only one drops the outline.
+            case Win32.VK_BACK when _polygon is not null:
+                _polygon.RemoveAt(_polygon.Count - 1);
+                if (_polygon.Count == 0) _polygon = null;
+                break;
+
             case Win32.VK_RETURN when _tool == CanvasTool.Crop:
                 ApplyCrop();
                 break;
@@ -1360,9 +1541,17 @@ internal sealed partial class CanvasView : IDisposable
                     : Brush with { Diameter = SteppedDiameter(Brush.Diameter, key == Win32.VK_OEM_6) };
                 break;
 
-            case Win32.VK_LEFT or Win32.VK_RIGHT or Win32.VK_UP or Win32.VK_DOWN:
-                Nudge(key, Win32.IsKeyDown(Win32.VK_SHIFT) ? 10 : 1);
+            // Upstream's arrows: floating pixels and the Move tool nudge layers, a selection moves
+            // by its outline or (with Control) its pixels, and in the other tools they do nothing.
+            case Win32.VK_LEFT or Win32.VK_RIGHT or Win32.VK_UP or Win32.VK_DOWN when !alt:
+            {
+                double step = shift ? 10 : 1;
+                if (IsFloating) Nudge(key, step);
+                else if (NudgeSelection(key, control, step)) { }
+                else if (_tool == CanvasTool.Move && !control) Nudge(key, step);
+                else return false;
                 break;
+            }
 
             default:
                 return false;
@@ -1476,7 +1665,7 @@ internal sealed partial class CanvasView : IDisposable
     /// lasso are left out, as upstream leaves them: a stroke that ran into the edge would keep
     /// painting as the document slid under a still pointer.
     /// </remarks>
-    private bool AutoScrolls => _cropDragging || _movingFrom is not null || _drag is not null
+    private bool AutoScrolls => _cropDragging || _movingFrom is not null || _drag is not null || _outlineFrom is not null
                                 || _marqueeFrom is not null && _lasso is null;
 
     /// <summary>
