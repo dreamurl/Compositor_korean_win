@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.InteropServices;
 using Compositor_korean_win.Core;
 using SharpGen.Runtime;
 using Vortice.DCommon;
@@ -93,6 +94,7 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
         {
             public long Revision { get; set; }
             public long Use { get; set; }
+            public byte[] Upload { get; set; } = [];
         }
 
         private readonly Dictionary<MutableBufferSource, Entry> _entries = [];
@@ -133,9 +135,12 @@ internal sealed class Direct2DBackend(GraphicsDevice device) : IRenderBackend
                 if (!dirty.IsEmpty)
                 {
                     using PixelBuffer pixels = source.Materialize(dirty);
-                    var destination = new Vortice.RawRect(dirty.X - needed.X, dirty.Y - needed.Y,
-                                                          dirty.Right - needed.X, dirty.Bottom - needed.Y);
-                    entry.Bitmap.CopyFromMemory(pixels.Scan0, (uint)pixels.Stride, destination).CheckError();
+                    int bytes = checked(pixels.Stride * pixels.Height);
+                    if (entry.Upload.Length < bytes) entry.Upload = new byte[bytes];
+                    Marshal.Copy(pixels.Scan0, entry.Upload, 0, bytes);
+                    var destination = new System.Drawing.Rectangle(dirty.X - needed.X, dirty.Y - needed.Y,
+                                                                   dirty.Width, dirty.Height);
+                    entry.Bitmap.CopyFromMemory(destination, entry.Upload, (uint)pixels.Stride).CheckError();
                 }
                 entry.Revision = revision;
             }
