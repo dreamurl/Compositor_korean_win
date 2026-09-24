@@ -196,8 +196,10 @@ public sealed class PsdTests
     /// The files whose every feature is one this editor has: once imported and composited here they
     /// must look as Photoshop drew them.
     /// </summary>
-    public static TheoryData<string> Faithful => new()
-    {
+    public static TheoryData<string> Faithful => Rows(FaithfulFiles);
+
+    private static readonly string[] FaithfulFiles =
+    [
         "1layer.psd", "2layers.psd", "1layer.psb", "group.psd", "clipping-mask.psd", "mask.psd",
         "mask-disabled.psd", "hidden-layer.psd", "hidden-groups.psd", "opacity-fill.psd", "16bit5x5.psd",
         "32bit5x5.psd", "gray0.psd", "empty-layer.psd", "semi-transparent-layers.psd", "text.psd",
@@ -205,7 +207,7 @@ public sealed class PsdTests
         "blend-multiply.psd", "blend-screen.psd", "blend-overlay.psd", "blend-color-dodge.psd",
         "blend-color-burn.psd", "blend-difference.psd", "blend-hue.psd", "blend-color.psd",
         "blend-luminosity.psd", "blend-pass-through.psd",
-    };
+    ];
 
     [Theory]
     [MemberData(nameof(Faithful))]
@@ -247,15 +249,13 @@ public sealed class PsdTests
     }
 
     /// <summary>Every file a round trip is tried on.</summary>
-    public static TheoryData<string> Everything
+    public static TheoryData<string> Everything => Rows([.. FaithfulFiles, "curves_rgb.psd", "huesaturation_rgb.psd"]);
+
+    private static TheoryData<string> Rows(string[] names)
     {
-        get
-        {
-            var all = new TheoryData<string>();
-            foreach (object[] row in Faithful) all.Add((string)row[0]);
-            foreach (object[] row in DrawnDifferently) all.Add((string)row[0]);
-            return all;
-        }
+        var rows = new TheoryData<string>();
+        foreach (string name in names) rows.Add(name);
+        return rows;
     }
 
     // ---- Writing what Photoshop will read ---------------------------------------------------
