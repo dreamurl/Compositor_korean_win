@@ -72,6 +72,14 @@ jobs:
           --logger "trx;LogFileName=core-tests.trx"
           --results-directory build/test-results
 
+      # The PSD tests leave their exports in build/psd-out; psd-tools, a reader written
+      # independently of ours, has to read them as we meant them (docs/progress.md 14).
+      - name: Check exported PSDs with psd-tools
+        shell: pwsh
+        run: |
+          python -m pip install --quiet --disable-pip-version-check psd-tools
+          python scripts/check_psd.py build/psd-out
+
       # Restoring again rather than reusing the solution restore: the NativeAOT compiler and the
       # win-x64 runtime pack only get pulled in once the RuntimeIdentifier is in play, which the
       # solution-wide restore does not do.

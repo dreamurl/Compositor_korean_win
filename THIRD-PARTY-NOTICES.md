@@ -92,6 +92,24 @@ Copyright (c) 2024 ZhengPeng
 
 ---
 
+## 배포물에 들어가지 않는 것
+
+### psd-tools 테스트 파일 (Kota Yamaguchi)
+
+`tests/Compositor_korean_win.Core.Tests/Fixtures/psd/` 의 PSD·PSB 파일은
+[psd-tools](https://github.com/psd-tools/psd-tools) 의 테스트 자료에서 가져왔다. Photoshop 이 저장한
+파일이어서, PSD 가져오기가 Photoshop 과 같은 결과를 내는지 재는 기준으로 쓴다. 테스트에만 쓰이고
+앱에는 들어가지 않는다. 전문은 같은 폴더의 `LICENSE-psd-tools.txt`. CI 는 내보낸 PSD 를 검사할 때
+psd-tools 자체도 내려받아 쓴다.
+
+```
+MIT License
+
+Copyright (c) 2019 Kota Yamaguchi
+```
+
+---
+
 ## 상표
 
 "Adobe" 와 "Photoshop" 은 Adobe Inc. 의 상표다.
