@@ -14,6 +14,15 @@ public enum TransformDragKind
 
     /// <summary>A handle held with the distort modifier: one corner, or one edge, moves alone.</summary>
     Distort,
+
+    /// <summary>Edit › Transform › Skew: an edge slides along itself, a corner along one of its edges.</summary>
+    Skew,
+
+    /// <summary>
+    /// Edit › Transform › Perspective: a corner slides along one of its edges and the corner at the
+    /// other end of that edge slides the opposite way, so the edge widens or narrows about its middle.
+    /// </summary>
+    Perspective,
 }
 
 /// <summary>A drag kind together with the handle it grabbed.</summary>
@@ -28,6 +37,11 @@ public readonly record struct TransformDragMode(TransformDragKind Kind, int Hand
     public static TransformDragMode Rotate => new(TransformDragKind.Rotate);
     public static TransformDragMode Resize(int handle) => new(TransformDragKind.Resize, handle);
     public static TransformDragMode Distort(int handle) => new(TransformDragKind.Distort, handle);
+    public static TransformDragMode Skew(int handle) => new(TransformDragKind.Skew, handle);
+    public static TransformDragMode Perspective(int handle) => new(TransformDragKind.Perspective, handle);
+
+    /// <summary>Whether the drag moves corners on their own, so the layer is resampled when it ends.</summary>
+    public bool MovesCorners => Kind is TransformDragKind.Distort or TransformDragKind.Skew or TransformDragKind.Perspective;
 }
 
 /// <summary>
@@ -115,6 +129,8 @@ public sealed record TransformDrag
             case TransformDragKind.Move:
                 moved = new[] { 0, 1, 2, 3 };
                 break;
+            case TransformDragKind.Skew or TransformDragKind.Perspective:
+                return Slid(corners, dx, dy);
             default:
                 return null;
         }
@@ -123,6 +139,55 @@ public sealed record TransformDrag
         foreach (int corner in moved)
             result[corner] = new Point(result[corner].X + dx, result[corner].Y + dy);
         return result;
+    }
+
+    /// <summary>
+    /// Skew and Perspective: whatever moves, moves along an edge of the shape as it began, never
+    /// across it — which is what keeps a skewed box's sides parallel and a perspective's edges on
+    /// their lines.
+    /// </summary>
+    /// <remarks>
+    /// An edge handle slides its edge along itself in both modes, as Photoshop's do. A corner picks
+    /// whichever of its two edges the drag runs closer to; Skew moves the corner alone along it,
+    /// Perspective moves it and sends the far end of that edge the other way by the same amount.
+    /// </remarks>
+    private Point[] Slid(IReadOnlyList<Point> corners, double dx, double dy)
+    {
+        Point[] result = [.. corners];
+        int index = Math.Clamp(Mode.Handle, 0, Handles.Count - 1);
+
+        if (index % 2 == 1)
+        {
+            int a = index / 2, b = (a + 1) % 4;
+            (double ux, double uy) = Unit(corners[a], corners[b]);
+            double along = dx * ux + dy * uy;
+            result[a] = Moved(corners[a], ux * along, uy * along);
+            result[b] = Moved(corners[b], ux * along, uy * along);
+            return result;
+        }
+
+        int corner = index / 2, next = (corner + 1) % 4, previous = (corner + 3) % 4;
+        (double nx, double ny) = Unit(corners[corner], corners[next]);
+        (double px, double py) = Unit(corners[corner], corners[previous]);
+        double towardsNext = dx * nx + dy * ny, towardsPrevious = dx * px + dy * py;
+
+        bool alongNext = Math.Abs(towardsNext) >= Math.Abs(towardsPrevious);
+        int partner = alongNext ? next : previous;
+        (double ex, double ey) = alongNext ? (nx, ny) : (px, py);
+        double distance = alongNext ? towardsNext : towardsPrevious;
+
+        result[corner] = Moved(corners[corner], ex * distance, ey * distance);
+        if (Mode.Kind == TransformDragKind.Perspective)
+            result[partner] = Moved(corners[partner], -ex * distance, -ey * distance);
+        return result;
+
+        static (double X, double Y) Unit(Point from, Point to)
+        {
+            double x = to.X - from.X, y = to.Y - from.Y, length = Math.Sqrt(x * x + y * y);
+            return length < 1e-9 ? (1, 0) : (x / length, y / length);
+        }
+
+        static Point Moved(Point point, double x, double y) => new(point.X + x, point.Y + y);
     }
 
     /// <summary>

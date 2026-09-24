@@ -220,7 +220,17 @@ public static class QuadWarp
         PixelBuffer coverage, IReadOnlyList<Point> corners, byte? outside, DownsamplePyramid? pyramid, PixelRect? clip)
     {
         if (Resample(coverage, corners, pyramid, clip) is not (PixelBuffer warped, LayerTransform placement)) return null;
+        Opaque(warped, outside);
+        return (warped, placement);
+    }
 
+    /// <summary>
+    /// A resampled mask made opaque again, in place: what the resampler left transparent becomes
+    /// <paramref name="outside"/>, or with none the grey is simply unpremultiplied (see
+    /// <see cref="MaskInto"/>). Shared with the warp grid (<see cref="WarpMesh.Warp"/>).
+    /// </summary>
+    public static void Opaque(PixelBuffer warped, byte? outside = null)
+    {
         for (int y = 0; y < warped.Height; y++)
         {
             Span<byte> row = warped.Row(y);
@@ -234,8 +244,6 @@ public static class QuadWarp
                 row[i + 3] = 255;
             }
         }
-
-        return (warped, placement);
     }
 
     /// <summary>Twice the signed area of the quadrilateral — the shoelace sum.</summary>
