@@ -122,11 +122,31 @@ public static class QuadWarp
         PixelBuffer result = PixelBuffer.Allocate(box.Width, box.Height);
         try
         {
+            nint reducedPixels = reduced.Scan0;
+            bool affine = Math.Abs(inverse[6]) < 1e-12 && Math.Abs(inverse[7]) < 1e-12;
             Parallel.For(0, box.Height, y =>
             {
                 Span<byte> row = result.Row(y);
-                Span<byte> pixel = stackalloc byte[4];
                 double destinationY = box.Y + y + 0.5;
+
+                // Image Size and ordinary rectangular transforms are affine. Avoiding a projective
+                // denominator and two divisions for every output pixel is a substantial saving on
+                // a multi-megapixel resize; true four-corner distortions take the general path.
+                if (affine)
+                {
+                    for (int x = 0; x < box.Width; x++)
+                    {
+                        double destinationX = box.X + x + 0.5;
+                        double u = inverse[0] * destinationX + inverse[1] * destinationY + inverse[2];
+                        double v = inverse[3] * destinationX + inverse[4] * destinationY + inverse[5];
+                        if (u < 0 || u > 1 || v < 0 || v > 1) continue;
+
+                        PixelSampling.Bilinear(reducedPixels, reduced.Stride, reduced.Width, reduced.Height,
+                                               u * reduced.Width, v * reduced.Height, row.Slice(x * 4, 4));
+                    }
+                    return;
+                }
+
                 for (int x = 0; x < box.Width; x++)
                 {
                     double destinationX = box.X + x + 0.5;
@@ -137,9 +157,8 @@ public static class QuadWarp
                     double v = (inverse[3] * destinationX + inverse[4] * destinationY + inverse[5]) / w;
                     if (u < 0 || u > 1 || v < 0 || v > 1) continue;
 
-                    Sample(reduced, u * reduced.Width, v * reduced.Height, pixel);
-                    if (pixel[3] == 0) continue;
-                    pixel.CopyTo(row.Slice(x * 4, 4));
+                    PixelSampling.Bilinear(reducedPixels, reduced.Stride, reduced.Width, reduced.Height,
+                                           u * reduced.Width, v * reduced.Height, row.Slice(x * 4, 4));
                 }
             });
 
@@ -322,39 +341,4 @@ public static class QuadWarp
         ];
     }
 
-    /// <summary>Bilinear sample of premultiplied pixels, transparent outside the buffer.</summary>
-    private static void Sample(PixelBuffer buffer, double px, double py, Span<byte> result)
-    {
-        double x = px - 0.5, y = py - 0.5;
-        int x0 = (int)Math.Floor(x), y0 = (int)Math.Floor(y);
-        double tx = x - x0, ty = y - y0;
-
-        Span<byte> a = stackalloc byte[4], b = stackalloc byte[4], c = stackalloc byte[4], d = stackalloc byte[4];
-        Read(buffer, x0, y0, a);
-        Read(buffer, x0 + 1, y0, b);
-        Read(buffer, x0, y0 + 1, c);
-        Read(buffer, x0 + 1, y0 + 1, d);
-
-        for (int channel = 0; channel < 4; channel++)
-        {
-            double top = a[channel] * (1 - tx) + b[channel] * tx;
-            double bottom = c[channel] * (1 - tx) + d[channel] * tx;
-            result[channel] = (byte)Math.Clamp(
-                Math.Round(top * (1 - ty) + bottom * ty, MidpointRounding.AwayFromZero), 0, 255);
-        }
-
-        for (int channel = 0; channel < 3; channel++)
-            result[channel] = Math.Min(result[channel], result[3]);
-    }
-
-    private static void Read(PixelBuffer buffer, int x, int y, Span<byte> result)
-    {
-        if (x < 0 || y < 0 || x >= buffer.Width || y >= buffer.Height)
-        {
-            result.Clear();
-            return;
-        }
-
-        buffer.Row(y).Slice(x * 4, 4).CopyTo(result);
-    }
 }

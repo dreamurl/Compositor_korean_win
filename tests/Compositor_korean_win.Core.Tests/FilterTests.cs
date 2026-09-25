@@ -340,6 +340,33 @@ public class FilterTests
     }
 
     [Fact]
+    public void AnUnchangedDistortionPreviewReusesItsPixels()
+    {
+        using PixelBuffer pixels = Gradient(320, 240);
+        ImageLayer layer = Layer("gradient", pixels);
+        using var preview = new FilterPreview(layer, FilterKind.Twirl, new FilterSettings { TwirlAngle = 90 });
+
+        LiveEdit first = preview.Frame(CanvasProjection.Identity, 320, 240);
+        LiveEdit second = preview.Frame(CanvasProjection.Identity, 320, 240);
+
+        Assert.Same(first, second);
+        Assert.Same(((BufferSource)first.Source).Buffer, ((BufferSource)second.Source).Buffer);
+        Assert.True(((BufferSource)first.Source).Cacheable);
+    }
+
+    [Fact]
+    public void AGeometricPreviewHasABoundedInteractionRaster()
+    {
+        using PixelBuffer pixels = Gradient(2000, 2000);
+        ImageLayer layer = Layer("large", pixels);
+        using var preview = new FilterPreview(layer, FilterKind.Spherize, new FilterSettings { Strength = 60 });
+
+        preview.Frame(CanvasProjection.Identity, 1000, 800);
+
+        Assert.InRange(preview.LastPixelsFiltered, 1, 512 * 512);
+    }
+
+    [Fact]
     public void ThePreviewFiltersTheFrameNotTheLayer()
     {
         // Two thousand pixels square, drawn at a tenth into a frame of two hundred.

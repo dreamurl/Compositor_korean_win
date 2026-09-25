@@ -134,6 +134,7 @@ public static class DistortFilters
     public static PixelBuffer Remap(PixelBuffer source, Func<double, double, (double X, double Y)> map)
     {
         PixelBuffer result = PixelBuffer.Allocate(source.Width, source.Height);
+        nint sourcePixels = source.Scan0;
         Parallel.For(0, source.Height, y =>
         {
             Span<byte> row = result.Row(y);
@@ -141,7 +142,8 @@ public static class DistortFilters
             {
                 (double sx, double sy) = map(x + 0.5, y + 0.5);
                 if (double.IsNaN(sx) || double.IsNaN(sy)) continue;
-                PixelSampling.Bilinear(source, sx, sy, row.Slice(x * 4, 4));
+                PixelSampling.Bilinear(sourcePixels, source.Stride, source.Width, source.Height,
+                                       sx, sy, row.Slice(x * 4, 4));
             }
         });
         return result;
@@ -156,9 +158,17 @@ public static class PixelSampling
     /// centre is at +0.5, blended from the four nearest. Outside the buffer is transparent.
     /// </summary>
     public static void Bilinear(PixelBuffer buffer, double x, double y, Span<byte> into)
+        => Bilinear(buffer.Scan0, buffer.Stride, buffer.Width, buffer.Height, x, y, into);
+
+    /// <summary>
+    /// The same sample after a caller has materialised the immutable source once. Hot resampling
+    /// loops use this overload so four taps do not repeat PixelBuffer state checks for every pixel.
+    /// </summary>
+    internal static unsafe void Bilinear(nint scan0, int stride, int width, int height,
+                                         double x, double y, Span<byte> into)
     {
         double fx = x - 0.5, fy = y - 0.5;
-        if (!(fx > -1 && fy > -1 && fx < buffer.Width && fy < buffer.Height))
+        if (!(fx > -1 && fy > -1 && fx < width && fy < height))
         {
             into.Clear();
             return;
@@ -182,8 +192,8 @@ public static class PixelSampling
 
         void Add(int px, int py, float weight)
         {
-            if (weight <= 0 || px < 0 || py < 0 || px >= buffer.Width || py >= buffer.Height) return;
-            ReadOnlySpan<byte> pixel = buffer.Row(py).Slice(px * 4, 4);
+            if (weight <= 0 || px < 0 || py < 0 || px >= width || py >= height) return;
+            byte* pixel = (byte*)scan0 + py * stride + px * 4;
             r += pixel[0] * weight;
             g += pixel[1] * weight;
             b += pixel[2] * weight;

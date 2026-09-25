@@ -381,6 +381,11 @@ internal sealed partial class CanvasView : IDisposable
         // An open Liquify or warp grid takes the click for its own.
         if (LiquifyPointerDown(view) || MeshPointerDown(view, pixel)) return;
 
+        // Move is the default tool, so a text block should not require switching to Type merely
+        // to change its words. The first click of the Windows double-click may select the layer;
+        // the second opens the native IME-capable editor immediately.
+        if (doubleClick && _tool == CanvasTool.Move && OpenTextAt(pixel)) return;
+
         if (_tool == CanvasTool.Idle) return;
 
         if (BeginSelectionDrag(pixel)) return;

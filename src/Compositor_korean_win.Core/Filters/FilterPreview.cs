@@ -14,15 +14,28 @@ namespace Compositor_korean_win.Core;
 /// painting (docs/progress.md 4.4, 5.4).
 /// </para>
 /// <para>
-/// The reduced pixels are kept between frames, so after the first frame only the crop and the
-/// filter itself are redone. Lens Correction is the exception to the crop: it bends the whole
-/// image about its centre, so it always runs on all of the reduced layer.
+/// The reduced pixels and the finished frame are kept between draws. Geometric distortions are
+/// the exception to crop-to-view because they can read from anywhere in the layer; they use a
+/// bounded whole-layer interaction raster and the full image only when the user commits.
 /// </para>
 /// </remarks>
 public sealed class FilterPreview : IDisposable
 {
+    // Geometric filters have to see the whole layer, but an interactive preview does not need the
+    // commit's full resolution. Keeping this near a 512 x 512 image makes the slowest trigonometric
+    // maps finish within one pointer frame even on a CPU-only machine.
+    private const long GeometricPreviewPixelBudget = 512 * 512;
+    private const int GeometricPreviewMaximumSide = 1024;
+
     private readonly DownsamplePyramid _pyramid = new();
     private PixelBuffer? _last;
+    private PixelBuffer? _geometricSource;
+    private LiveEdit? _lastEdit;
+    private FilterSettings? _lastSettings;
+    private FilterKind _lastKind;
+    private CanvasProjection _lastProjection;
+    private int _lastWidth;
+    private int _lastHeight;
 
     public FilterPreview(ImageLayer layer, FilterKind kind, FilterSettings settings,
                          DocumentSelection? selection = null)
@@ -51,8 +64,17 @@ public sealed class FilterPreview : IDisposable
     /// </remarks>
     public LiveEdit Frame(CanvasProjection projection, int width, int height)
     {
+        bool geometric = DistortFilters.IsGeometric(Kind);
+        if (_lastEdit is not null && _lastKind == Kind && _lastSettings == Settings
+                                      && (geometric || (_lastProjection == projection
+                                                       && _lastWidth == width && _lastHeight == height)))
+            return _lastEdit;
+
         PixelBuffer image = Layer.Image!;
         int w = image.Width, h = image.Height;
+
+        if (geometric)
+            return GeometricFrame(image, w, h, projection, width, height);
 
         int level = LayerGeometry.LevelFor(projection.Apply(Layer.Transform), w);
         (PixelBuffer reduced, int applied) = _pyramid.Reduced(image, level);
@@ -66,21 +88,16 @@ public sealed class FilterPreview : IDisposable
         var grid = new PixelRect(-reach, -reach, reduced.Width + reach * 2, reduced.Height + reach * 2);
         LayerTransform gridPlacement = LayerGeometry.Place(Layer.Transform, Scaled(grid, unit), w, h);
 
-        PixelRect crop = grid;
-        // A distortion reads from anywhere in the layer, so it is run over all of it.
-        if (!DistortFilters.IsGeometric(Kind))
-        {
-            LayerTransform onSurface = projection.Apply(gridPlacement);
-            PixelRect area = LayerGeometry.Bounds(onSurface).Intersect(new PixelRect(0, 0, width, height));
-            if (area.IsEmpty) area = new PixelRect(0, 0, 1, 1);
+        LayerTransform onSurface = projection.Apply(gridPlacement);
+        PixelRect area = LayerGeometry.Bounds(onSurface).Intersect(new PixelRect(0, 0, width, height));
+        if (area.IsEmpty) area = new PixelRect(0, 0, 1, 1);
 
-            PixelRect visible = LayerGeometry.SourceRegion(area, onSurface, grid.Width, grid.Height);
+        PixelRect visible = LayerGeometry.SourceRegion(area, onSurface, grid.Width, grid.Height);
 
-            // Everything the visible pixels reach, and a pixel for the final resample.
-            crop = visible.Inflate(reach + 1).Intersect(new PixelRect(0, 0, grid.Width, grid.Height));
-            if (crop.IsEmpty) crop = new PixelRect(0, 0, 1, 1);
-            crop = crop with { X = crop.X + grid.X, Y = crop.Y + grid.Y };
-        }
+        // Everything the visible pixels reach, and a pixel for the final resample.
+        PixelRect crop = visible.Inflate(reach + 1).Intersect(new PixelRect(0, 0, grid.Width, grid.Height));
+        if (crop.IsEmpty) crop = new PixelRect(0, 0, 1, 1);
+        crop = crop with { X = crop.X + grid.X, Y = crop.Y + grid.Y };
 
         using PixelBuffer original = PixelRegion.Copy(reduced, crop);
         PixelPlacement placement = new(0, 0, unit);
@@ -93,13 +110,74 @@ public sealed class FilterPreview : IDisposable
         }
 
         LastPixelsFiltered = (long)crop.Width * crop.Height;
-        _last?.Release();
-        _last = filtered;
-
-        return new LiveEdit(Layer.Id, new BufferSource(filtered) { Cacheable = false })
+        return Remember(filtered, new LiveEdit(Layer.Id, new BufferSource(filtered))
         {
             Placement = LayerGeometry.Place(Layer.Transform, Scaled(crop, unit), w, h),
-        };
+        }, projection, width, height);
+    }
+
+    /// <summary>
+    /// Distortions read from anywhere in the layer, so crop-to-view cannot make them cheap. Build
+    /// one bounded source directly from the original instead of constructing every full-image
+    /// pyramid level, then keep both the filtered pixels and their GPU upload until settings move.
+    /// </summary>
+    private LiveEdit GeometricFrame(PixelBuffer image, int width, int height,
+                                    CanvasProjection projection, int surfaceWidth, int surfaceHeight)
+    {
+        double unit = PreviewUnit(width, height);
+        int previewWidth = Math.Max(1, (int)Math.Ceiling(width / unit));
+        int previewHeight = Math.Max(1, (int)Math.Ceiling(height / unit));
+
+        _geometricSource ??= ReducedCopy(image, previewWidth, previewHeight);
+        PixelBuffer original = _geometricSource;
+        PixelBuffer filtered = PixelFilters.Run(original, Kind, Settings, 1 / unit, new PixelPlacement(0, 0, unit));
+
+        if (Selection is not null)
+        {
+            var grid = new PixelRect(0, 0, previewWidth, previewHeight);
+            byte[] levels = LayerFilters.SelectionLevels(Selection, Layer.Transform, width, height, unit, grid);
+            PixelFilters.Confine(original, filtered, levels);
+        }
+
+        LastPixelsFiltered = (long)previewWidth * previewHeight;
+        return Remember(filtered, new LiveEdit(Layer.Id, new BufferSource(filtered))
+        {
+            Placement = Layer.Transform,
+        }, projection, surfaceWidth, surfaceHeight);
+    }
+
+    private LiveEdit Remember(PixelBuffer filtered, LiveEdit edit, CanvasProjection projection, int width, int height)
+    {
+        _last?.Release();
+        _last = filtered;
+        _lastEdit = edit;
+        _lastSettings = Settings;
+        _lastKind = Kind;
+        _lastProjection = projection;
+        _lastWidth = width;
+        _lastHeight = height;
+        return edit;
+    }
+
+    private static double PreviewUnit(int width, int height)
+    {
+        double unit = 1;
+        while (Math.Ceiling(width / unit) > GeometricPreviewMaximumSide
+               || Math.Ceiling(height / unit) > GeometricPreviewMaximumSide
+               || (long)Math.Ceiling(width / unit) * (long)Math.Ceiling(height / unit) > GeometricPreviewPixelBudget)
+            unit *= 2;
+        return unit;
+    }
+
+    private static PixelBuffer ReducedCopy(PixelBuffer image, int width, int height)
+    {
+        if (width == image.Width && height == image.Height) return image.Retain();
+
+        Point[] corners =
+        [
+            new Point(0, 0), new Point(width, 0), new Point(width, height), new Point(0, height),
+        ];
+        return QuadWarp.Resample(image, corners, null, new PixelRect(0, 0, width, height), reduce: false)!.Value.Pixels;
     }
 
     /// <summary>The same settings run over the layer for good.</summary>
@@ -112,6 +190,9 @@ public sealed class FilterPreview : IDisposable
     {
         _last?.Release();
         _last = null;
+        _lastEdit = null;
+        _geometricSource?.Release();
+        _geometricSource = null;
         _pyramid.Dispose();
     }
 }

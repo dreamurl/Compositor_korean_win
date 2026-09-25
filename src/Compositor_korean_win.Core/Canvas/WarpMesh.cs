@@ -267,6 +267,7 @@ public sealed record WarpMesh
         PixelBuffer result = PixelBuffer.Allocate(extent.Width, extent.Height);
         try
         {
+            nint sourcePixels = source.Scan0;
             Parallel.For(0, bands, b =>
             {
                 int top = extent.Y + b * band, bottom = Math.Min(extent.Bottom, top + band);
@@ -286,7 +287,8 @@ public sealed record WarpMesh
                         {
                             if (!Inside(a, bb, c, new Point(x + 0.5, y + 0.5), out double w0, out double w1, out double w2)) continue;
                             double px = sa.X * w0 + sb.X * w1 + sc.X * w2, py = sa.Y * w0 + sb.Y * w1 + sc.Y * w2;
-                            PixelSampling.Bilinear(source, px, py, row.Slice((x - extent.X) * 4, 4));
+                            PixelSampling.Bilinear(sourcePixels, source.Stride, source.Width, source.Height,
+                                                   px, py, row.Slice((x - extent.X) * 4, 4));
                         }
                     }
                 }
@@ -364,8 +366,13 @@ public sealed record WarpMesh
 /// </summary>
 public sealed class WarpPreview(ImageLayer layer) : IDisposable
 {
-    private const long PreviewPixelBudget = 1_500_000;
+    private const long PreviewPixelBudget = 512 * 512;
     private PixelBuffer? _last;
+    private LiveEdit? _lastEdit;
+    private Point[]? _lastPoints;
+    private CanvasProjection _lastProjection;
+    private int _lastWidth;
+    private int _lastHeight;
 
     public ImageLayer Layer { get; } = layer;
 
@@ -375,6 +382,10 @@ public sealed class WarpPreview(ImageLayer layer) : IDisposable
     public LiveEdit? Frame(WarpMesh mesh, CanvasProjection projection, int width, int height)
     {
         if (Layer.Image is not PixelBuffer image) return null;
+        if (_lastEdit is not null && _lastPoints is not null && _lastPoints.SequenceEqual(mesh.Points)
+                                      && _lastProjection == projection
+                                      && _lastWidth == width && _lastHeight == height)
+            return _lastEdit;
 
         Point[] controls = [.. mesh.Points.Select(projection.Apply)];
         double rasterScale = PreviewScale(controls, width, height);
@@ -406,7 +417,12 @@ public sealed class WarpPreview(ImageLayer layer) : IDisposable
         // A mask that goes with the pixels is shown where it will be; one that stays behind is not
         // drawn in the preview, which the commit would otherwise contradict.
         PixelBuffer? mask = Layer.Mask is { Coverage: { Width: 1, Height: 1 } uniform } ? uniform : null;
-        return new LiveEdit(Layer.Id, new BufferSource(pixels) { Cacheable = false }) { Placement = onDocument, Mask = mask };
+        _lastPoints = [.. mesh.Points];
+        _lastProjection = projection;
+        _lastWidth = width;
+        _lastHeight = height;
+        _lastEdit = new LiveEdit(Layer.Id, new BufferSource(pixels)) { Placement = onDocument, Mask = mask };
+        return _lastEdit;
     }
 
     private static double PreviewScale(IReadOnlyList<Point> controls, int width, int height)
@@ -424,5 +440,7 @@ public sealed class WarpPreview(ImageLayer layer) : IDisposable
     {
         _last?.Release();
         _last = null;
+        _lastEdit = null;
+        _lastPoints = null;
     }
 }

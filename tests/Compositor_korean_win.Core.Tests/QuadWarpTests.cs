@@ -241,7 +241,20 @@ public class QuadWarpTests
         LiveEdit? frame = preview.Frame(corners, CanvasProjection.Identity, 4000, 3000);
 
         Assert.NotNull(frame);
-        Assert.InRange(preview.LastPixelsWarped, 1, 1_600_000);
+        Assert.InRange(preview.LastPixelsWarped, 1, 300_000);
+    }
+
+    [Fact]
+    public void AnUnchangedDistortFrameIsReused()
+    {
+        using PixelBuffer pixels = RenderFixture.Gradient(64, 48);
+        using var preview = new DistortPreview(RenderFixture.Layer("preview", pixels));
+
+        LiveEdit first = preview.Frame(Skewed, CanvasProjection.Identity, 80, 60)!;
+        LiveEdit second = preview.Frame(Skewed, CanvasProjection.Identity, 80, 60)!;
+
+        Assert.Same(first, second);
+        Assert.True(((BufferSource)first.Source).Cacheable);
     }
 
     [Fact]

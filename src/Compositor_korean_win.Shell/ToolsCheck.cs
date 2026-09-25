@@ -575,6 +575,19 @@ internal static class ToolsCheck
             canvas.UpdateEditedText("XYZ");
             canvas.EndTextEdit(commit: false);
             Expect(ReferenceEquals(canvas.Document!.Layer(textId)!.Image, wordsBefore), "Escape did not put the words back");
+
+            // Move is the default tool; double-clicking a live text block opens it without first
+            // changing to Type.
+            requested = null;
+            canvas.SetTool(CanvasTool.Move);
+            ImageLayer textLayer = canvas.Document.Layer(textId)!;
+            Point textCentre = canvas.Viewport.ViewPoint(textLayer.Transform.PointAt(new Point(0.5, 0.5)),
+                                                         canvas.Document.Size);
+            canvas.PointerDown(textCentre, pan: false, doubleClick: true);
+            Expect(canvas.EditingText == textId && requested == textId,
+                   "double-clicking live text with Move did not open its editor");
+            canvas.PointerUp();
+            canvas.EndTextEdit(commit: false);
             canvas.TextEditRequested = opened;
 
             // Layer Style: one step for a whole visit to the sheet, however many changes it makes.

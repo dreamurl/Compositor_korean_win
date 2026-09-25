@@ -150,7 +150,22 @@ public class WarpAndLiquifyTests
         LiveEdit frame = preview.Frame(WarpMesh.Flat(layer.Transform), CanvasProjection.Identity, 4000, 3000)!;
 
         Assert.NotNull(frame);
-        Assert.InRange(preview.LastPixelsWarped, 1, 1_600_000);
+        Assert.InRange(preview.LastPixelsWarped, 1, 300_000);
+    }
+
+    [Fact]
+    public void AnUnchangedWarpFrameIsReused()
+    {
+        using PixelBuffer pixels = Gradient(64, 48);
+        ImageLayer layer = Layer("preview", pixels);
+        WarpMesh mesh = WarpMesh.Flat(layer.Transform);
+        using var preview = new WarpPreview(layer);
+
+        LiveEdit first = preview.Frame(mesh, CanvasProjection.Identity, 80, 60)!;
+        LiveEdit second = preview.Frame(mesh, CanvasProjection.Identity, 80, 60)!;
+
+        Assert.Same(first, second);
+        Assert.True(((BufferSource)first.Source).Cacheable);
     }
 
     // MARK: Liquify

@@ -56,6 +56,16 @@ internal static class PsdType
             string body = text.Text.Replace("\r\n", "\r", StringComparison.Ordinal)
                                    .Replace('\n', '\r');
             string words = body + "\r";
+            var textBounds = new PsdDescriptor { ClassId = "bounds" }
+                .Add("Left", new PsdUnitFloat("#Pnt", -text.AnchorX))
+                .Add("Top ", new PsdUnitFloat("#Pnt", -text.AnchorY))
+                .Add("Rght", new PsdUnitFloat("#Pnt", image.Width - text.AnchorX))
+                .Add("Btom", new PsdUnitFloat("#Pnt", image.Height - text.AnchorY));
+            var inkBounds = new PsdDescriptor { ClassId = "boundingBox" }
+                .Add("Left", new PsdUnitFloat("#Pnt", -text.AnchorX))
+                .Add("Top ", new PsdUnitFloat("#Pnt", -text.AnchorY))
+                .Add("Rght", new PsdUnitFloat("#Pnt", image.Width - text.AnchorX))
+                .Add("Btom", new PsdUnitFloat("#Pnt", image.Height - text.AnchorY));
             new PsdDescriptor { ClassId = "TxLr" }
                 // The descriptor is null-terminated by its TEXT writer. EngineData alone carries
                 // the extra carriage return that closes Photoshop's final paragraph.
@@ -63,6 +73,9 @@ internal static class PsdType
                 .Add("textGridding", new PsdEnum("textGridding", "None"))
                 .Add("Ornt", new PsdEnum("Ornt", "Hrzn"))
                 .Add("AntA", new PsdEnum("Annt", "AnSm"))
+                .Add("TxMg", new PsdEnum("TxMg", "TxNM"))
+                .Add("bounds", textBounds)
+                .Add("boundingBox", inkBounds)
                 .Add("TextIndex", 0)
                 .Add("EngineData", EngineData.Write(text, words, PostScriptName(text)))
                 .Write(writer);
@@ -78,13 +91,13 @@ internal static class PsdType
                 .Add("warpRotate", new PsdEnum("Ornt", "Hrzn"))
                 .Write(writer);
 
-            // Adobe's TySh specification calls these four bounds 8-byte doubles. psd-tools reads
-            // them as 4-byte integers and therefore did not catch the old, truncated 16-byte tail;
-            // Photoshop did, rasterising the layer and then disabling its text engine.
-            writer.F64(0);
-            writer.F64(0);
-            writer.F64(0);
-            writer.F64(0);
+            // Photoshop 2025 writes the TySh rectangle as four signed 32-bit integers. Writing
+            // doubles here makes this block 16 bytes too long: permissive readers ignore those
+            // bytes, but Photoshop rejects the type layer and rasterises it.
+            writer.I32(0);
+            writer.I32(0);
+            writer.I32(0);
+            writer.I32(0);
         });
     }
 
@@ -147,10 +160,17 @@ internal static class PsdType
             simplified |= turned;
         }
 
-        // Adobe specifies four doubles. Some older third-party writers followed psd-tools' four
-        // integer interpretation instead, so imports accept that legacy 16-byte tail as well.
+        // Photoshop writes four signed 32-bit bounds. Releases of this editor briefly wrote four
+        // doubles instead, so imports still accept that 32-byte form to recover those documents.
         double left, top, right, bottom;
-        if (block.Remaining >= 4 * sizeof(double))
+        if (block.Remaining == 4 * sizeof(int))
+        {
+            left = block.I32();
+            top = block.I32();
+            right = block.I32();
+            bottom = block.I32();
+        }
+        else if (block.Remaining >= 4 * sizeof(double))
         {
             left = block.F64();
             top = block.F64();
@@ -387,7 +407,7 @@ internal static class PsdType
 internal static class EngineData
 {
     /// <summary>
-    /// The compact text-engine dictionary Photoshop needs to keep a point-text layer editable.
+    /// The text-engine dictionary Photoshop needs to keep a point-text layer editable.
     /// It deliberately contains one paragraph run and one character run because <see cref="LayerText"/>
     /// has one style for the whole layer.
     /// </summary>
@@ -409,37 +429,80 @@ internal static class EngineData
 
         output.Ascii("<< /EngineDict << /Editor << /Text ");
         output.Utf16(words);
-        output.Ascii(" >> /ParagraphRun << /RunArray [ << /ParagraphSheet << /DefaultStyleSheet 0 /Properties << ");
-        output.Ascii($"/Justification {justification} /AutoLeading {autoLeading} /HyphenatedWordSize 6 /PreHyphen 2 /PostHyphen 2 ");
-        output.Ascii("/ConsecutiveHyphens 8 /Zone 36 /WordSpacing [ 0.8 1.0 1.33 ] /LetterSpacing [ 0 0 0 ] /GlyphSpacing [ 1 1 1 ] ");
-        output.Ascii(">> >> /Adjustments << >> >> ] /RunLengthArray [ ");
+        output.Ascii(" >> /ParagraphRun << /DefaultRunData << /ParagraphSheet << /DefaultStyleSheet 0 /Properties << >> >> ");
+        WriteAdjustments(output);
+        output.Ascii(" >> /RunArray [ << /ParagraphSheet << /DefaultStyleSheet 0 /Properties << ");
+        WriteParagraphProperties(output, justification, autoLeading, autoHyphenate: false, leadingType: 1);
+        output.Ascii(">> >> ");
+        WriteAdjustments(output);
+        output.Ascii(" >> ] /RunLengthArray [ ");
         output.Ascii(length);
-        output.Ascii(" ] /IsJoinable 1 >> /StyleRun << /RunArray [ << /StyleSheet << /StyleSheetData << ");
+        output.Ascii(" ] /IsJoinable 1 >> /StyleRun << /DefaultRunData << /StyleSheet << /StyleSheetData << >> >> >> ");
+        output.Ascii("/RunArray [ << /StyleSheet << /StyleSheetData << ");
         output.Ascii($"/Font 0 /FontSize {size} /FauxBold {(text.Weight >= 600 ? "true" : "false")} ");
         output.Ascii($"/FauxItalic {(text.Italic ? "true" : "false")} /AutoLeading false /Leading {leading} ");
         output.Ascii($"/HorizontalScale 1 /VerticalScale 1 /Tracking {tracking} /AutoKerning true /Kerning 0 ");
-        output.Ascii("/BaselineShift 0 /FontCaps 0 /Underline false /Strikethrough false ");
+        output.Ascii("/BaselineShift 0 /FontCaps 0 /FontBaseline 0 /Underline false /Strikethrough false ");
+        output.Ascii("/Ligatures true /DLigatures false /BaselineDirection 2 /Tsume 0 /StyleRunAlignment 2 /Language 0 /NoBreak false ");
         output.Ascii($"/FillColor << /Type 1 /Values [ 1 {red} {green} {blue} ] >> ");
-        output.Ascii("/StrokeColor << /Type 1 /Values [ 1 0 0 0 ] >> /FillFlag true /StrokeFlag false /FillFirst true ");
-        output.Ascii("/YUnderline 1 /OutlineWidth 1 >> >> >> ] /RunLengthArray [ ");
+        output.Ascii("/StrokeColor << /Type 1 /Values [ 1 0 0 0 ] >> /YUnderline 1 /HindiNumbers false /Kashida 1 >> >> >> ] /RunLengthArray [ ");
         output.Ascii(length);
-        output.Ascii(" ] /IsJoinable 2 >> /GridInfo << /GridIsOn false /ShowGrid false >> /AntiAlias 3 ");
+        output.Ascii(" ] /IsJoinable 2 >> /GridInfo << /GridIsOn false /ShowGrid false /GridSize 18 /GridLeading 22 ");
+        output.Ascii("/GridColor << /Type 1 /Values [ 0 0 0 1 ] >> /GridLeadingFillColor << /Type 1 /Values [ 0 0 0 1 ] >> ");
+        output.Ascii("/AlignLineHeightToGridFlags false >> /AntiAlias 1 ");
         output.Ascii("/UseFractionalGlyphWidths true /Rendered << /Version 1 /Shapes << /WritingDirection 0 /Children [ ");
         output.Ascii("<< /ShapeType 0 /Procession 0 /Lines << /WritingDirection 0 >> /Cookie << /Photoshop << /ShapeType 0 ");
         output.Ascii("/PointBase [ 0 0 ] /Base << /ShapeType 0 /TransformPoint0 [ 1 0 ] /TransformPoint1 [ 0 1 ] ");
         output.Ascii("/TransformPoint2 [ 0 0 ] >> >> >> >> ] >> >> >> ");
 
-        output.Ascii("/ResourceDict << /TheNormalStyleSheet 0 /TheNormalParagraphSheet 0 /FontSet [ << /Name ");
-        output.Utf16(postScriptName);
-        output.Ascii(" /Script 0 /FontType 1 /Synthetic 0 >> ] ");
-        output.Ascii("/StyleSheetSet [ << /Name ");
-        output.Utf16("Normal RGB");
-        output.Ascii(" /StyleSheetData << >> >> ] /ParagraphSheetSet [ << /Name ");
-        output.Utf16("Normal RGB");
-        output.Ascii(" /DefaultStyleSheet 0 /Properties << /Justification 0 /AutoLeading 1.2 >> >> ] >> >>");
+        output.Ascii("/ResourceDict ");
+        WriteResources(output, postScriptName);
+        output.Ascii(" /DocumentResources ");
+        WriteResources(output, postScriptName);
+        output.Ascii(" >>");
         return output.ToArray();
 
         static string Number(double value) => value.ToString("R", CultureInfo.InvariantCulture);
+    }
+
+    private static void WriteAdjustments(EngineDataWriter output) =>
+        output.Ascii("/Adjustments << /Axis [ 1 0 1 ] /XY [ 0 0 ] >>");
+
+    private static void WriteParagraphProperties(
+        EngineDataWriter output, string justification, string autoLeading, bool autoHyphenate, int leadingType)
+    {
+        output.Ascii($"/Justification {justification} /FirstLineIndent 0 /StartIndent 0 /EndIndent 0 /SpaceBefore 0 /SpaceAfter 0 ");
+        output.Ascii($"/AutoHyphenate {(autoHyphenate ? "true" : "false")} /HyphenatedWordSize 6 /PreHyphen 2 /PostHyphen 2 ");
+        output.Ascii("/ConsecutiveHyphens 8 /Zone 36 /WordSpacing [ 0.8 1 1.33 ] /LetterSpacing [ 0 0 0 ] /GlyphSpacing [ 1 1 1 ] ");
+        output.Ascii($"/AutoLeading {autoLeading} /LeadingType {leadingType} /Hanging false /Burasagari false /KinsokuOrder 0 /EveryLineComposer false ");
+    }
+
+    /// <summary>
+    /// The complete resource shape emitted by Photoshop 2025. ResourceDict describes the text
+    /// object and DocumentResources repeats it for the document text engine; omitting the latter
+    /// leaves a layer that lenient PSD libraries can parse but Photoshop may refuse to initialise.
+    /// </summary>
+    private static void WriteResources(EngineDataWriter output, string postScriptName)
+    {
+        output.Ascii("<< /KinsokuSet [ ] /MojiKumiSet [ ] /TheNormalStyleSheet 0 /TheNormalParagraphSheet 0 ");
+        output.Ascii("/ParagraphSheetSet [ << /Name ");
+        output.Utf16("Normal RGB");
+        output.Ascii(" /DefaultStyleSheet 0 /Properties << ");
+        WriteParagraphProperties(output, "0", "1.2", autoHyphenate: true, leadingType: 0);
+        output.Ascii(">> >> ] /StyleSheetSet [ << /Name ");
+        output.Utf16("Normal RGB");
+        output.Ascii(" /StyleSheetData << /Font 0 /FontSize 12 /FauxBold false /FauxItalic false /AutoLeading true /Leading 0 ");
+        output.Ascii("/HorizontalScale 1 /VerticalScale 1 /Tracking 0 /AutoKerning true /Kerning 0 /BaselineShift 0 ");
+        output.Ascii("/FontCaps 0 /FontBaseline 0 /Underline false /Strikethrough false /Ligatures true /DLigatures false ");
+        output.Ascii("/BaselineDirection 2 /Tsume 0 /StyleRunAlignment 2 /Language 0 /NoBreak false ");
+        output.Ascii("/FillColor << /Type 1 /Values [ 1 0 0 0 ] >> /StrokeColor << /Type 1 /Values [ 1 0 0 0 ] >> ");
+        output.Ascii("/FillFlag true /StrokeFlag false /FillFirst true /YUnderline 1 /OutlineWidth 1 /CharacterDirection 0 ");
+        output.Ascii("/HindiNumbers false /Kashida 1 /DiacriticPos 2 >> >> ] /FontSet [ << /Name ");
+        output.Utf16(postScriptName);
+        output.Ascii(" /Script 0 /FontType 1 /Synthetic 0 >> << /Name ");
+        output.Utf16("AdobeInvisFont");
+        output.Ascii(" /Script 0 /FontType 0 /Synthetic 0 >> ] /SuperscriptSize 0.583 /SuperscriptPosition 0.333 ");
+        output.Ascii("/SubscriptSize 0.583 /SubscriptPosition 0.333 /SmallCapSize 0.7 >>");
     }
 
     public static object? Parse(ReadOnlySpan<byte> data)

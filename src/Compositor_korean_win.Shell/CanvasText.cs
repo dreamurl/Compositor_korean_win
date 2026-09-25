@@ -64,13 +64,18 @@ internal sealed partial class CanvasView
     {
         if (_document is null || EditingText is not null) return;
 
-        if (TextLayerAt(document) is Guid existing)
-        {
-            if (BeginTextEdit(existing)) TextEditRequested?.Invoke(existing);
-            return;
-        }
+        if (OpenTextAt(document)) return;
 
         if (AddTextLayer(document, "") is Guid added) TextEditRequested?.Invoke(added);
+    }
+
+    /// <summary>Opens the topmost live text under a canvas point and asks the window for its editor.</summary>
+    private bool OpenTextAt(Point document)
+    {
+        if (EditingText is not null || TextLayerAt(document) is not Guid existing) return false;
+        if (!BeginTextEdit(existing)) return false;
+        TextEditRequested?.Invoke(existing);
+        return true;
     }
 
     /// <summary>The topmost visible live text layer whose box covers a document point.</summary>

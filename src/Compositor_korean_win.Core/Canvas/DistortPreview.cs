@@ -26,9 +26,14 @@ namespace Compositor_korean_win.Core;
 /// </remarks>
 public sealed class DistortPreview(ImageLayer layer) : IDisposable
 {
-    private const long PreviewPixelBudget = 1_500_000;
+    private const long PreviewPixelBudget = 512 * 512;
     private PixelBuffer? _last;
     private PixelBuffer? _lastMask;
+    private LiveEdit? _lastEdit;
+    private Point[]? _lastCorners;
+    private CanvasProjection _lastProjection;
+    private int _lastWidth;
+    private int _lastHeight;
 
     public ImageLayer Layer { get; } = layer;
 
@@ -42,6 +47,10 @@ public sealed class DistortPreview(ImageLayer layer) : IDisposable
     public LiveEdit? Frame(IReadOnlyList<Point> corners, CanvasProjection projection, int width, int height)
     {
         if (Layer.Image is not PixelBuffer image) return null;
+        if (_lastEdit is not null && _lastCorners is not null && _lastCorners.SequenceEqual(corners)
+                                      && _lastProjection == projection
+                                      && _lastWidth == width && _lastHeight == height)
+            return _lastEdit;
 
         Point[] onSurface = [.. corners.Select(point => projection.Apply(point))];
         double rasterScale = PreviewScale(onSurface, width, height);
@@ -87,7 +96,12 @@ public sealed class DistortPreview(ImageLayer layer) : IDisposable
             }
         }
 
-        return new LiveEdit(Layer.Id, new BufferSource(pixels) { Cacheable = false }) { Placement = onDocument, Mask = mask };
+        _lastCorners = [.. corners];
+        _lastProjection = projection;
+        _lastWidth = width;
+        _lastHeight = height;
+        _lastEdit = new LiveEdit(Layer.Id, new BufferSource(pixels)) { Placement = onDocument, Mask = mask };
+        return _lastEdit;
     }
 
     private static double PreviewScale(IReadOnlyList<Point> corners, int width, int height)
@@ -105,5 +119,7 @@ public sealed class DistortPreview(ImageLayer layer) : IDisposable
         _last = null;
         _lastMask?.Release();
         _lastMask = null;
+        _lastEdit = null;
+        _lastCorners = null;
     }
 }
