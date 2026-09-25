@@ -175,25 +175,11 @@ public static class LiveRequests
     public static string Guide(McpServer server)
     {
         var guide = new StringBuilder();
-        bool korean = Localizer.Current == Language.Korean;
-        guide.AppendLine(korean ? "# Compositor — 열려 있는 편집기에서 작업하기" : "# Compositor — working in the open editor window");
+        guide.AppendLine(Localizer.Text(TextKey.AiShellGuideTitle));
         guide.AppendLine();
-        guide.AppendLine(korean
-            ? "명령으로 한 편집은 창에 즉시 나타나며 각각 실행 취소 한 단계가 됩니다. 사용자는 같은 문서에서 계속 작업할 수 있습니다."
-            : "Edits appear in the window as you make them, one undo step each, and the person can keep working on them.");
+        guide.AppendLine(Localizer.Text(TextKey.AiShellGuideEdits));
         guide.AppendLine();
-        if (korean)
-        {
-            guide.AppendLine("편집기와 함께 설치되어 PATH에 등록된 `compositor` 명령 뒤에 도구 이름과 key=value 인수를 적습니다.");
-            guide.AppendLine("숫자와 true/false는 해당 형식으로, [..]와 {..}는 JSON으로, 나머지는 문자열로 처리됩니다.");
-            guide.AppendLine("공백이 든 값은 따옴표로 감싸세요. `compositor`만 실행하면 이 안내서를 다시 표시합니다.");
-        }
-        else
-        {
-            guide.AppendLine("Call a tool with the `compositor` command (installed with the editor, on the PATH): the tool's name, then");
-            guide.AppendLine("its arguments as key=value. Numbers and true/false are typed, [..] or {..} is JSON, anything else is text;");
-            guide.AppendLine("quote a value with spaces. `compositor` alone prints this guide.");
-        }
+        guide.AppendLine(Localizer.Text(TextKey.AiShellGuideUsage));
         guide.AppendLine("```");
         guide.AppendLine("compositor get_document");
         guide.AppendLine("compositor new_document width=1080 height=1350 background=#101010");
@@ -201,52 +187,26 @@ public static class LiveRequests
         guide.AppendLine("compositor edit_text layer=Title start=0 end=5 size=120");
         guide.AppendLine("compositor render");
         guide.AppendLine("```");
-        if (korean)
-        {
-            guide.AppendLine("도구의 응답이 출력되며, render는 확인할 PNG 파일 경로도 출력합니다.");
-            guide.AppendLine("document=...를 생략하면 창에 표시된 문서를 대상으로 합니다. new_document와 open_document는 새 탭을 엽니다.");
-            guide.AppendLine("종료 코드는 도구 실패 1, 인수 오류 2, 편집기 시작 실패 3, 권한 거부 4, 연결 실패 5, 응답 시간 초과 6입니다.");
-            guide.AppendLine("버전은 앱 연결 없이 `compositor --version`으로 확인할 수 있습니다.");
-        }
-        else
-        {
-            guide.AppendLine("It prints the tool's answer, and for render the path of a PNG — open that file to look at the picture.");
-            guide.AppendLine("Tools act on the document shown in the window unless given document=...; new_document and open_document");
-            guide.AppendLine("open a new tab. Exit codes are 1 tool failure, 2 arguments, 3 editor start, 4 permission, 5 connection and 6 response timeout.");
-            guide.AppendLine("Read the installed version without connecting to the app with `compositor --version`.");
-        }
+        guide.AppendLine(Localizer.Text(TextKey.AiShellGuideResult));
         guide.AppendLine();
-        guide.AppendLine(korean
-            ? "명령을 사용할 수 없다면 같은 요청을 named pipe \\\\.\\pipe\\" + PipeName +
-              "에 JSON 한 줄로 보내고 응답 한 줄({\"ok\", \"text\", \"images\"})을 읽습니다. 예:"
-            : "Without the command, send the same requests as one JSON line to the named pipe \\\\.\\pipe\\" + PipeName +
-              " and read one line back ({\"ok\", \"text\", \"images\"}), for example with this PowerShell function:");
+        guide.AppendLine(Localizer.Format(TextKey.AiShellGuidePipe, PipeName));
         guide.AppendLine("```powershell");
         guide.AppendLine(PowerShellFunction);
         guide.AppendLine("Compositor '{\"tool\":\"add_text\",\"arguments\":{\"text\":\"Hello\",\"x\":100,\"y\":200,\"size\":72}}'");
         guide.AppendLine("```");
         guide.AppendLine();
-        guide.AppendLine(korean
-            ? "Compositor는 레이어 기반 이미지 편집기입니다. 좌표는 문서 왼쪽 위에서 시작하는 픽셀이며, 색상은 #RRGGBB 또는 #RRGGBBAA, 불투명도는 0–1입니다. 작업 전 get_document로 구조를 읽고, 편집 중 render로 자주 확인하며, 요청받은 경우에만 save_document나 export_image로 저장하세요."
-            : McpServer.Instructions);
+        guide.AppendLine(Localizer.Text(TextKey.AiShellGuideOverview));
         guide.AppendLine();
         if (server.Rules is AiRules rules)
         {
-            guide.AppendLine(korean ? "## 사용자가 정한 작업 규칙 — 반드시 따르세요." : "## Rules — set by the person who uses this editor. Follow them.");
+            guide.AppendLine(Localizer.Text(TextKey.AiShellGuideRules));
             guide.AppendLine();
             guide.AppendLine(rules.Text);
             guide.AppendLine();
         }
-        if (korean)
-        {
-            guide.AppendLine("## 연결 문제 해결");
-            guide.AppendLine();
-            guide.AppendLine("- 권한 거부가 나오면 Compositor와 명령을 같은 Windows 사용자·권한 수준에서 실행하세요.");
-            guide.AppendLine("- Codex 같은 샌드박스에서는 로컬 named pipe 접근 승인이 필요할 수 있습니다.");
-            guide.AppendLine("- 앱이 실행 중인데 연결되지 않으면 새 창을 반복 실행하지 말고 오류 메시지와 종료 코드를 확인하세요.");
-            guide.AppendLine();
-        }
-        guide.AppendLine(korean ? "## 도구 (* = 필수)" : "## Tools (* = required)");
+        guide.AppendLine(Localizer.Text(TextKey.AiShellGuideTroubleshooting));
+        guide.AppendLine();
+        guide.AppendLine(Localizer.Text(TextKey.AiShellGuideTools));
 
         string listed = server.Handle(Envelope(writer => writer.WriteString("method", "tools/list"))) ?? "";
         using JsonDocument tools = JsonDocument.Parse(listed);

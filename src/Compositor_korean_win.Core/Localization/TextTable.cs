@@ -380,6 +380,15 @@ public enum TextKey
     AiGuideCopied,
     AiGuideIntro,
     AiGuideAsk,
+    AiShellGuideTitle,
+    AiShellGuideEdits,
+    AiShellGuideUsage,
+    AiShellGuideResult,
+    AiShellGuidePipe,
+    AiShellGuideOverview,
+    AiShellGuideRules,
+    AiShellGuideTroubleshooting,
+    AiShellGuideTools,
     UpdateAvailable,
     UpdateLatest,
     UpdateFailed,
@@ -967,6 +976,47 @@ public static class TextTable
             + "to open). My request:",
             "가이드를 먼저 읽은 뒤 아래 요청대로 작업해 주세요. 결과는 render로 확인하세요(PNG 파일 경로를 "
             + "알려 줍니다). 요청:"),
+        (TextKey.AiShellGuideTitle,
+            "# Compositor — working in the open editor window",
+            "# Compositor — 열려 있는 편집기에서 작업하기"),
+        (TextKey.AiShellGuideEdits,
+            "Edits appear in the window as you make them, one undo step each, and the person can keep working on them.",
+            "명령으로 한 편집은 창에 즉시 나타나며 각각 실행 취소 한 단계가 됩니다. 사용자는 같은 문서에서 계속 작업할 수 있습니다."),
+        (TextKey.AiShellGuideUsage,
+            "Call a tool with the `compositor` command (installed with the editor, on the PATH): the tool's name, then\n"
+            + "its arguments as key=value. Numbers and true/false are typed, [..] or {..} is JSON, anything else is text;\n"
+            + "quote a value with spaces. `compositor` alone prints this guide.",
+            "편집기와 함께 설치되어 PATH에 등록된 `compositor` 명령 뒤에 도구 이름과 key=value 인수를 적습니다.\n"
+            + "숫자와 true/false는 해당 형식으로, [..]와 {..}는 JSON으로, 나머지는 문자열로 처리됩니다.\n"
+            + "공백이 든 값은 따옴표로 감싸세요. `compositor`만 실행하면 이 안내서를 다시 표시합니다."),
+        (TextKey.AiShellGuideResult,
+            "It prints the tool's answer, and for render the path of a PNG — open that file to look at the picture.\n"
+            + "Tools act on the document shown in the window unless given document=...; new_document and open_document open a new tab.\n"
+            + "Exit codes are 1 tool failure, 2 arguments, 3 editor start, 4 permission, 5 connection and 6 response timeout.\n"
+            + "Read the installed version without connecting to the app with `compositor --version`.",
+            "도구의 응답이 출력되며, render는 확인할 PNG 파일 경로도 출력합니다.\n"
+            + "document=...를 생략하면 창에 표시된 문서를 대상으로 합니다. new_document와 open_document는 새 탭을 엽니다.\n"
+            + "종료 코드는 도구 실패 1, 인수 오류 2, 편집기 시작 실패 3, 권한 거부 4, 연결 실패 5, 응답 시간 초과 6입니다.\n"
+            + "버전은 앱 연결 없이 `compositor --version`으로 확인할 수 있습니다."),
+        (TextKey.AiShellGuidePipe,
+            "Without the command, send the same requests as one JSON line to the named pipe \\\\.\\pipe\\{0} and read one line back, for example with this PowerShell function:",
+            "명령을 사용할 수 없다면 같은 요청을 named pipe \\\\.\\pipe\\{0}에 JSON 한 줄로 보내고 응답 한 줄을 읽습니다. 예:"),
+        (TextKey.AiShellGuideOverview,
+            "Compositor is a layered image editor. Coordinates are document pixels from the top-left; colours are hex (#RRGGBB or #RRGGBBAA); opacities are 0–1. Read the structure with get_document before editing, check it often with render, and save with save_document or export_image only when asked.",
+            "Compositor는 레이어 기반 이미지 편집기입니다. 좌표는 문서 왼쪽 위에서 시작하는 픽셀이며, 색상은 #RRGGBB 또는 #RRGGBBAA, 불투명도는 0–1입니다. 작업 전 get_document로 구조를 읽고, 편집 중 render로 자주 확인하며, 요청받은 경우에만 save_document나 export_image로 저장하세요."),
+        (TextKey.AiShellGuideRules,
+            "## Rules — set by the person who uses this editor. Follow them.",
+            "## 사용자가 정한 작업 규칙 — 반드시 따르세요."),
+        (TextKey.AiShellGuideTroubleshooting,
+            "## Connection troubleshooting\n\n"
+            + "- If access is denied, run Compositor and the command as the same Windows user and permission level.\n"
+            + "- A sandbox such as Codex may require approval to access the local named pipe.\n"
+            + "- If the app is running but cannot be reached, do not launch it repeatedly; check the error and exit code.",
+            "## 연결 문제 해결\n\n"
+            + "- 권한 거부가 나오면 Compositor와 명령을 같은 Windows 사용자·권한 수준에서 실행하세요.\n"
+            + "- Codex 같은 샌드박스에서는 로컬 named pipe 접근 승인이 필요할 수 있습니다.\n"
+            + "- 앱이 실행 중인데 연결되지 않으면 새 창을 반복 실행하지 말고 오류 메시지와 종료 코드를 확인하세요."),
+        (TextKey.AiShellGuideTools, "## Tools (* = required)", "## 도구 (* = 필수)"),
         (TextKey.UpdateAvailable, "Version {0} is available (you have {1}). Open the download page?", "새 버전 {0}이(가) 나왔습니다(현재 {1}). 다운로드 페이지를 열까요?"),
         (TextKey.UpdateLatest, "You have the latest version ({0}).", "최신 버전입니다({0})."),
         (TextKey.UpdateFailed, "Could not check for updates: {0}", "업데이트를 확인하지 못했습니다: {0}"),
