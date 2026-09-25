@@ -121,9 +121,11 @@ public sealed class McpServer(McpTools tools, string version, AiRules? rules = n
         writer.WriteString("title", "Compositor image editor");
         writer.WriteString("version", version);
         writer.WriteEndObject();
+        // How to work goes with the instructions, so a model reads it before its first call.
+        string instructions = Instructions + "\n\n" + Localizer.Text(TextKey.AiWorkflow);
         writer.WriteString("instructions", rules is null
-            ? Instructions
-            : Instructions + "\n\nFollow these rules, set by the person who uses this editor:\n\n" + rules.Text);
+            ? instructions
+            : instructions + "\n\nFollow these rules, set by the person who uses this editor:\n\n" + rules.Text);
         writer.WriteEndObject();
     }
 

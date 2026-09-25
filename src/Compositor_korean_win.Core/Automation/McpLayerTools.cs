@@ -116,7 +116,8 @@ public sealed partial class McpTools
 
         Define("add_image",
             "Place a picture (PNG, JPEG…, from a file or base64) as a new layer. By default it keeps its own size, " +
-            "centred; 'fit' sizes it to the canvas, or give x/y/width/height (one of width/height keeps the aspect).",
+            "centred; 'fit' sizes it to the canvas, or give x/y/width/height (one of width/height keeps the aspect). To carry " +
+            "part of a reference exactly onto an element's own layer, use put_pixels.",
             Build(With(Str("path", "Image file to place."), Str("data", "The image as base64, instead of 'path'."),
                        Choice("fit", "Size to the canvas: contain (whole image visible), cover (fills, may crop), fill (stretch).",
                               ["none", "contain", "cover", "fill"]),

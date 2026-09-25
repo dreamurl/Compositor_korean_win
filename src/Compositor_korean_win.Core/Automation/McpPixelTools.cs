@@ -31,7 +31,9 @@ public sealed partial class McpTools
             "'source', which matches the first point), heal (spot healing — blemishes, wires, small objects vanish into what " +
             "is around them) or blur (softens). size is the tip's diameter, hardness 0 (soft) to 1 (hard). With mask true it " +
             "paints the layer's mask instead: brush with black hides, white shows, eraser shows again (a mask is added if " +
-            "there is none). Keeps to the selection. One call is one undo step; a text layer becomes pixels.",
+            "there is none). Keeps to the selection. One call is one undo step; a text layer becomes pixels. It is for touching up, " +
+            "masks and small areas: to carry a reference's pixels exactly use put_pixels, and make shapes and effects with " +
+            "add_path, masks, liquify and warp rather than tracing them.",
             Build(LayerArgument, Choice("tool", "The tool.", ["brush", "eraser", "clone", "heal", "blur"], true),
                   PointsArgument, StrokesArgument,
                   Num("size", "Tip diameter in pixels. Default 20."), Num("hardness", "0 (soft edge)–1 (hard). Default 1."),

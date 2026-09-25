@@ -59,15 +59,7 @@ public sealed partial class McpTools
                 DocumentSelection made = Selected(open, shape, arguments);
                 if (arguments.Bool("antialias") is bool antialias) made = made with { IsAntialiased = antialias };
 
-                DocumentSelection? current = open.Selection;
-                open.Selection = mode switch
-                {
-                    "replace" => made,
-                    "add" => current?.Adding(made) ?? made,
-                    "subtract" => (current ?? throw new ToolException("Nothing is selected to subtract from.")).Subtracting(made),
-                    "intersect" => current is null ? made : Intersection(open.Document, current, made),
-                    _ => throw new ToolException("'mode' is replace, add, subtract or intersect."),
-                };
+                open.Selection = Combined(open, made, mode);
                 if (arguments.Number("feather") is double feather) open.Feather = Math.Clamp(feather, 0, 1000);
                 else if (mode == "replace") open.Feather = 0;
                 return ToolResult.Text(SelectionSummary(open));
@@ -244,6 +236,20 @@ public sealed partial class McpTools
             default:
                 throw new ToolException("'shape' is rectangle, ellipse, lasso, layer, magic_wand, all or none.");
         }
+    }
+
+    /// <summary>A new selection combined with the current one as 'mode' says.</summary>
+    private static DocumentSelection Combined(EditorSession.Open open, DocumentSelection made, string mode)
+    {
+        DocumentSelection? current = open.Selection;
+        return mode switch
+        {
+            "replace" => made,
+            "add" => current?.Adding(made) ?? made,
+            "subtract" => (current ?? throw new ToolException("Nothing is selected to subtract from.")).Subtracting(made),
+            "intersect" => current is null ? made : Intersection(open.Document, current, made),
+            _ => throw new ToolException("'mode' is replace, add, subtract or intersect."),
+        };
     }
 
     /// <summary>

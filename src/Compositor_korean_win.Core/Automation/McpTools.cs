@@ -36,6 +36,7 @@ public sealed partial class McpTools
         DefineSelectionTools();
         DefinePixelTools();
         DefineBatchTool();
+        DefineReferenceTools();
     }
 
     public IReadOnlyList<ToolDefinition> Definitions => _tools;

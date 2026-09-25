@@ -255,6 +255,12 @@ jobs:
             if ($after.text -match 'BatchOne') { throw "a failed batch left its layer behind" }
             $null = Call '{"tool":"select","arguments":{"shape":"none"}}'
 
+            # The way of working, by topic, and the pen tool from the command line.
+            $printed = & $cli guide topic=reproduce 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0 -or $printed -notmatch 'put_pixels') { throw "compositor guide topic=reproduce printed no steps: $printed" }
+            $printed = & $cli add_path 'd=M 100 100 L 300 100 L 200 300 Z' fill=#3060C0 name=CliPath 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) { throw "compositor add_path failed: $printed" }
+
             # --mcp relays to the window: the document it reports is the window's, not a new one.
             $relay = python -c "import subprocess,json,sys; p=subprocess.run(['build/publish/Compositor_korean_win.exe','--mcp'],input=json.dumps({'jsonrpc':'2.0','id':1,'method':'tools/call','params':{'name':'get_document','arguments':{}}})+'\n',capture_output=True,text=True,encoding='utf-8',timeout=60); print(p.stdout.strip()); print('STDERR:'+p.stderr.strip())"
             if ($LASTEXITCODE -ne 0) { throw "the --mcp relay did not run" }

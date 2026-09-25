@@ -66,7 +66,11 @@ public static class LiveRequests
                 || toolElement.ValueKind != JsonValueKind.String || toolElement.GetString() is not { Length: > 0 } tool)
                 return Simple(false, "Send {\"tool\": \"name\", \"arguments\": {...}}, or {\"tool\": \"guide\"} to read how.", []);
 
-            if (tool == GuideTool) return Simple(true, Guide(server), []);
+            // The guide on its own is the shell's, with the rules and every tool; a topic is the
+            // guide tool's, the steps for one kind of job.
+            if (tool == GuideTool && !(root.TryGetProperty("arguments", out JsonElement asked) && asked.ValueKind == JsonValueKind.Object
+                                       && asked.TryGetProperty("topic", out _)))
+                return Simple(true, Guide(server), []);
 
             string call = Envelope(writer =>
             {
@@ -196,6 +200,8 @@ public static class LiveRequests
         guide.AppendLine("```");
         guide.AppendLine();
         guide.AppendLine(Localizer.Text(TextKey.AiShellGuideOverview));
+        guide.AppendLine();
+        guide.AppendLine(Localizer.Text(TextKey.AiWorkflow));
         guide.AppendLine();
         if (server.Rules is AiRules rules)
         {

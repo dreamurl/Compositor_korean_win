@@ -389,6 +389,10 @@ public enum TextKey
     AiShellGuideRules,
     AiShellGuideTroubleshooting,
     AiShellGuideTools,
+    AiWorkflow,
+    AiTopicReproduce,
+    AiTopicDesign,
+    AiTopicRetouch,
     UpdateAvailable,
     UpdateLatest,
     UpdateFailed,
@@ -937,7 +941,13 @@ public static class TextTable
             + "\n"
             + "## How to proceed\n"
             + "8. Look at the result with render after each stage.\n"
-            + "9. When done, summarize the groups and layers you made.",
+            + "9. When done, summarize the groups and layers you made.\n"
+            + "\n"
+            + "## Recreating a reference\n"
+            + "10. Carry the reference's material with put_pixels, colours exact and never reduced, one element per layer.\n"
+            + "11. Make shapes and effects with masks, add_path, liquify, warp_layer and distort_layer. Do not paint them by hand.\n"
+            + "12. Keep lettering as text layers, and fill in the picture it covered.\n"
+            + "13. Compare with compare_image before saying the work is done, and report the score.",
             "# Compositor 작업 규칙\n"
             + "\n"
             + "이 파일을 고치면 AI가 편집기에서 일하는 방식이 바뀝니다. 요청마다 다시 읽으므로 저장하면 바로 적용됩니다.\n"
@@ -957,7 +967,13 @@ public static class TextTable
             + "\n"
             + "## 진행 방식\n"
             + "8. 단계마다 render로 결과를 확인한다.\n"
-            + "9. 끝나면 만든 그룹과 레이어 구조를 요약해 알려 준다."),
+            + "9. 끝나면 만든 그룹과 레이어 구조를 요약해 알려 준다.\n"
+            + "\n"
+            + "## 레퍼런스 재현\n"
+            + "10. 레퍼런스의 재료는 put_pixels로 옮긴다. 색은 원본 그대로, 줄이지 않고, 요소마다 레이어 하나.\n"
+            + "11. 모양과 효과는 마스크, add_path, liquify, warp_layer, distort_layer로 만든다. 손으로 따라 칠하지 않는다.\n"
+            + "12. 글자는 텍스트 레이어로 두고, 글자가 가리던 그림은 채워 넣는다.\n"
+            + "13. 완성이라고 말하기 전에 compare_image로 비교하고 점수를 보고한다."),
         (TextKey.AiGuideCopied,
             "Instructions for an AI assistant are on the clipboard. Paste them into Claude, Codex or any assistant "
             + "that can run PowerShell on this PC, add what you want made, and it will work in this window while "
@@ -1021,6 +1037,86 @@ public static class TextTable
             + "- Codex 같은 샌드박스에서는 로컬 named pipe 접근 승인이 필요할 수 있습니다.\n"
             + "- 앱이 실행 중인데 연결되지 않으면 새 창을 반복 실행하지 말고 오류 메시지와 종료 코드를 확인하세요."),
         (TextKey.AiShellGuideTools, "## Tools (* = required)", "## 도구 (* = 필수)"),
+        (TextKey.AiWorkflow,
+            "## How to work\n"
+            + "\n"
+            + "- Plan the layers before drawing: one element per layer — material (pictures, painted areas), shapes (masks, cut-outs), textures and accents, text — named by role and grouped.\n"
+            + "- A reference's material comes across exactly with `put_pixels`: every colour as it is, never reduced to fewer colours, each element on its own layer (select the element, then within_selection true).\n"
+            + "- Shapes and effects are made with the editor's tools, not traced by hand: silhouettes and cut-outs with `add_path` (as mask or selection) and `set_mask`; bends and perspective with `liquify`, `warp_layer` and `distort_layer`; tone with `add_adjustment`; shadows and outlines with `set_effects`. `paint_stroke` is for touching up and filling small gaps, not for carrying pixels.\n"
+            + "- Text is always a text layer (`add_text`), never pixels. Where lettering covered a picture, fill in the picture behind it.\n"
+            + "- Look before you say it is done: `render` (with zoom for detail) and, against a reference, `compare_image`. Report the score and what still differs.\n"
+            + "- Send long sequences as one `batch`. Very large arguments go to the pipe as JSON, not on the command line.\n"
+            + "\n"
+            + "Read the steps for the job before starting: `compositor guide topic=reproduce` (recreate a reference picture), `compositor guide topic=design` (make something new), `compositor guide topic=retouch` (correct a photo). Over MCP, call `guide` with the topic.",
+            "## 작업 방법\n"
+            + "\n"
+            + "- 그리기 전에 레이어를 계획한다. 요소 하나에 레이어 하나: 재료(사진, 칠한 영역), 모양(마스크, 잘라낸 부분), 질감과 포인트, 텍스트. 역할이 드러나게 이름을 붙이고 그룹으로 묶는다.\n"
+            + "- 레퍼런스의 재료는 `put_pixels`로 정확히 옮긴다. 색은 원본 그대로 두고 색 수를 줄이지 않는다. 요소마다 자기 레이어에 넣는다(요소를 선택한 뒤 within_selection true).\n"
+            + "- 모양과 효과는 편집기 기능으로 만들고 손으로 따라 그리지 않는다. 실루엣과 잘라낸 틈은 `add_path`(마스크나 선택 영역으로)와 `set_mask`, 휘어짐과 원근은 `liquify`·`warp_layer`·`distort_layer`, 색조는 `add_adjustment`, 그림자와 윤곽선은 `set_effects`로 만든다. `paint_stroke`는 다듬기와 작은 빈틈 채우기에 쓰고, 픽셀을 옮기는 데 쓰지 않는다.\n"
+            + "- 텍스트는 항상 텍스트 레이어(`add_text`)로 만들고 픽셀로 두지 않는다. 글자가 가리던 그림은 뒤를 채워 넣는다.\n"
+            + "- 완성이라고 말하기 전에 확인한다. `render`(세부는 zoom)로 보고, 레퍼런스가 있으면 `compare_image`로 비교한다. 점수와 아직 다른 부분을 보고한다.\n"
+            + "- 긴 작업은 `batch` 하나로 보낸다. 아주 큰 인수는 명령줄이 아니라 파이프에 JSON으로 보낸다.\n"
+            + "\n"
+            + "작업을 시작하기 전에 해당 순서를 읽는다: `compositor guide topic=reproduce`(레퍼런스 재현), `compositor guide topic=design`(새로 디자인), `compositor guide topic=retouch`(사진 보정). MCP에서는 `guide`를 topic과 함께 부른다."),
+        (TextKey.AiTopicReproduce,
+            "# Recreating a reference picture\n"
+            + "\n"
+            + "The aim is the reference's look, built the way its maker built it: its material exact and on separate layers, shaped by masks and transforms, with live text. Copying pixels is right; copying them flat onto one layer, or painting the effects by hand, is not.\n"
+            + "\n"
+            + "1. Look and plan. Look at the reference and list its elements: the base material (a photo, a drawing), the shapes that cut it (silhouettes, gaps), textures and accents, and the text. Plan a layer or group for each, named by role.\n"
+            + "2. Canvas. `new_document` at the reference's size, so its pixels and the canvas's share coordinates.\n"
+            + "3. A guide copy. `put_pixels` the whole reference onto a layer named Reference, to select from; hide it with `update_layer` visible false and delete it at the end.\n"
+            + "4. Material. For each element, select it — `select` magic_wand on the Reference layer, `select` lasso, or `add_path` as=selection — then `put_pixels` with within_selection true onto the element's own layer. Colours stay exactly as they are. For the base material take everything behind the shapes, not only what shows.\n"
+            + "5. What was hidden. Where text or other elements covered the material, fill it in: `select` the gap and `fill_selection` content_aware true, `paint_stroke` tool heal or clone for small areas, or `paint_stroke` tool brush in the colours around it.\n"
+            + "6. Shapes. Cut-outs and silhouettes are masks, never painted white: `add_path` as=mask on the material layer (fill_rule evenodd for holes, mode subtract for gaps), or `select` then `set_mask` shape selection. Feather where the reference is soft.\n"
+            + "7. Effects. Bends, swirls and perspective come from `liquify`, `warp_layer` and `distort_layer`; tone from `add_adjustment`; shadows and outlines from `set_effects`. Do not trace an effect pixel by pixel.\n"
+            + "8. Text. `add_text` for every piece of lettering, matching font (`list_fonts`), size, tracking, leading, colour and position; `edit_text` with start and end for letters styled apart. Never keep the reference's lettering as pixels.\n"
+            + "9. Check. `compare_image` against the reference; read the score and the worst regions, `render` them with zoom, fix, and compare again. Delete the Reference layer. Report the final score and what still differs.",
+            "# 레퍼런스 재현\n"
+            + "\n"
+            + "목표는 레퍼런스를 만든 사람이 만든 방식 그대로 같은 모습을 만드는 것이다. 재료는 정확하게 별도 레이어로, 모양은 마스크와 변형으로, 텍스트는 살아 있는 텍스트로 만든다. 픽셀을 복사하는 것은 맞다. 한 레이어에 통째로 복사하거나 효과를 손으로 따라 칠하는 것이 틀렸다.\n"
+            + "\n"
+            + "1. 보고 계획한다. 레퍼런스를 보고 요소를 나눈다: 바탕 재료(사진, 그림), 그것을 잘라내는 모양(실루엣, 틈), 질감과 포인트, 텍스트. 요소마다 레이어나 그룹을 계획하고 역할로 이름을 붙인다.\n"
+            + "2. 캔버스. `new_document`를 레퍼런스 크기로 만들어 레퍼런스와 캔버스의 좌표를 같게 한다.\n"
+            + "3. 기준 사본. `put_pixels`로 레퍼런스 전체를 Reference 레이어에 넣어 선택할 때 쓴다. `update_layer`로 visible false로 숨기고 마지막에 지운다.\n"
+            + "4. 재료. 요소마다 선택한다 — Reference 레이어에서 `select` magic_wand, `select` lasso, 또는 `add_path` as=selection — 그리고 `put_pixels`에 within_selection true를 주어 그 요소의 레이어에 넣는다. 색은 원본 그대로다. 바탕 재료는 보이는 부분만이 아니라 모양 뒤에 있는 것까지 가져온다.\n"
+            + "5. 가려진 부분. 텍스트나 다른 요소가 재료를 가리던 곳은 채운다. 빈 곳을 `select`하고 `fill_selection` content_aware true, 작은 곳은 `paint_stroke` tool heal이나 clone, 또는 주변 색으로 `paint_stroke` tool brush.\n"
+            + "6. 모양. 잘라낸 부분과 실루엣은 마스크로 만들고 흰색으로 칠하지 않는다. 재료 레이어에 `add_path` as=mask(구멍은 fill_rule evenodd, 틈은 mode subtract), 또는 `select` 후 `set_mask` shape selection. 레퍼런스가 부드러운 곳은 feather를 준다.\n"
+            + "7. 효과. 휘어짐, 소용돌이, 원근은 `liquify`·`warp_layer`·`distort_layer`, 색조는 `add_adjustment`, 그림자와 윤곽선은 `set_effects`로 만든다. 효과를 픽셀 단위로 따라 그리지 않는다.\n"
+            + "8. 텍스트. 모든 글자를 `add_text`로 만들고 글꼴(`list_fonts`), 크기, 자간, 행간, 색, 위치를 맞춘다. 일부 글자만 다른 스타일은 `edit_text`의 start와 end로. 레퍼런스의 글자를 픽셀로 남기지 않는다.\n"
+            + "9. 확인. `compare_image`로 레퍼런스와 비교해 점수와 가장 다른 영역을 읽고, 그 영역을 `render` zoom으로 보고 고친 뒤 다시 비교한다. Reference 레이어를 지운다. 마지막 점수와 아직 다른 부분을 보고한다."),
+        (TextKey.AiTopicDesign,
+            "# Making something new\n"
+            + "\n"
+            + "1. `new_document` at the final size. Plan groups by role: Background, Images, Shapes & decoration, Text, Adjustments.\n"
+            + "2. Background: `add_gradient`, `add_shape`, or a picture with `add_image`.\n"
+            + "3. Pictures: `add_image` for files you have, `generate_image` for photographs you cannot draw; place them with `update_layer`; cut them out with `remove_background`, `set_mask` or `add_path` as=mask.\n"
+            + "4. Shapes: `add_shape` for regular ones, `add_path` for free ones; colour them with an `add_gradient` clipped to them (`set_clipping`).\n"
+            + "5. Text: `add_text`, with hierarchy by size and weight; `set_effects` for shadows and outlines.\n"
+            + "6. Finish: an `add_adjustment` over everything for one tone. `render` the whole and zoomed regions, and fix what looks off.",
+            "# 새로 디자인\n"
+            + "\n"
+            + "1. `new_document`를 최종 크기로 만든다. 역할별 그룹을 계획한다: 배경, 이미지, 도형·장식, 텍스트, 보정.\n"
+            + "2. 배경: `add_gradient`, `add_shape`, 또는 `add_image`로 사진.\n"
+            + "3. 사진: 가진 파일은 `add_image`, 그릴 수 없는 사진은 `generate_image`. `update_layer`로 배치하고 `remove_background`, `set_mask`, `add_path` as=mask로 잘라낸다.\n"
+            + "4. 도형: 규칙적인 것은 `add_shape`, 자유로운 것은 `add_path`. 색은 도형에 클리핑한 `add_gradient`로 칠한다(`set_clipping`).\n"
+            + "5. 텍스트: `add_text`, 크기와 굵기로 위계를 준다. 그림자와 윤곽선은 `set_effects`.\n"
+            + "6. 마무리: 전체 위에 `add_adjustment`로 색조를 통일한다. 전체와 확대 영역을 `render`로 보고 어색한 곳을 고친다."),
+        (TextKey.AiTopicRetouch,
+            "# Correcting a photo\n"
+            + "\n"
+            + "1. Keep the original: `duplicate_layer` the photo and work on the copy, or on new layers above it.\n"
+            + "2. Blemishes and small objects: `paint_stroke` tool heal over them. Larger objects: `select` them, then `fill_selection` content_aware true. Repeated patterns: `paint_stroke` tool clone with a source.\n"
+            + "3. Shape: `liquify` with small sizes and low pressure, several light passes (forward to push, pucker and bloat to shrink and swell); `warp_layer` and `distort_layer` for the whole layer.\n"
+            + "4. Tone and colour: `add_adjustment` (levels and curves per channel, hue_saturation per colour range), kept to an area with `set_mask` or `paint_stroke` mask true.\n"
+            + "5. Compare before and after with `render` zoomed on the regions changed, hiding the new layers to see before.",
+            "# 사진 보정\n"
+            + "\n"
+            + "1. 원본을 지킨다. `duplicate_layer`로 사진을 복사해 사본에서, 또는 위에 새 레이어를 두고 작업한다.\n"
+            + "2. 잡티와 작은 물체: `paint_stroke` tool heal로 덮는다. 큰 물체: `select`로 고른 뒤 `fill_selection` content_aware true. 반복 무늬: `paint_stroke` tool clone에 source를 준다.\n"
+            + "3. 형태: `liquify`를 작은 크기와 낮은 압력으로 여러 번 가볍게(forward는 밀기, pucker와 bloat는 줄이기와 부풀리기). 레이어 전체는 `warp_layer`와 `distort_layer`.\n"
+            + "4. 색조와 색: `add_adjustment`(레벨·곡선은 채널별, hue_saturation은 색 범위별). 일부에만 적용할 때는 `set_mask`나 `paint_stroke` mask true.\n"
+            + "5. 바뀐 영역을 `render` zoom으로 보며 전후를 비교한다. 새 레이어를 숨기면 전 상태가 보인다."),
         (TextKey.UpdateAvailable, "Version {0} is available (you have {1}). Open the download page?", "새 버전 {0}이(가) 나왔습니다(현재 {1}). 다운로드 페이지를 열까요?"),
         (TextKey.UpdateLatest, "You have the latest version ({0}).", "최신 버전입니다({0})."),
         (TextKey.UpdateFailed, "Could not check for updates: {0}", "업데이트를 확인하지 못했습니다: {0}"),

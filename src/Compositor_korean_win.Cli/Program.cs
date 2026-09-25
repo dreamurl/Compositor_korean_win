@@ -108,7 +108,8 @@ internal static class Program
     /// <summary>The line to send: the guide, a whole request given as JSON, or a tool and its key=value arguments.</summary>
     private static string Request(string[] args)
     {
-        if (args.Length == 0 || args[0] is "guide" or "help" or "--help" or "-h" or "/?")
+        // "guide topic=reproduce" goes on as a call; "guide" alone is the whole guide.
+        if (args.Length == 0 || (args.Length == 1 && args[0] is "guide" or "help" or "--help" or "-h" or "/?"))
             return """{"tool":"guide"}""";
 
         string first = args[0].Trim();

@@ -139,9 +139,20 @@ args = ["--mcp"]
 | 조정 | `add_adjustment`, `edit_adjustment` | 조정 레이어 6종. 레벨·곡선은 채널별(`red`/`green`/`blue`, `red_points`…), 색조/채도는 색 범위별(`ranges`). 나중에 값 일부만 바꾸기 |
 | 선택 | `select`, `modify_selection` | 사각형·타원·올가미(점 목록)·레이어 픽셀·마술봉·전체·해제, 더하기·빼기·교차, 반전·확장·축소·크기·회전·이동, 페더 |
 | 픽셀 | `apply_filter`, `fill_selection`, `copy_to_layer`, `remove_background` | 흐림·노이즈·렌즈 보정·핀치·구형화·돌리기·물결·극좌표·반전, 조정을 픽셀에 굽기, 선택 영역 채우기·지우기·내용 인식 채우기, 선택 영역을 새 레이어로(복사·잘라내기), AI 배경 제거 |
+| 레퍼런스 | `put_pixels`, `add_path`, `compare_image` | 그림 파일의 픽셀을 색 그대로 정확히 레이어에 옮기기(영역·위치·선택 영역 안만), SVG 패스로 자유 도형을 레이어·마스크·선택 영역으로(펜 도구), 레퍼런스와 비교해 유사도·가장 다른 영역·차이 이미지 |
+| 작업 방법 | `guide` | 일하는 방법과 작업 유형별 순서: `topic` reproduce(레퍼런스 재현), design(새로 디자인), retouch(사진 보정) |
 | 손 도구 | `paint_stroke`, `liquify`, `warp_layer`, `distort_layer` | 점 목록으로 브러시·지우개·복제 도장·스팟 힐링·흐림(마스크에도), 유동화 8종, 4×4 뒤틀기(프리셋·점), 네 모서리 왜곡·원근 |
 | 묶음 | `batch` | 여러 호출을 한 번에: 실행 취소 한 단계, 하나라도 실패하면 전부 되돌림 |
 | 기타 | `edit_text`, `list_fonts` | 글자·스타일 바꾸기(`start`/`end`로 일부 글자만), 설치된 글꼴 |
+
+### 작업 방법
+
+가이드와 MCP 연결 안내에는 도구 목록 말고 **일하는 방법**이 들어 있다. 요지는 "재료는 원본 픽셀을 정확히, 요소별
+레이어로 옮기고, 모양과 효과는 편집기 기능으로 만들고, 글자는 텍스트 레이어로, 끝내기 전에 비교한다"이다. 작업
+유형별 단계는 `compositor guide topic=reproduce`(또는 `design`, `retouch`)로 본다. MCP에서는 `guide` 도구다.
+레퍼런스 재현은 이렇게 간다: 계획 → 레퍼런스 크기 캔버스 → 전체를 숨긴 Reference 레이어로 → 요소마다 선택해
+`put_pixels within_selection=true`로 자기 레이어에 → 가려진 부분 채우기 → 실루엣·틈은 `add_path as=mask` →
+변형은 유동화·뒤틀기·왜곡 → 글자는 `add_text` → `compare_image`로 비교하고 점수 보고.
 
 손 도구와 선택은 사람이 마우스로 하는 동작을 좌표로 한다.
 
