@@ -586,6 +586,7 @@ internal static class ToolsCheck
             canvas.PointerDown(textCentre, pan: false, doubleClick: true);
             Expect(canvas.EditingText == textId && requested == textId,
                    "double-clicking live text with Move did not open its editor");
+            Expect(canvas.Tool == CanvasTool.Text, "double-clicking live text with Move did not bring up the Type tool");
             canvas.PointerUp();
             canvas.EndTextEdit(commit: false);
             canvas.TextEditRequested = opened;
