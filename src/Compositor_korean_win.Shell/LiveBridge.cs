@@ -53,12 +53,17 @@ internal sealed class LiveBridge : IDisposable
     private readonly string _images = Path.Combine(Path.GetTempPath(), "compositor-ai");
     private readonly Dictionary<EditorSession.Open, CanvasDocument> _before = new(ReferenceEqualityComparer.Instance);
 
+    /// <summary>When the guide was last read, by the rules' version then; null before it has been.</summary>
+    private DateTime? _guideRead;
+
     private LiveBridge(nint window, CanvasView canvas, NamedPipeServerStream first)
     {
         _window = window;
         _canvas = canvas;
         _session = new EditorSession(_services, ownsPixels: false);
-        _server = new McpServer(new McpTools(_session), Updates.Version);
+        AiRules rules = Rules;
+        rules.Ensure();
+        _server = new McpServer(new McpTools(_session), Updates.Version, rules);
         _ = Task.Run(() => Listen(first));
     }
 
@@ -78,6 +83,11 @@ internal sealed class LiveBridge : IDisposable
             return null;
         }
     }
+
+    /// <summary>The person's rules for assistants: <c>%APPDATA%\Compositor_korean_win\ai-rules.md</c>.</summary>
+    public static AiRules Rules { get; } = new(
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Compositor_korean_win", "ai-rules.md"),
+        () => Localizer.Text(TextKey.AiRulesDefault));
 
     private static NamedPipeServerStream Create(bool first) =>
         new(LiveRequests.PipeName, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances,
@@ -183,7 +193,25 @@ internal sealed class LiveBridge : IDisposable
 
     private string Run(string line)
     {
-        if (LiveRequests.Called(line) is (string tool, var steps) && tool is "undo" or "redo")
+        (string Tool, int? Steps)? called = LiveRequests.Called(line);
+
+        // A shell client reads the guide — and with it the person's rules — before its first edit,
+        // and again once the rules have changed. An MCP client has them from connecting.
+        if (called is (string asked, _) && !LiveRequests.IsJsonRpc(line))
+        {
+            if (asked == LiveRequests.GuideTool)
+            {
+                _guideRead = _server.Rules?.Version ?? DateTime.MinValue;
+            }
+            else if (_guideRead is not DateTime read || read != (_server.Rules?.Version ?? DateTime.MinValue))
+            {
+                string why = _guideRead is null ? "Read the guide first" : "The rules have changed since you read the guide; read it again";
+                return LiveRequests.Answer(line, why + ": send {\"tool\":\"guide\"}. It holds the rules the person set for " +
+                                                 "working in this editor, and every tool. Then send this request again.", isError: true);
+            }
+        }
+
+        if (called is (string tool, var steps) && tool is "undo" or "redo")
             return Step(line, tool == "undo", Math.Clamp(steps ?? 1, 1, 1000));
 
         Fill();

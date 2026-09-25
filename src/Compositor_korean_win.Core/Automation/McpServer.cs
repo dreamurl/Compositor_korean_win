@@ -19,8 +19,11 @@ namespace Compositor_korean_win.Core;
 /// message is a protocol error.
 /// </para>
 /// </remarks>
-public sealed class McpServer(McpTools tools, string version)
+public sealed class McpServer(McpTools tools, string version, AiRules? rules = null)
 {
+    /// <summary>The person's working rules (<see cref="AiRules"/>), read afresh for each client.</summary>
+    public AiRules? Rules => rules;
+
     private static readonly string[] Versions = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
     /// <summary>Guidance the client shows the model once, on connecting.</summary>
@@ -114,7 +117,9 @@ public sealed class McpServer(McpTools tools, string version)
         writer.WriteString("title", "Compositor image editor");
         writer.WriteString("version", version);
         writer.WriteEndObject();
-        writer.WriteString("instructions", Instructions);
+        writer.WriteString("instructions", rules is null
+            ? Instructions
+            : Instructions + "\n\nFollow these rules, set by the person who uses this editor:\n\n" + rules.Text);
         writer.WriteEndObject();
     }
 

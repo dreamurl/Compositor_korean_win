@@ -54,7 +54,7 @@ internal static class McpHost
 
         using var services = new ShellEditorServices();
         using var session = new EditorSession(services);
-        var server = new McpServer(new McpTools(session), Updates.Version);
+        var server = new McpServer(new McpTools(session), Updates.Version, LiveBridge.Rules);
         log.WriteLine($"compositor MCP server {Updates.Version} ready");
         server.Run(input, output, log);
         return 0;

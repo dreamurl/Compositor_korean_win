@@ -375,6 +375,8 @@ public enum TextKey
     AboutVersion,
     CommandCheckUpdates,
     CommandCopyAiGuide,
+    CommandEditAiRules,
+    AiRulesDefault,
     AiGuideCopied,
     AiGuideIntro,
     AiGuideAsk,
@@ -904,7 +906,49 @@ public static class TextTable
         (TextKey.LabelShiftEdge, "Shift Edge", "가장자리 이동"),
         (TextKey.AboutVersion, "Version {0}", "버전 {0}"),
         (TextKey.CommandCheckUpdates, "Check for &Updates…", "업데이트 확인(&U)…"),
-        (TextKey.CommandCopyAiGuide, "Copy &AI Instructions", "AI 작업 안내 복사(&I)"),
+        (TextKey.CommandCopyAiGuide, "Copy AI &Instructions", "AI 작업 안내 복사(&I)"),
+        (TextKey.CommandEditAiRules, "Edit AI &Rules…", "AI 작업 규칙 편집(&R)…"),
+        (TextKey.AiRulesDefault,
+            "# Rules for working in Compositor\n"
+            + "\n"
+            + "Edit this file to change how an AI assistant works in the editor. It is read again on every request.\n"
+            + "\n"
+            + "## Layer structure\n"
+            + "1. Group layers by role, bottom to top: Background, Images, Shapes & decoration, Text, Adjustments. Put each new layer in its group.\n"
+            + "2. Give every group and layer a meaningful name (Title, Subtitle, Logo, Background gradient). Leave no \"Layer 3\".\n"
+            + "3. One element per layer. Do not combine several elements into one layer.\n"
+            + "\n"
+            + "## Keep it editable\n"
+            + "4. Keep text as live text. Do not rasterize it; for letters styled apart use edit_text with start/end.\n"
+            + "5. Do not change original images directly. Use masks, clipping, adjustment layers and effects.\n"
+            + "\n"
+            + "## Respect the person's work\n"
+            + "6. Check the current structure with get_document before working. Ask before deleting or merging layers the person made.\n"
+            + "7. Save or overwrite files only when asked.\n"
+            + "\n"
+            + "## How to proceed\n"
+            + "8. Look at the result with render after each stage.\n"
+            + "9. When done, summarize the groups and layers you made.",
+            "# Compositor 작업 규칙\n"
+            + "\n"
+            + "이 파일을 고치면 AI가 편집기에서 일하는 방식이 바뀝니다. 요청마다 다시 읽으므로 저장하면 바로 적용됩니다.\n"
+            + "\n"
+            + "## 레이어 구조\n"
+            + "1. 레이어를 역할별 그룹으로 나눈다. 아래에서 위로: 배경, 이미지, 도형·장식, 텍스트, 보정. 새 레이어는 해당 그룹 안에 만든다.\n"
+            + "2. 그룹과 레이어에 의미 있는 이름을 붙인다(제목, 부제, 로고, 배경 그라디언트). \"Layer 3\" 같은 이름을 남기지 않는다.\n"
+            + "3. 레이어 하나에 요소 하나. 여러 요소를 한 레이어에 합치지 않는다.\n"
+            + "\n"
+            + "## 수정 가능하게 유지\n"
+            + "4. 텍스트는 살아 있는 텍스트로 둔다. 래스터화하지 않고, 일부 글자만 다른 스타일은 edit_text의 start/end로 준다.\n"
+            + "5. 원본 이미지를 직접 고치지 않는다. 마스크, 클리핑, 조정 레이어, 효과를 쓴다.\n"
+            + "\n"
+            + "## 사용자 작업 존중\n"
+            + "6. 작업 전에 get_document로 현재 구조를 확인한다. 사용자가 만든 레이어를 지우거나 합치기 전에 먼저 묻는다.\n"
+            + "7. 파일 저장·덮어쓰기는 요청받았을 때만 한다.\n"
+            + "\n"
+            + "## 진행 방식\n"
+            + "8. 단계마다 render로 결과를 확인한다.\n"
+            + "9. 끝나면 만든 그룹과 레이어 구조를 요약해 알려 준다."),
         (TextKey.AiGuideCopied,
             "Instructions for an AI assistant are on the clipboard. Paste them into Claude, Codex or any assistant "
             + "that can run PowerShell on this PC, add what you want made, and it will work in this window while "

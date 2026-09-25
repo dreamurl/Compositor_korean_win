@@ -77,6 +77,31 @@ public sealed class LiveRequestsTests : IDisposable
     }
 
     [Fact]
+    public void ThePersonsRulesComeWithTheGuideAndTheInstructionsAndFollowTheFile()
+    {
+        string path = Path.Combine(_images, "ai-rules.md");
+        var rules = new AiRules(path, () => "Default rule: group by role.");
+        var server = new McpServer(new McpTools(_session), "test", rules);
+
+        using (JsonDocument guide = JsonDocument.Parse(LiveRequests.Handle(server, """{"tool":"guide"}""", _images)))
+            Assert.Contains("Default rule: group by role.", guide.RootElement.GetProperty("text").GetString());
+
+        Assert.True(rules.Ensure());
+        File.WriteAllText(path, "Name every layer in Korean.");
+        using (JsonDocument guide = JsonDocument.Parse(LiveRequests.Handle(server, """{"tool":"guide"}""", _images)))
+            Assert.Contains("Name every layer in Korean.", guide.RootElement.GetProperty("text").GetString());
+
+        using JsonDocument initialize = JsonDocument.Parse(server.Handle(
+            """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}""")!);
+        Assert.Contains("Name every layer in Korean.",
+                        initialize.RootElement.GetProperty("result").GetProperty("instructions").GetString());
+
+        // An empty file is no rules at all, which falls back to the defaults rather than to nothing.
+        File.WriteAllText(path, "   ");
+        Assert.Equal("Default rule: group by role.", rules.Text);
+    }
+
+    [Fact]
     public void JsonRpcIsPassedThroughAndANotificationGetsAnEmptyLine()
     {
         string reply = LiveRequests.Handle(_server, """{"jsonrpc":"2.0","id":7,"method":"tools/list"}""", _images);

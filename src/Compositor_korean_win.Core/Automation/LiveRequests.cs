@@ -111,6 +111,20 @@ public static class LiveRequests
                 : null;
     }
 
+    /// <summary>Whether a line is JSON-RPC — from an MCP client, which reads the rules on connecting — rather than the short form.</summary>
+    public static bool IsJsonRpc(string line)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(line);
+            return document.RootElement.ValueKind == JsonValueKind.Object && document.RootElement.TryGetProperty("method", out _);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>A text answer shaped for whichever form <paramref name="line"/> was in.</summary>
     public static string Answer(string line, string text, bool isError)
     {
@@ -170,6 +184,13 @@ public static class LiveRequests
         guide.AppendLine();
         guide.AppendLine(McpServer.Instructions);
         guide.AppendLine();
+        if (server.Rules is AiRules rules)
+        {
+            guide.AppendLine("## Rules — set by the person who uses this editor. Follow them.");
+            guide.AppendLine();
+            guide.AppendLine(rules.Text);
+            guide.AppendLine();
+        }
         guide.AppendLine("## Tools (* = required)");
 
         string listed = server.Handle(Envelope(writer => writer.WriteString("method", "tools/list"))) ?? "";

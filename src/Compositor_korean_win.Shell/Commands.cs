@@ -182,4 +182,5 @@ internal static class CommandIds
     public const int About = 900;
     public const int CheckUpdates = 901;
     public const int CopyAiGuide = 902;
+    public const int EditAiRules = 903;
 }

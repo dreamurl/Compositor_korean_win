@@ -268,6 +268,12 @@ internal static class AppCommands
                                   Localizer.Text(TextKey.AppTitle), MB_OK | MB_ICONINFORMATION),
                 Interactive: true),
             new(CommandIds.CheckUpdates, TextKey.CommandCheckUpdates, () => Updates.Check(owner), Interactive: true),
+            new(CommandIds.EditAiRules, TextKey.CommandEditAiRules, () =>
+            {
+                // In Notepad, which every Windows has: a .md file may open in nothing, or in a viewer.
+                AiRules rules = LiveBridge.Rules;
+                if (rules.Ensure()) ShellExecuteW(owner, "open", "notepad.exe", "\"" + rules.Path + "\"", null, SW_SHOWNORMAL);
+            }, Interactive: true),
             new(CommandIds.CopyAiGuide, TextKey.CommandCopyAiGuide, () =>
             {
                 // What a person pastes into an assistant: nothing to install or register, only the
@@ -437,7 +443,7 @@ internal static class AppCommands
                 Item(CommandIds.PixelGrid), Item(CommandIds.TransformControls), MenuEntry.Line,
                 Item(CommandIds.NextDocument), Item(CommandIds.PreviousDocument),
             ]),
-            new(TextKey.MenuHelp, [Item(CommandIds.CopyAiGuide), MenuEntry.Line, Item(CommandIds.CheckUpdates), MenuEntry.Line,
+            new(TextKey.MenuHelp, [Item(CommandIds.CopyAiGuide), Item(CommandIds.EditAiRules), MenuEntry.Line, Item(CommandIds.CheckUpdates), MenuEntry.Line,
                                    Item(CommandIds.About)]),
         };
 
