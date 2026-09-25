@@ -422,6 +422,18 @@ jobs:
           path: build/package-ai/**
           retention-days: 14
 
+      # The NativeAOT symbols for the exes above, kept out of the packages. A hang in the field can
+      # only be located from a dump of the stuck process, and a NativeAOT dump without its PDB shows
+      # bare addresses. Matched to the build by the run, so each run carries its own.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Compositor_korean_win-symbols
+          path: |
+            build/publish-plain/*.pdb
+            build/publish/*.pdb
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Fail if the self-test did not pass
         if: steps.selftest.outputs.exit != '0'
         shell: pwsh
