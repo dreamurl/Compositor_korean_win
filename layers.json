@@ -1,0 +1,508 @@
+{
+  "document": "doc1",
+  "title": "brutalism poster",
+  "width": 1080,
+  "height": 1350,
+  "resolution": 72,
+  "unsaved_changes": true,
+  "layer_order": "top first; a folder\u0027s members follow it, indented by depth",
+  "layers": [
+    {
+      "id": "497ed8f7-0efb-4fbe-bc54-a4c042b823ed",
+      "name": "korean",
+      "kind": "text",
+      "depth": 0,
+      "visible": true,
+      "opacity": 1,
+      "blend_mode": "normal",
+      "bounds": {
+        "x": 827,
+        "y": 1260,
+        "width": 192,
+        "height": 30
+      },
+      "placement": {
+        "x": 827.86,
+        "y": 1260.7,
+        "width": 191,
+        "height": 29
+      },
+      "text": {
+        "text": "\uBE0C\uB8E8\uD0C8\uB9AC\uC998 \uC804\uC2DC",
+        "font": "Malgun Gothic",
+        "size": 26,
+        "weight": 700,
+        "color": "#FFFFFF",
+        "align": "right",
+        "leading": 1.2,
+        "anchor": {
+          "x": 1020,
+          "y": 1285
+        }
+      }
+    },
+    {
+      "id": "81b802c1-01fa-44ef-a030-8ed502b6d74c",
+      "name": "dates",
+      "kind": "text",
+      "depth": 0,
+      "visible": true,
+      "opacity": 1,
+      "blend_mode": "normal",
+      "bounds": {
+        "x": 58,
+        "y": 1265,
+        "width": 393,
+        "height": 24
+      },
+      "placement": {
+        "x": 58,
+        "y": 1265.27,
+        "width": 393,
+        "height": 23
+      },
+      "text": {
+        "text": "2026.10.01 \u2014 11.30   SEOUL",
+        "font": "Arial",
+        "size": 24,
+        "weight": 400,
+        "color": "#FFFFFF",
+        "align": "left",
+        "tracking": 120,
+        "leading": 1.2,
+        "anchor": {
+          "x": 60,
+          "y": 1285
+        }
+      }
+    },
+    {
+      "id": "a58b0880-2fb9-43a5-918f-58dc4524fe74",
+      "name": "small star",
+      "kind": "pixels",
+      "depth": 0,
+      "visible": true,
+      "opacity": 1,
+      "blend_mode": "normal",
+      "bounds": {
+        "x": 948,
+        "y": 1178,
+        "width": 48,
+        "height": 48
+      },
+      "placement": {
+        "x": 948,
+        "y": 1178,
+        "width": 48,
+        "height": 48
+      }
+    },
+    {
+      "id": "9e8aa37a-47a5-45a1-959a-65eb07bb2ba7",
+      "name": "star outline",
+      "kind": "pixels",
+      "depth": 0,
+      "visible": true,
+      "opacity": 1,
+      "blend_mode": "normal",
+      "bounds": {
+        "x": 92,
+        "y": 976,
+        "width": 88,
+        "height": 88
+      },
+      "placement": {
+        "x": 92,
+        "y": 976,
+        "width": 88,
+        "height": 88
+      }
+    },
+    {
+      "id": "2e28af29-3a33-4e63-b9b2-5cf155bc717c",
+      "name": "sparkle",
+      "kind": "pixels",
+      "depth": 0,
+      "visible": true,
+      "opacity": 1,
+      "blend_mode": "normal",
+      "bounds": {
+        "x": 848,
+        "y": 108,
+        "width": 134,
+        "height": 134
+      },
+      "placement": {
+        "x": 848,
+        "y": 108,
+        "width": 134,
+        "height": 134
+      }
+    },
+    {
+      "id": "51200b1b-614d-41ba-8b30-2d0198847a5a",
+      "name": "FREE ENTRY",
+      "kind": "text",
+      "depth": 0,
+      "visible": true,
+      "opacity": 1,
+      "blend_mode": "normal",
+      "bounds": {
+        "x": 986,
+        "y": 515,
+        "width": 30,
+        "height": 346
+      },
+      "placement": {
+        "x": 828.69,
+        "y": 673.22,
+        "width": 345,
+        "height": 29,
+        "rotation": -90
+      },
+      "text": {
+        "text": "FREE ENTRY",
+        "font": "Arial",
+        "size": 34,
+        "weight": 700,
+        "color": "#FFFFFF",
+        "align": "center",
+        "tracking": 420,
+        "leading": 1.2,
+        "anchor": {
+          "x": 1013.5,
+          "y": 688.9
+        }
+      }
+    },
+    {
+      "id": "412b2c9a-3cd7-4c21-85c1-ddf02e1c9eb1",
+      "name": "Choose Your Style",
+      "kind": "text",
+      "depth": 0,
+      "visible": true,
+      "opacity": 1,
+      "blend_mode": "normal",
+      "bounds": {
+        "x": 315,
+        "y": 996,
+        "width": 452,
+        "height": 101
+      },
+      "placement": {
+        "x": 315.75,
+        "y": 996.81,
+        "width": 451,
+        "height": 100
+      },
+      "text": {
+        "text": "Choose Your Style",
+        "font": "Georgia",
+        "size": 58,
+        "weight": 400,
+        "italic": true,
+        "color": "#F2E500",
+        "align": "center",
+        "leading": 1.2,
+        "warp": {
+          "style": "arc",
+          "bend": 35,
+          "horizontal": 0,
+          "vertical": 0
+        },
+        "anchor": {
+          "x": 540,
+          "y": 1040
+        }
+      }
+    },
+    {
+      "id": "3205c471-0b64-47f8-a22d-45ba01589244",
+      "name": "EXHIBITION",
+      "kind": "text",
+      "depth": 0,
+      "visible": true,
+      "opacity": 1,
+      "blend_mode": "normal",
+      "bounds": {
+        "x": 131,
+        "y": 1061,
+        "width": 818,
+        "height": 94
+      },
+      "placement": {
+        "x": 131.44,
+        "y": 1061.13,
+        "width": 817,
+        "height": 93,
+        "flip_y": true
+      },
+      "mask": {
+        "enabled": true
+      },
+      "text": {
+        "text": "EXHIBITION",
+        "font": "Arial",
+        "size": 118,
+        "weight": 900,
+        "color": "#FFFFFF",
+        "align": "center",
+        "tracking": 40,
+        "leading": 1.2,
+        "anchor": {
+          "x": 540,
+          "y": 1065.3
+        }
+      }
+    },
+    {
+      "id": "a49b6f98-0f1d-4216-b7c0-33b4724e0da8",
+      "name": "contrast",
+      "kind": "adjustment",
+      "depth": 0,
+      "visible": true,
+      "opacity": 1,
+      "blend_mode": "normal",
+      "clipped_to": "figure (632e47eb-3aa3-4f7a-b37e-b2f47df730ac)",
+      "adjustment": "levels",
+      "settings": {
+        "black": 20,
+        "white": 225,
+        "gamma": 1,
+        "output_black": 0,
+        "output_white": 255
+      }
+    },
+    {
+      "id": "d2e2d957-6c3a-4225-8008-630818c1d389",
+      "name": "black and white",
+      "kind": "adjustment",
+      "depth": 0,
+      "visible": true,
+      "opacity": 1,
+      "blend_mode": "normal",
+      "clipped_to": "figure (632e47eb-3aa3-4f7a-b37e-b2f47df730ac)",
+      "adjustment": "hue_saturation",
+      "settings": {
+        "hue": 0,
+        "saturation": -100,
+        "lightness": 0,
+        "colorize": false
+      }
+    },
+    {
+      "id": "632e47eb-3aa3-4f7a-b37e-b2f47df730ac",
+      "name": "figure",
+      "kind": "pixels",
+      "depth": 0,
+      "visible": true,
+      "opacity": 1,
+      "blend_mode": "normal",
+      "bounds": {
+        "x": 230,
+        "y": 300,
+        "width": 620,
+        "height": 760
+      },
+      "placement": {
+        "x": 230,
+        "y": 300,
+        "width": 620,
+        "height": 760
+      },
+      "mask": {
+        "enabled": true
+      }
+    },
+    {
+      "id": "5c29c7bf-3096-4109-b770-21193baed6ef",
+      "name": "panel colour",
+      "kind": "pixels",
+      "depth": 0,
+      "visible": true,
+      "opacity": 1,
+      "blend_mode": "normal",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 1080,
+        "height": 1350
+      },
+      "placement": {
+        "x": 0,
+        "y": 0,
+        "width": 1080,
+        "height": 1350
+      },
+      "clipped_to": "panel (ffcb9858-e11f-4b54-9be4-e6e228856289)"
+    },
+    {
+      "id": "ffcb9858-e11f-4b54-9be4-e6e228856289",
+      "name": "panel",
+      "kind": "pixels",
+      "depth": 0,
+      "visible": true,
+      "opacity": 1,
+      "blend_mode": "normal",
+      "bounds": {
+        "x": 188,
+        "y": 328,
+        "width": 704,
+        "height": 664
+      },
+      "placement": {
+        "x": 188,
+        "y": 328,
+        "width": 704,
+        "height": 664
+      },
+      "effects": {
+        "drop_shadow": "on, #000000, opacity 0.55, angle 120, distance 24, size 48"
+      }
+    },
+    {
+      "id": "64937982-7dd6-428b-9a81-138ccc24f814",
+      "name": "title colour",
+      "kind": "pixels",
+      "depth": 0,
+      "visible": true,
+      "opacity": 1,
+      "blend_mode": "normal",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 1080,
+        "height": 1350
+      },
+      "placement": {
+        "x": 0,
+        "y": 0,
+        "width": 1080,
+        "height": 1350
+      },
+      "clipped_to": "BRUTALISM (2c63200a-aa83-49b2-a187-9b9ade6a9349)"
+    },
+    {
+      "id": "2c63200a-aa83-49b2-a187-9b9ade6a9349",
+      "name": "BRUTALISM",
+      "kind": "text",
+      "depth": 0,
+      "visible": true,
+      "opacity": 1,
+      "blend_mode": "normal",
+      "bounds": {
+        "x": -4,
+        "y": 119,
+        "width": 1088,
+        "height": 136
+      },
+      "placement": {
+        "x": -3.16,
+        "y": 119.3,
+        "width": 1087,
+        "height": 135
+      },
+      "mask": {
+        "enabled": true
+      },
+      "text": {
+        "text": "BRUTALISM",
+        "font": "Arial",
+        "size": 176,
+        "weight": 900,
+        "color": "#FFFFFF",
+        "align": "center",
+        "tracking": -30,
+        "leading": 1.2,
+        "anchor": {
+          "x": 540,
+          "y": 250
+        }
+      }
+    },
+    {
+      "id": "54de156b-7b90-4e13-bac7-3faa2ce05b9d",
+      "name": "diagonal",
+      "kind": "pixels",
+      "depth": 0,
+      "visible": true,
+      "opacity": 1,
+      "blend_mode": "normal",
+      "bounds": {
+        "x": 67,
+        "y": 1057,
+        "width": 266,
+        "height": 216
+      },
+      "placement": {
+        "x": 67,
+        "y": 1057,
+        "width": 266,
+        "height": 216
+      }
+    },
+    {
+      "id": "0c9158ef-62e0-4f6d-8e79-05f5002ef9b2",
+      "name": "rule bottom",
+      "kind": "pixels",
+      "depth": 0,
+      "visible": true,
+      "opacity": 1,
+      "blend_mode": "normal",
+      "bounds": {
+        "x": 45,
+        "y": 1297,
+        "width": 990,
+        "height": 6
+      },
+      "placement": {
+        "x": 45,
+        "y": 1297,
+        "width": 990,
+        "height": 6
+      }
+    },
+    {
+      "id": "44f31f80-26f3-473f-9abf-09384a588b4e",
+      "name": "rule top",
+      "kind": "pixels",
+      "depth": 0,
+      "visible": true,
+      "opacity": 1,
+      "blend_mode": "normal",
+      "bounds": {
+        "x": 45,
+        "y": 53,
+        "width": 990,
+        "height": 6
+      },
+      "placement": {
+        "x": 45,
+        "y": 53,
+        "width": 990,
+        "height": 6
+      }
+    },
+    {
+      "id": "e253aa09-b040-42a0-a2fa-03951b4fa5ba",
+      "name": "Background",
+      "kind": "pixels",
+      "depth": 0,
+      "visible": true,
+      "opacity": 1,
+      "blend_mode": "normal",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 1080,
+        "height": 1350
+      },
+      "placement": {
+        "x": 0,
+        "y": 0,
+        "width": 1080,
+        "height": 1350
+      }
+    }
+  ]
+}
