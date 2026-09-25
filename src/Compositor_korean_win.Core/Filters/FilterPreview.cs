@@ -30,6 +30,8 @@ public sealed class FilterPreview : IDisposable
     private readonly DownsamplePyramid _pyramid = new();
     private PixelBuffer? _last;
     private PixelBuffer? _geometricSource;
+    private PixelRect _geometricGrid;
+    private int _geometricUnit;
     private LiveEdit? _lastEdit;
     private FilterSettings? _lastSettings;
     private FilterKind _lastKind;
@@ -124,25 +126,35 @@ public sealed class FilterPreview : IDisposable
     private LiveEdit GeometricFrame(PixelBuffer image, int width, int height,
                                     CanvasProjection projection, int surfaceWidth, int surfaceHeight)
     {
-        double unit = PreviewUnit(width, height);
-        int previewWidth = Math.Max(1, (int)Math.Ceiling(width / unit));
-        int previewHeight = Math.Max(1, (int)Math.Ceiling(height / unit));
+        int margin = LayerFilters.Margin(Layer, Kind, Settings);
+        int unit = (int)PreviewUnit(width + margin * 2, height + margin * 2);
+        int baseWidth = Math.Max(1, (int)Math.Ceiling((double)width / unit));
+        int baseHeight = Math.Max(1, (int)Math.Ceiling((double)height / unit));
+        int previewMargin = (int)Math.Ceiling((double)margin / unit);
+        var grid = new PixelRect(-previewMargin, -previewMargin,
+                                 baseWidth + previewMargin * 2, baseHeight + previewMargin * 2);
 
-        _geometricSource ??= ReducedCopy(image, previewWidth, previewHeight);
+        if (_geometricSource is null || _geometricGrid != grid || _geometricUnit != unit)
+        {
+            _geometricSource?.Release();
+            _geometricSource = ReducedCopy(image, baseWidth, baseHeight, previewMargin);
+            _geometricGrid = grid;
+            _geometricUnit = unit;
+        }
         PixelBuffer original = _geometricSource;
-        PixelBuffer filtered = PixelFilters.Run(original, Kind, Settings, 1 / unit, new PixelPlacement(0, 0, unit));
+        PixelBuffer filtered = PixelFilters.Run(original, Kind, Settings, 1.0 / unit,
+                                                 new PixelPlacement(grid.X, grid.Y, unit));
 
         if (Selection is not null)
         {
-            var grid = new PixelRect(0, 0, previewWidth, previewHeight);
             byte[] levels = LayerFilters.SelectionLevels(Selection, Layer.Transform, width, height, unit, grid);
             PixelFilters.Confine(original, filtered, levels);
         }
 
-        LastPixelsFiltered = (long)previewWidth * previewHeight;
+        LastPixelsFiltered = (long)grid.Width * grid.Height;
         return Remember(filtered, new LiveEdit(Layer.Id, new BufferSource(filtered))
         {
-            Placement = Layer.Transform,
+            Placement = LayerGeometry.Place(Layer.Transform, Scaled(grid, unit), width, height),
         }, projection, surfaceWidth, surfaceHeight);
     }
 
@@ -178,6 +190,22 @@ public sealed class FilterPreview : IDisposable
             new Point(0, 0), new Point(width, 0), new Point(width, height), new Point(0, height),
         ];
         return QuadWarp.Resample(image, corners, null, new PixelRect(0, 0, width, height), reduce: false)!.Value.Pixels;
+    }
+
+    /// <summary>A reduced whole layer with transparent room around filters such as Wave.</summary>
+    private static PixelBuffer ReducedCopy(PixelBuffer image, int width, int height, int margin)
+    {
+        PixelBuffer reduced = ReducedCopy(image, width, height);
+        if (margin == 0) return reduced;
+        try
+        {
+            return PixelRegion.Copy(reduced,
+                new PixelRect(-margin, -margin, width + margin * 2, height + margin * 2));
+        }
+        finally
+        {
+            reduced.Release();
+        }
     }
 
     /// <summary>The same settings run over the layer for good.</summary>
