@@ -237,7 +237,7 @@ public sealed class McpEditingTests : IDisposable
         string levels = Id(Call("add_adjustment", """{"kind":"levels","red":{"output_white":0}}"""));
         Assert.Equal((0, 255, 255), Pixel(Look("{}"), 30, 30));
 
-        Call("edit_adjustment", $$"""{"layer":"{{levels}}","red":{"output_white":255},"blue":{"output_white":0}}""");
+        Call("edit_adjustment", $$$"""{"layer":"{{{levels}}}","red":{"output_white":255},"blue":{"output_white":0}}""");
         Assert.Equal((255, 255, 0), Pixel(Look("{}"), 30, 30));
         string described = Text(Call("get_document", "{}"));
         Assert.Contains("\"settings\"", described);
@@ -436,7 +436,7 @@ public sealed class McpEditingTests : IDisposable
 
     private JsonElement Call(string tool, string arguments, bool expectError = false)
     {
-        string reply = _server.Handle($$"""{"jsonrpc":"2.0","id":{{++_id}},"method":"tools/call","params":{"name":"{{tool}}","arguments":{{arguments}}}}""")!;
+        string reply = _server.Handle($$$"""{"jsonrpc":"2.0","id":{{{++_id}}},"method":"tools/call","params":{"name":"{{{tool}}}","arguments":{{{arguments}}}}}""")!;
         using JsonDocument parsed = JsonDocument.Parse(reply);
         Assert.False(parsed.RootElement.TryGetProperty("error", out JsonElement error), $"{tool}: protocol error {error}");
         JsonElement result = parsed.RootElement.GetProperty("result").Clone();
