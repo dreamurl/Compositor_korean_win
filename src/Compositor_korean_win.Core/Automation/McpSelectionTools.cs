@@ -31,7 +31,8 @@ public sealed partial class McpTools
             "Select part of the canvas (the marching ants). paint_stroke, fill_selection, copy_to_layer, apply_filter and " +
             "set_mask shape=selection then keep to it. shape: rectangle or ellipse (x, y, width, height); lasso (points, " +
             "joined into a closed outline); layer (wherever a layer has pixels); magic_wand (pixels like the one at x, y " +
-            "on 'layer', or on the whole picture with sample_all_layers); all; none. 'mode' adds to, subtracts from or " +
+            "on 'layer', or on the whole picture with sample_all_layers — a rough region, never for separating an element or a " +
+            "cut-out, whose boundary is judged pixel by pixel instead); all; none. 'mode' adds to, subtracts from or " +
             "intersects with the current selection. 'feather' softens its edge.",
             Build(Choice("shape", "What to select.", ["rectangle", "ellipse", "lasso", "layer", "magic_wand", "all", "none"], true),
                   Num("x", "Box left, or the magic wand's point."), Num("y", "Box top, or the magic wand's point."),
