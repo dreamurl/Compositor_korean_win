@@ -183,7 +183,7 @@ internal sealed class LiveBridge : IDisposable
 
     private string Run(string line)
     {
-        if (LiveRequests.Called(line) is (string tool, int? steps) && tool is "undo" or "redo")
+        if (LiveRequests.Called(line) is (string tool, var steps) && tool is "undo" or "redo")
             return Step(line, tool == "undo", Math.Clamp(steps ?? 1, 1, 1000));
 
         Fill();
