@@ -34,6 +34,9 @@ public static class LiveRequests
     /// </summary>
     public const int ImagesKept = 20;
 
+    /// <summary>Numbers the files, so two renders in the same millisecond do not share a name.</summary>
+    private static int s_rendered;
+
     /// <summary>The tool that answers with this guide rather than going to the MCP server.</summary>
     public const string GuideTool = "guide";
 
@@ -272,7 +275,7 @@ public static class LiveRequests
                 };
                 Directory.CreateDirectory(imageFolder);
                 string path = Path.Combine(imageFolder,
-                    $"render-{DateTime.Now.ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture)}-{images.Count + 1}{extension}");
+                    $"render-{DateTime.Now.ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture)}-{Interlocked.Increment(ref s_rendered):D6}{extension}");
                 File.WriteAllBytes(path, data.GetBytesFromBase64());
                 images.Add(path);
             }
