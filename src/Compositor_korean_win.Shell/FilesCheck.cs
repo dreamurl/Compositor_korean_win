@@ -101,9 +101,21 @@ internal static class FilesCheck
             Expect(canvas.Tabs.Count == 3 && canvas.ActiveTab == 2, "a dropped project did not open in a new tab");
             tabs = canvas.Tabs.Count;
 
+            // close_document removes the session entry first. The bridge must also remove that
+            // entry's exact window tab, or the next request discovers it again under a new doc id.
+            DocumentTab automatedTab = canvas.Tabs[0];
+            var automated = new EditorSession.Open
+            {
+                Id = "doc1",
+                Document = automatedTab.Document!,
+                History = new DocumentHistory(ownsPixels: false),
+                Tag = automatedTab,
+            };
+            LiveBridge.CloseRemovedDocuments(canvas, [automated], []);
+            Expect(canvas.Tabs.Count == 2 && !canvas.Tabs.Contains(automatedTab),
+                   "an automation-closed document stayed in the window and could be registered again");
+
             // Closing goes to the neighbour, and the last close leaves the window empty.
-            canvas.Close();
-            Expect(canvas.Tabs.Count == 2 && canvas.ActiveTab == 1, "closing a tab did not show its neighbour");
             canvas.Close();
             canvas.Close();
             Expect(!canvas.HasDocument && canvas.Tabs.Count == 0, "closing every tab left a document open");

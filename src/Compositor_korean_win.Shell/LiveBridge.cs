@@ -342,6 +342,8 @@ internal sealed class LiveBridge : IDisposable
         string name = "AI: " + (tool ?? "edit");
         EditorSession.Open? current = _session.Current;
 
+        CloseRemovedDocuments(_canvas, _before.Keys, _session.Documents);
+
         foreach (EditorSession.Open open in _session.Documents.ToList())
         {
             if (open.Tag is DocumentTab tab)
@@ -366,6 +368,24 @@ internal sealed class LiveBridge : IDisposable
 
         // The document the model last worked on is the one on screen, as select_document asks.
         if (current?.Tag is DocumentTab shown && IndexOf(shown) is int at and >= 0) _canvas.SwitchTo(at);
+    }
+
+    /// <summary>
+    /// Documents closed by an automation call must leave the window as well as the temporary
+    /// session. Otherwise its tab is found by the next <see cref="Fill"/> and added back under a
+    /// new <c>docN</c> id, so a document that said it closed appears to reopen.
+    /// </summary>
+    internal static void CloseRemovedDocuments(CanvasView canvas, IEnumerable<EditorSession.Open> before,
+                                               IReadOnlyCollection<EditorSession.Open> after)
+    {
+        foreach (EditorSession.Open closed in before.Where(open => !after.Contains(open)).ToList())
+        {
+            if (closed.Tag is not DocumentTab tab) continue;
+            int index = canvas.Tabs.IndexOfReference(tab);
+            if (index < 0) continue;
+            canvas.SwitchTo(index);
+            canvas.Close();
+        }
     }
 
     private int IndexOf(DocumentTab tab)

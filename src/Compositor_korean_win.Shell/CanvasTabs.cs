@@ -220,3 +220,14 @@ internal sealed partial class CanvasView
         _document = null;
     }
 }
+
+internal static class DocumentTabs
+{
+    /// <summary>The position of this exact tab, not another tab holding an equal document.</summary>
+    public static int IndexOfReference(this IReadOnlyList<DocumentTab> tabs, DocumentTab wanted)
+    {
+        for (int index = 0; index < tabs.Count; index++)
+            if (ReferenceEquals(tabs[index], wanted)) return index;
+        return -1;
+    }
+}
