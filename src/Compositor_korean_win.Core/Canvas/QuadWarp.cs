@@ -72,10 +72,17 @@ public static class QuadWarp
     /// the window shows. Clipped away entirely, the result is one transparent pixel at the clip's
     /// corner, so a caller always has something to draw in the layer's place.
     /// </para>
+    /// <para>
+    /// <paramref name="parallel"/> false keeps every row on the calling thread. The drag preview
+    /// asks for that: it runs inside WM_PAINT on the UI thread, which is STA, and a blocking wait
+    /// there pumps messages. Two dumps of a drag hung for good showed the UI thread inside
+    /// Parallel.For's wait, once with a second paint nested in it waiting in turn. The preview is
+    /// bounded (<see cref="DistortPreview"/>), so it does not need the pool to keep up.
+    /// </para>
     /// </remarks>
     public static (PixelBuffer Pixels, LayerTransform Placement)? Resample(
         PixelBuffer source, IReadOnlyList<Point> corners, DownsamplePyramid? pyramid = null,
-        PixelRect? clip = null, bool reduce = true)
+        PixelRect? clip = null, bool reduce = true, bool parallel = true)
     {
         if (!IsUsable(corners)) return null;
 
@@ -124,7 +131,7 @@ public static class QuadWarp
         {
             nint reducedPixels = reduced.Scan0;
             bool affine = Math.Abs(inverse[6]) < 1e-12 && Math.Abs(inverse[7]) < 1e-12;
-            Parallel.For(0, box.Height, y =>
+            void Fill(int y)
             {
                 Span<byte> row = result.Row(y);
                 double destinationY = box.Y + y + 0.5;
@@ -160,7 +167,10 @@ public static class QuadWarp
                     PixelSampling.Bilinear(reducedPixels, reduced.Stride, reduced.Width, reduced.Height,
                                            u * reduced.Width, v * reduced.Height, row.Slice(x * 4, 4));
                 }
-            });
+            }
+
+            if (parallel) Parallel.For(0, box.Height, Fill);
+            else for (int y = 0; y < box.Height; y++) Fill(y);
 
             var placement = new LayerTransform(new Point(box.X, box.Y), new Size(box.Width, box.Height));
             return (result, placement);
@@ -245,9 +255,9 @@ public static class QuadWarp
     /// </summary>
     public static (PixelBuffer Pixels, LayerTransform Placement)? MaskInto(
         PixelBuffer coverage, IReadOnlyList<Point> corners, byte? outside, DownsamplePyramid? pyramid, PixelRect? clip,
-        bool reduce = true)
+        bool reduce = true, bool parallel = true)
     {
-        if (Resample(coverage, corners, pyramid, clip, reduce) is not (PixelBuffer warped, LayerTransform placement)) return null;
+        if (Resample(coverage, corners, pyramid, clip, reduce, parallel) is not (PixelBuffer warped, LayerTransform placement)) return null;
         Opaque(warped, outside);
         return (warped, placement);
     }

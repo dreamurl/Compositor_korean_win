@@ -61,7 +61,7 @@ public sealed class DistortPreview(ImageLayer layer) : IDisposable
         int rasterHeight = Math.Max(1, (int)Math.Ceiling(height * rasterScale));
         (PixelBuffer Pixels, LayerTransform Placement)? warped =
             QuadWarp.Resample(image, rasterCorners, null, new PixelRect(0, 0, rasterWidth, rasterHeight),
-                              reduce: false);
+                              reduce: false, parallel: false);
         if (warped is not (PixelBuffer pixels, LayerTransform placed)) return null;
 
         _last?.Release();
@@ -91,7 +91,8 @@ public sealed class DistortPreview(ImageLayer layer) : IDisposable
             {
                 _lastMask?.Release();
                 _lastMask = QuadWarp.MaskInto(owned.Coverage, rasterCorners, outside: null, null,
-                                              new PixelRect(0, 0, rasterWidth, rasterHeight), reduce: false)?.Pixels;
+                                              new PixelRect(0, 0, rasterWidth, rasterHeight), reduce: false,
+                                              parallel: false)?.Pixels;
                 mask = _lastMask;
             }
         }

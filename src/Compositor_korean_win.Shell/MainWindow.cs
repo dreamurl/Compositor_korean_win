@@ -36,6 +36,8 @@ internal sealed unsafe class MainWindow : IDisposable
 
     /// <summary>When the last canvas frame was drawn, for keeping frames coming while the pointer moves.</summary>
     private long _lastFrame;
+    private bool _rendering;
+    private bool _renderAgain;
 
     /// <summary>
     /// Where a right press on the canvas went down, while it may still be a click — let go there, it
@@ -245,6 +247,34 @@ internal sealed unsafe class MainWindow : IDisposable
     public void Render(bool present)
     {
         if (!_sized) return;
+        // A blocking wait on this STA thread pumps messages, so a frame can be asked for while
+        // one is still being drawn. Drawing the canvas inside itself tore shared preview state and
+        // left the drag hung for good; the outer frame is already drawing, so ask for one after it.
+        if (_rendering)
+        {
+            _renderAgain = true;
+            return;
+        }
+
+        _rendering = true;
+        try
+        {
+            RenderFrame(present);
+        }
+        finally
+        {
+            _rendering = false;
+        }
+
+        if (_renderAgain)
+        {
+            _renderAgain = false;
+            InvalidateRect(Handle, 0, false);
+        }
+    }
+
+    private void RenderFrame(bool present)
+    {
         Canvas?.Tick();
 
         if (Canvas is CanvasView canvas)
