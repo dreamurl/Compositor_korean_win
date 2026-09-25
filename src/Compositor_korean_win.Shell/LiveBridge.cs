@@ -206,8 +206,9 @@ internal sealed class LiveBridge : IDisposable
             else if (_guideRead is not DateTime read || read != (_server.Rules?.Version ?? DateTime.MinValue))
             {
                 string why = _guideRead is null ? "Read the guide first" : "The rules have changed since you read the guide; read it again";
-                return LiveRequests.Answer(line, why + ": send {\"tool\":\"guide\"}. It holds the rules the person set for " +
-                                                 "working in this editor, and every tool. Then send this request again.", isError: true);
+                return LiveRequests.Answer(line, why + ": run `compositor` with no arguments (or send {\"tool\":\"guide\"}). " +
+                                                 "It holds the rules the person set for working in this editor, and every tool. " +
+                                                 "Then send this request again.", isError: true);
             }
         }
 

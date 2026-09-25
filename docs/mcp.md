@@ -12,12 +12,28 @@ PSD·프로젝트·PNG로 저장할 수 있다. 방법은 두 가지다.
 
 ## 0. 등록 없이 쓰기 — 열린 창에 직접
 
-1. Compositor를 켠다.
-2. 메뉴 **도움말 › AI 작업 안내 복사**를 누른다. 안내문이 클립보드에 들어간다.
-3. PowerShell을 실행할 수 있는 AI(Claude Code, Codex, Claude 데스크톱의 코드 기능 등)에게 붙여넣고,
-   끝에 원하는 작업을 적는다. 예: "1080×1350 포스터를 만들어 줘".
+설치 프로그램으로 설치했다면, 터미널을 쓸 수 있는 AI(Claude Code, Codex 등)에게 이렇게만 말하면 된다.
 
-설치 경로나 설정 파일은 필요 없다. 프로그램을 다른 폴더로 옮겨도 그대로 된다.
+> 컴포지터 켜 놨어. `compositor` 명령어로 연결해서 작업해 줘.
+
+AI가 `compositor`를 실행하면 가이드(작업 규칙과 모든 도구)가 나오고, 이후 작업도 같은 명령으로 보낸다.
+Compositor가 꺼져 있으면 명령이 알아서 켠다. 설치 프로그램이 설치 폴더를 사용자 PATH에 등록하므로 경로를
+말할 필요가 없다(제거하면 PATH에서도 빠진다). 설치 직후 이미 열려 있던 터미널·AI 앱은 PATH 변경을 보지 못하니
+새로 연다.
+
+```
+compositor                                   # 가이드
+compositor get_document
+compositor add_text text="안녕하세요" x=100 y=200 size=72 color=#E02020
+compositor edit_text layer=제목 start=0 end=2 size=120
+compositor render                            # image: <PNG 경로>
+```
+
+값은 `key=value`다. 숫자·`true`/`false`는 그 형식으로, `[..]`·`{..}`는 JSON으로, 나머지는 글자로 넘어간다.
+도구가 실패하면 이유를 출력하고 종료 코드 1로 끝난다.
+
+설치하지 않은 휴대용(zip)이나 명령을 못 찾는 경우에는 메뉴 **도움말 › AI 작업 안내 복사**로 받은 안내문을
+AI에게 붙여넣으면 된다. 안내문에는 명령과, 명령이 없을 때 쓰는 PowerShell 함수가 함께 들어 있다.
 
 **어떻게 연결되나.** 열린 창은 현재 사용자만 접근할 수 있는 로컬 통로
 `\\.\pipe\compositor-korean-win`(윈도우 named pipe)을 연다. AI는 안내문의 PowerShell 함수로 이 통로에

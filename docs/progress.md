@@ -1642,3 +1642,22 @@ Core 테스트는 첫 이미지가 빈 레이어를 교체하면서 해상도를
   기본값을 쓴다. `guide`의 첫 부분과 MCP `initialize`의 instructions에 들어가며 요청마다 다시 읽는다.
   짧은 형식 요청은 `guide`를 읽기 전, 그리고 규칙 파일이 바뀐 뒤 다시 읽기 전에는 거절한다(JSON-RPC는
   연결 시 규칙을 받으므로 제외). 도움말 › "AI 작업 규칙 편집"이 메모장으로 연다.
+
+---
+
+## 26. `compositor` 명령과 PATH 등록 (2026-09-25)
+
+일반 사용자가 AI에게 "컴포지터 켜 놨어, `compositor` 명령어로 작업해 줘"라고만 하면 되게 했다.
+
+- **왜 exe가 하나 더인가**: 편집기는 GUI 서브시스템 exe라 셸이 끝나기를 기다리지 않고 출력도 읽지 못한다.
+  그래서 콘솔 exe `compositor.exe`(`src/Compositor_korean_win.Cli`, NativeAOT)를 따로 두었다. 편집기 코드는
+  참조하지 않고 파이프 이름만 공유한다.
+- **사용법**: 인수 없이 실행하면 가이드. `compositor 도구 key=value ...`로 호출한다. JSON 따옴표는 PowerShell·cmd·bash가
+  제각각 다르게 다루므로 `key=value`로 받고, 값의 형식(숫자, true/false, JSON, 글자)은 명령이 판단한다. 요청 전체나
+  인수 객체를 JSON 하나로 줘도 된다. 실패하면 종료 코드 1. Git Bash(`MSYSTEM`)에서는 UTF-8로, 윈도우 콘솔에서는
+  콘솔 코드 페이지로 출력해 한글 규칙이 어느 쪽에서도 읽힌다.
+- **창 자동 실행**: 파이프가 없으면 옆의 `Compositor_korean_win.exe`를 켜고 최대 1분 기다린다.
+- **설치 프로그램**: 설치 폴더를 사용자 PATH(`HKCU\Environment`)에 추가하고, 제거할 때 그 항목만 뺀다.
+  `ChangesEnvironment=yes`로 새로 여는 프로그램에는 로그아웃 없이 반영된다.
+- **CI**: 실제 창에서 가이드 출력, key=value 호출, 렌더 경로, 실패 종료 코드, 창이 없을 때 자동 실행을 확인하고,
+  설치·제거 단계에서 PATH 추가와 제거를 확인한다.

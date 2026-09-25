@@ -5,6 +5,9 @@
 ; takes everything away — the program folder, and the settings the app keeps in
 ; %APPDATA%\Compositor_korean_win. The app writes nowhere else.
 ;
+; The install folder goes on the user's PATH, so an assistant told "use the compositor command"
+; finds compositor.exe wherever this was installed (docs/progress.md 26); uninstalling takes it off.
+;
 ; Both builds share one AppId, so they are one program to Windows: installing either over the
 ; other replaces it, and the plain build clears the AI build's runtime and model out of the way.
 ;
@@ -56,6 +59,8 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=yes
 RestartApplications=no
+; The PATH change reaches newly started programs without signing out.
+ChangesEnvironment=yes
 
 [Languages]
 #if FileExists(CompilerPath + "Languages\Korean.isl")
@@ -79,6 +84,10 @@ Type: filesandordirs; Name: "{app}\models"
 Type: filesandordirs; Name: "{app}\licenses"
 #endif
 
+[Registry]
+Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; \
+    Check: NeedsAddPath(ExpandConstant('{app}'))
+
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
@@ -90,3 +99,37 @@ Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags
 ; The settings the app keeps per user, so nothing of it is left behind.
 Type: filesandordirs; Name: "{userappdata}\Compositor_korean_win"
 Type: dirifempty; Name: "{app}"
+
+[Code]
+{ Whether Dir is missing from the user's Path, compared without case and as a whole entry. }
+function NeedsAddPath(Dir: string): Boolean;
+var
+  Current: string;
+begin
+  if not RegQueryStringValue(HKEY_CURRENT_USER, 'Environment', 'Path', Current) then
+  begin
+    Result := True;
+    exit;
+  end;
+  Result := Pos(';' + Uppercase(Dir) + ';', ';' + Uppercase(Current) + ';') = 0;
+end;
+
+{ Takes Dir back off the user's Path, leaving every other entry as it was. }
+procedure RemovePath(Dir: string);
+var
+  Current, Padded: string;
+  At: Integer;
+begin
+  if not RegQueryStringValue(HKEY_CURRENT_USER, 'Environment', 'Path', Current) then exit;
+  Padded := ';' + Current + ';';
+  At := Pos(';' + Uppercase(Dir) + ';', Uppercase(Padded));
+  if At = 0 then exit;
+  Delete(Padded, At, Length(Dir) + 1);
+  Current := Copy(Padded, 2, Length(Padded) - 2);
+  RegWriteExpandStringValue(HKEY_CURRENT_USER, 'Environment', 'Path', Current);
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then RemovePath(ExpandConstant('{app}'));
+end;

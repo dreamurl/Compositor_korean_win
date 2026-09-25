@@ -104,6 +104,18 @@ jobs:
           -p:Version=${{ steps.version.outputs.version }}
           --output build/publish-plain
 
+      # The `compositor` command an assistant runs (docs/progress.md 26): a console exe of its own,
+      # beside each editor, which it starts when no window is open.
+      - name: Publish the compositor command
+        shell: pwsh
+        run: |
+          dotnet publish src/Compositor_korean_win.Cli/Compositor_korean_win.Cli.csproj --configuration Release `
+            --runtime win-x64 -p:Version=${{ steps.version.outputs.version }} --output build/cli
+          if ($LASTEXITCODE -ne 0) { throw "the compositor command did not build" }
+          Copy-Item build/cli/compositor.exe build/publish/
+          Copy-Item build/cli/compositor.exe build/publish-plain/
+          "- ``compositor.exe`` {0:N1} MB" -f ((Get-Item build/cli/compositor.exe).Length / 1MB) | Out-File -Append $env:GITHUB_STEP_SUMMARY
+
       # M7: the background-removal model, which only the AI build carries. Fetched once and kept in
       # the cache — 115 MB is not worth downloading on every push — and pinned to its hash, so a
       # changed upload cannot slip in under the same name.
@@ -203,6 +215,19 @@ jobs:
             $back = Call '{"tool":"get_document"}'
             if ($back.text -match 'PipeText') { throw "undo left the text in place" }
 
+            # The command an assistant is told about: guide, a key=value tool call, a failure's exit code.
+            $cli = "build/publish/compositor.exe"
+            $printed = & $cli 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0 -or $printed -notmatch 'compositor add_text') { throw "compositor printed no guide: $printed" }
+            $printed = & $cli add_text text="Cli words" x=120 y=500 size=60 color=#2050E0 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) { throw "compositor add_text failed: $printed" }
+            $after = Call '{"tool":"get_document"}'
+            if ($after.text -notmatch 'Cli words') { throw "the command's text did not reach the window: $($after.text)" }
+            $printed = & $cli render 2>&1 | Out-String
+            if ($printed -notmatch 'image: (.+\.png)' -or -not (Test-Path $Matches[1].Trim())) { throw "compositor render printed no PNG: $printed" }
+            $null = & $cli update_layer layer=NoSuchLayer 2>&1
+            if ($LASTEXITCODE -ne 1) { throw "a failed tool did not exit with 1" }
+
             # --mcp relays to the window: the document it reports is the window's, not a new one.
             $relay = python -c "import subprocess,json,sys; p=subprocess.run(['build/publish/Compositor_korean_win.exe','--mcp'],input=json.dumps({'jsonrpc':'2.0','id':1,'method':'tools/call','params':{'name':'get_document','arguments':{}}})+'\n',capture_output=True,text=True,encoding='utf-8',timeout=60); print(p.stdout.strip()); print('STDERR:'+p.stderr.strip())"
             if ($LASTEXITCODE -ne 0) { throw "the --mcp relay did not run" }
@@ -216,6 +241,13 @@ jobs:
           finally {
             if (-not $window.HasExited) { Stop-Process -Id $window.Id -Force }
           }
+
+          # With no window open, the command starts the editor beside it and works in that.
+          Start-Sleep -Seconds 2
+          $printed = & build/publish/compositor.exe 2>&1 | Out-String
+          Get-Process Compositor_korean_win -ErrorAction SilentlyContinue | Stop-Process -Force
+          if ($LASTEXITCODE -ne 0 -or $printed -notmatch 'starting it') { throw "compositor did not start the editor: $printed" }
+          "- ``compositor`` 명령: 가이드, key=value 호출, 렌더, 실패 종료 코드, 꺼진 창 자동 실행 통과" | Out-File -Append $env:GITHUB_STEP_SUMMARY
 
       # A run started by hand also puts the poster on the mcp-results branch, where it can be looked
       # at without downloading artifacts.
@@ -381,12 +413,12 @@ jobs:
           $notices = @("LICENSE", "THIRD-PARTY-NOTICES.md")
 
           $plain = New-Item -ItemType Directory -Force build/package-plain
-          Copy-Item build/publish-plain/Compositor_korean_win.exe $plain
+          Copy-Item build/publish-plain/Compositor_korean_win.exe, build/publish-plain/compositor.exe $plain
           Copy-Item $notices $plain
           Compress-Archive -Path "$plain/*" -DestinationPath "$packages/Compositor_korean_win.zip" -Force
 
           $ai = New-Item -ItemType Directory -Force build/package-ai
-          Copy-Item build/publish/Compositor_korean_win.exe, build/publish/onnxruntime.dll,
+          Copy-Item build/publish/Compositor_korean_win.exe, build/publish/compositor.exe, build/publish/onnxruntime.dll,
                     build/publish/onnxruntime_providers_shared.dll, build/publish/DirectML.dll $ai
           Copy-Item build/publish/models (Join-Path $ai models) -Recurse
           Copy-Item $notices $ai
@@ -440,6 +472,9 @@ jobs:
             if (-not (Test-Path (Join-Path $app $file))) { throw "the AI build did not install $file" }
           }
           if (-not (Test-Path $key)) { throw "no entry under Settings > Apps" }
+          if (-not (Test-Path (Join-Path $app "compositor.exe"))) { throw "the compositor command was not installed" }
+          $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+          if (($userPath -split ';') -notcontains $app) { throw "the install folder is not on the user's Path: $userPath" }
           $entry = Get-ItemProperty $key
           "- 설치 위치: ``$($entry.InstallLocation)``, 표시 이름: $($entry.DisplayName) $($entry.DisplayVersion)" |
             Out-File -Append $env:GITHUB_STEP_SUMMARY
@@ -458,6 +493,8 @@ jobs:
           if (Test-Path $app) { throw "the program folder is still there: $(Get-ChildItem $app -Recurse | Select-Object -ExpandProperty FullName)" }
           if (Test-Path $settings) { throw "the settings are still there" }
           if (Test-Path $key) { throw "the Settings > Apps entry is still there" }
+          $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+          if (($userPath -split ';') -contains $app) { throw "uninstalling left the install folder on the Path: $userPath" }
           "- 설치 → 미포함판으로 교체 → 제거: 프로그램 폴더·설정·등록 정보 모두 사라짐" | Out-File -Append $env:GITHUB_STEP_SUMMARY
 
       - uses: actions/upload-artifact@v4

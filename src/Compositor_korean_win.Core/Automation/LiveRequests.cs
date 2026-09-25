@@ -168,19 +168,28 @@ public static class LiveRequests
         var guide = new StringBuilder();
         guide.AppendLine("# Compositor — working in the open editor window");
         guide.AppendLine();
-        guide.AppendLine("Send one JSON line to the named pipe \\\\.\\pipe\\" + PipeName + " and read one line back. " +
-                         "Edits appear in the window as you make them, one undo step each, and the person can keep working on them.");
+        guide.AppendLine("Edits appear in the window as you make them, one undo step each, and the person can keep working on them.");
         guide.AppendLine();
-        guide.AppendLine("PowerShell (define once per shell, then call):");
+        guide.AppendLine("Call a tool with the `compositor` command (installed with the editor, on the PATH): the tool's name, then");
+        guide.AppendLine("its arguments as key=value. Numbers and true/false are typed, [..] or {..} is JSON, anything else is text;");
+        guide.AppendLine("quote a value with spaces. `compositor` alone prints this guide.");
+        guide.AppendLine("```");
+        guide.AppendLine("compositor get_document");
+        guide.AppendLine("compositor new_document width=1080 height=1350 background=#101010");
+        guide.AppendLine("compositor add_text text=\"Hello world\" x=100 y=200 size=72 color=#E02020");
+        guide.AppendLine("compositor edit_text layer=Title start=0 end=5 size=120");
+        guide.AppendLine("compositor render");
+        guide.AppendLine("```");
+        guide.AppendLine("It prints the tool's answer, and for render the path of a PNG — open that file to look at the picture.");
+        guide.AppendLine("Tools act on the document shown in the window unless given document=...; new_document and open_document");
+        guide.AppendLine("open a new tab. The exit code is 1 when a tool failed; the reason is printed.");
+        guide.AppendLine();
+        guide.AppendLine("Without the command, send the same requests as one JSON line to the named pipe \\\\.\\pipe\\" + PipeName +
+                         " and read one line back ({\"ok\", \"text\", \"images\"}), for example with this PowerShell function:");
         guide.AppendLine("```powershell");
         guide.AppendLine(PowerShellFunction);
-        guide.AppendLine("Compositor '{\"tool\":\"get_document\"}'");
         guide.AppendLine("Compositor '{\"tool\":\"add_text\",\"arguments\":{\"text\":\"Hello\",\"x\":100,\"y\":200,\"size\":72}}'");
         guide.AppendLine("```");
-        guide.AppendLine();
-        guide.AppendLine("Answers are {\"ok\": true|false, \"text\": \"...\", \"images\": [paths]}. render writes a PNG and answers with " +
-                         "its path — open that file to look at the picture. Tools act on the document shown in the window " +
-                         "unless given \"document\"; new_document and open_document open a new tab.");
         guide.AppendLine();
         guide.AppendLine(McpServer.Instructions);
         guide.AppendLine();
