@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.IO.Pipes;
 using System.Text;
+using System.Threading.Channels;
 using Compositor_korean_win.Core;
 using static Compositor_korean_win.Shell.Win32;
 
@@ -17,7 +18,9 @@ namespace Compositor_korean_win.Shell;
 /// click is: the pipe thread posts <see cref="Message"/> and waits for the answer. While the person
 /// is in the middle of something — a drag, a stroke, typing, an open filter — requests wait, every
 /// <see cref="RetryMilliseconds"/>, until the canvas can take an edit. So a model and a person
-/// never change the same document at the same moment.
+/// never change the same document at the same moment. A request whose client hangs up before it
+/// has started — a command that gave up waiting — is withdrawn rather than run later, when nobody
+/// is there to read that it happened and the model may already have sent it again.
 /// </para>
 /// <para>
 /// The tools themselves are the MCP server's, over a session whose documents are the window's
@@ -41,7 +44,25 @@ internal sealed class LiveBridge : IDisposable
 
     private const uint RetryMilliseconds = 100;
 
-    private sealed record Pending(string Line, TaskCompletionSource<string> Answer);
+    /// <summary>A request waiting for the window's thread, which either runs it or finds it withdrawn — never both.</summary>
+    private sealed class Pending(string line)
+    {
+        private const int Waiting = 0;
+        private const int Running = 1;
+        private const int Withdrawn = 2;
+
+        private int _state = Waiting;
+
+        public string Line { get; } = line;
+
+        public TaskCompletionSource<string> Answer { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Claims the request for running; false once its client has withdrawn it.</summary>
+        public bool Start() => Interlocked.CompareExchange(ref _state, Running, Waiting) == Waiting;
+
+        /// <summary>Withdraws the request; false once it is running or has run, which then finishes.</summary>
+        public bool Withdraw() => Interlocked.CompareExchange(ref _state, Withdrawn, Waiting) == Waiting;
+    }
 
     private readonly nint _window;
     private readonly CanvasView _canvas;
@@ -132,20 +153,27 @@ internal sealed class LiveBridge : IDisposable
         var encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
         await using (pipe)
         {
+            using var reader = new StreamReader(pipe, encoding, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
+            // Lines are read ahead of the answers, not after each one, so that a client hanging up is
+            // seen while its request still waits for the person to finish — the read ends then.
+            Channel<string> lines = Channel.CreateUnbounded<string>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
+            var hungUp = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _ = Task.Run(() => Read(reader, lines.Writer, hungUp));
             try
             {
-                using var reader = new StreamReader(pipe, encoding, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
                 await using var writer = new StreamWriter(pipe, encoding, leaveOpen: true) { NewLine = "\n", AutoFlush = false };
-                while (!_stop.IsCancellationRequested && await reader.ReadLineAsync(_stop.Token) is string line)
+                await foreach (string line in lines.Reader.ReadAllAsync(_stop.Token))
                 {
-                    // A client that wrote a BOM before its first line still means the JSON after it.
-                    line = line.TrimStart((char)0xFEFF);
-                    if (string.IsNullOrWhiteSpace(line)) continue;
-
-                    var pending = new Pending(line, new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously));
+                    var pending = new Pending(line);
                     _queue.Enqueue(pending);
                     PostMessageW(_window, Message, 0, 0);
-                    string answer = await pending.Answer.Task.WaitAsync(_stop.Token);
+
+                    Task<string> answered = pending.Answer.Task;
+                    await Task.WhenAny(answered, hungUp.Task).WaitAsync(_stop.Token);
+                    // Gone before it ran: nobody would read the answer, and running it later would
+                    // make a change the client was told had not happened.
+                    if (!answered.IsCompleted && pending.Withdraw()) return;
+                    string answer = await answered.WaitAsync(_stop.Token);
 
                     await writer.WriteLineAsync(answer);
                     await writer.FlushAsync(_stop.Token);
@@ -155,6 +183,30 @@ internal sealed class LiveBridge : IDisposable
             {
                 // The client went away, or the window is closing.
             }
+        }
+    }
+
+    /// <summary>The client's lines, until it hangs up or the pipe closes.</summary>
+    private async Task Read(StreamReader reader, ChannelWriter<string> lines, TaskCompletionSource hungUp)
+    {
+        try
+        {
+            while (!_stop.IsCancellationRequested && await reader.ReadLineAsync(_stop.Token) is string line)
+            {
+                // A client that wrote a BOM before its first line still means the JSON after it.
+                line = line.TrimStart((char)0xFEFF);
+                if (!string.IsNullOrWhiteSpace(line)) lines.TryWrite(line);
+            }
+        }
+        catch (Exception)
+        {
+            // IOException, a disposed pipe or the window closing: all mean no more lines. Nothing is
+            // waiting on this task, so nothing may escape it.
+        }
+        finally
+        {
+            lines.TryComplete();
+            hungUp.TrySetResult();
         }
     }
 
@@ -171,6 +223,8 @@ internal sealed class LiveBridge : IDisposable
 
         while (_queue.TryDequeue(out Pending? pending))
         {
+            // Its client gave up waiting while the person was busy.
+            if (!pending.Start()) continue;
             string answer;
             try
             {

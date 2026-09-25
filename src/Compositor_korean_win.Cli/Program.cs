@@ -19,8 +19,9 @@ namespace Compositor_korean_win.Cli;
 /// </para>
 /// <para>
 /// Arguments are <c>key=value</c> rather than JSON because JSON's quotes survive PowerShell, cmd
-/// and bash each differently; a value that is a number or true/false is typed, one that starts
-/// with <c>[</c> or <c>{</c> is JSON, and anything else is text. A single JSON object — a whole
+/// and bash each differently; a value written as a JSON number or true/false is typed, one that
+/// starts with <c>[</c> or <c>{</c> is JSON, and anything else is text. <c>text</c> and
+/// <c>prompt</c> are always words, with <c>\n</c> for a line break. A single JSON object — a whole
 /// request, or a tool's arguments — is taken as it is, for whoever prefers it.
 /// </para>
 /// <para>
@@ -40,6 +41,24 @@ internal static class Program
     private const int AccessDenied = 4;
     private const int ConnectionFailed = 5;
     private const int ResponseTimedOut = 6;
+
+    /// <summary>
+    /// How long an answer may take. The window holds a request while the person is mid-drag,
+    /// mid-stroke, typing or has a dialog open, and a large render or generated image takes a while
+    /// of its own, so this is minutes rather than seconds. <c>COMPOSITOR_TIMEOUT</c> (seconds, 0 for
+    /// no limit) changes it.
+    /// </summary>
+    private static readonly TimeSpan DefaultAnswerTimeout = TimeSpan.FromMinutes(5);
+
+    /// <summary>When a wait is long enough to say why, so a model does not take silence for a hang.</summary>
+    private static readonly TimeSpan WaitingNoticeAfter = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Arguments that are always words: nothing in them is typed, and <c>\n</c> is a line break.
+    /// Only these, because a backslash elsewhere is far more often a Windows path
+    /// (<c>path=C:\new\poster.psd</c>) than an escape.
+    /// </summary>
+    private static readonly HashSet<string> Worded = new(StringComparer.Ordinal) { "text", "prompt" };
 
     private enum ConnectionFailure
     {
@@ -107,7 +126,9 @@ internal static class Program
 
             int equals = each.IndexOf('=');
             if (equals <= 0) throw new ArgumentException($"Arguments are key=value, as in text=Hello x=100. Not understood: {each}");
-            arguments[each[..equals]] = Value(each[(equals + 1)..]);
+            string key = each[..equals];
+            string value = each[(equals + 1)..];
+            arguments[key] = Worded.Contains(key) ? JsonValue.Create(Unescape(value)) : Value(value);
         }
 
         var call = new JsonObject { ["tool"] = first, ["arguments"] = arguments };
@@ -115,14 +136,28 @@ internal static class Program
     }
 
     /// <summary>A key=value's value, typed: number, true/false, null, JSON, or else text.</summary>
+    /// <remarks>
+    /// A number is only what JSON itself would write as one, and it is sent as written. So a layer
+    /// named <c>007</c> stays "007" rather than becoming 7, and <c>1.50</c> reaches a tool that reads
+    /// it as a name still as "1.50". Anything short of that — <c>.5</c>, <c>+3</c> — goes as text,
+    /// which the tools read as a number wherever a number is wanted.
+    /// </remarks>
     private static JsonNode? Value(string text)
     {
         string trimmed = text.Trim();
         if (trimmed is "true" or "false") return JsonValue.Create(trimmed == "true");
         if (trimmed == "null") return null;
-        if (double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out double number)
-            && !trimmed.StartsWith('+') && trimmed.Length > 0 && (char.IsDigit(trimmed[^1]) || trimmed[^1] == '.'))
-            return JsonValue.Create(number);
+        if (trimmed.Length > 0 && (trimmed[0] == '-' || char.IsAsciiDigit(trimmed[0])))
+        {
+            try
+            {
+                if (JsonNode.Parse(trimmed) is JsonValue number && number.GetValueKind() == JsonValueKind.Number) return number;
+            }
+            catch (JsonException)
+            {
+                // 007, 12px, 2024-01-01: text.
+            }
+        }
         if (trimmed.StartsWith('[') || trimmed.StartsWith('{'))
         {
             try
@@ -134,8 +169,31 @@ internal static class Program
                 // Not JSON after all: the text as it was written.
             }
         }
-        // "\n" typed in a shell is two characters; a line break in the words is what is meant.
-        return JsonValue.Create(text.Replace("\\n", "\n", StringComparison.Ordinal));
+        return JsonValue.Create(text);
+    }
+
+    /// <summary>
+    /// Words as meant: <c>\n</c> typed in a shell is two characters, and a line break is what is
+    /// meant; <c>\\</c> is one backslash, so <c>\\n</c> keeps a backslash and an n. Any other
+    /// backslash is left as it is.
+    /// </summary>
+    private static string Unescape(string text)
+    {
+        if (!text.Contains('\\')) return text;
+        var words = new StringBuilder(text.Length);
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (text[i] == '\\' && i + 1 < text.Length && text[i + 1] is 'n' or '\\')
+            {
+                words.Append(text[i + 1] == 'n' ? '\n' : '\\');
+                i++;
+            }
+            else
+            {
+                words.Append(text[i]);
+            }
+        }
+        return words.ToString();
     }
 
     private static string Compact(string json)
@@ -186,11 +244,16 @@ internal static class Program
         var encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
         using var writer = new StreamWriter(pipe, encoding, leaveOpen: true) { NewLine = "\n" };
         using var reader = new StreamReader(pipe, encoding, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
+        TimeSpan timeout = AnswerTimeout();
         try
         {
             await writer.WriteLineAsync(request);
             await writer.FlushAsync();
-            string? answer = await reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(30));
+            Task<string?> reading = reader.ReadLineAsync();
+            if (await Task.WhenAny(reading, Task.Delay(WaitingNoticeAfter)) != reading)
+                Console.Error.WriteLine("Still waiting for Compositor. It holds a request while the person is dragging, painting, " +
+                                        "typing or has a dialog open, and a large render takes a while of its own.");
+            string? answer = await reading.WaitAsync(timeout == Timeout.InfiniteTimeSpan ? timeout : timeout - WaitingNoticeAfter);
             if (answer is null)
             {
                 Console.Error.WriteLine("Compositor closed the connection without answering.");
@@ -200,7 +263,11 @@ internal static class Program
         }
         catch (TimeoutException)
         {
-            Console.Error.WriteLine("Compositor accepted the connection but did not answer within 30 seconds.");
+            // Closing the pipe on the way out withdraws the request if the window has not started it,
+            // but one already running finishes: which of the two happened cannot be told from here.
+            Console.Error.WriteLine($"Compositor did not answer within {Describe(timeout)}. The request is withdrawn if Compositor " +
+                                    "had not started it yet, but one it had started may still finish. Check with `compositor get_document` " +
+                                    "before sending it again.");
             return new(null, ResponseTimedOut);
         }
         catch (IOException exception)
@@ -209,6 +276,24 @@ internal static class Program
             return new(null, ConnectionFailed);
         }
     }
+
+    /// <summary><see cref="DefaultAnswerTimeout"/>, or <c>COMPOSITOR_TIMEOUT</c> seconds when that is set; 0 waits for good.</summary>
+    private static TimeSpan AnswerTimeout()
+    {
+        string? given = Environment.GetEnvironmentVariable("COMPOSITOR_TIMEOUT");
+        if (string.IsNullOrWhiteSpace(given)) return DefaultAnswerTimeout;
+        if (!int.TryParse(given.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out int seconds))
+        {
+            Console.Error.WriteLine($"COMPOSITOR_TIMEOUT is seconds, as in 600; '{given}' is not. Waiting {Describe(DefaultAnswerTimeout)}.");
+            return DefaultAnswerTimeout;
+        }
+        if (seconds == 0) return Timeout.InfiniteTimeSpan;
+        // Never shorter than the notice, which the wait is measured from.
+        return TimeSpan.FromSeconds(Math.Max(seconds, (int)WaitingNoticeAfter.TotalSeconds + 1));
+    }
+
+    private static string Describe(TimeSpan span) =>
+        span.TotalSeconds % 60 == 0 ? $"{span.TotalMinutes:0} minute(s)" : $"{span.TotalSeconds:0} seconds";
 
     private static ConnectionAttempt Connect(int milliseconds)
     {
