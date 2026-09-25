@@ -184,6 +184,7 @@ jobs:
       # has to find the window and relay to it rather than start a windowless server.
       - name: Work in the open window through its pipe
         shell: pwsh
+        timeout-minutes: 10
         run: |
           function Compositor([string]$json) { $p = [IO.Pipes.NamedPipeClientStream]::new('.', 'compositor-korean-win', 'InOut'); try { $p.Connect(5000); $e = [Text.UTF8Encoding]::new($false); $w = [IO.StreamWriter]::new($p, $e); $r = [IO.StreamReader]::new($p, $e); $w.WriteLine($json); $w.Flush(); $r.ReadLine() } finally { $p.Dispose() } }
           function Call([string]$json) {
