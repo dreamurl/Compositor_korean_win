@@ -5,7 +5,8 @@
 ; takes everything away — the program folder, and the settings the app keeps in
 ; %APPDATA%\Compositor_korean_win. The app writes nowhere else.
 ;
-; The install folder goes on the user's PATH, so an assistant told "use the compositor command"
+; The install folder goes on the user's PATH — a task on the Additional Tasks page, ticked by
+; default — so an assistant told "use the compositor command"
 ; finds compositor.exe wherever this was installed (docs/progress.md 26); uninstalling takes it off.
 ;
 ; Both builds share one AppId, so they are one program to Windows: installing either over the
@@ -68,8 +69,18 @@ Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 #endif
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
+[CustomMessages]
+#if FileExists(CompilerPath + "Languages\Korean.isl")
+korean.AiGroup=AI 연결:
+korean.AddPath=AI가 쓰는 compositor 명령어 등록 (설치 폴더를 PATH에 추가)
+#endif
+english.AiGroup=AI connection:
+english.AddPath=Register the compositor command for AI assistants (adds the install folder to PATH)
+
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+; Ticked unless the person unticks it; uninstalling takes the entry off either way.
+Name: "addpath"; Description: "{cm:AddPath}"; GroupDescription: "{cm:AiGroup}"
 
 [Files]
 Source: "{#Source}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -86,7 +97,7 @@ Type: filesandordirs; Name: "{app}\licenses"
 
 [Registry]
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; \
-    Check: NeedsAddPath(ExpandConstant('{app}'))
+    Tasks: addpath; Check: NeedsAddPath(ExpandConstant('{app}'))
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"
