@@ -81,7 +81,7 @@ gh api repos/dreamurl/Compositor_korean_win/actions/jobs/$jobid/logs | grep -E "
 ## 6. 현재 위치
 
 M0~M8의 명시된 CI 완료 기준은 충족했다. 릴리스는 `v*` 태그 푸시로 만들어진다
-(`docs/progress.md` 9절). 최신 릴리스는 v1.0.1이다. 다만 이 완료 표시는 원본의 모든 세부
+(`docs/progress.md` 9절). 최신 릴리스는 v1.0.6이다. 다만 이 완료 표시는 원본의 모든 세부
 마우스·키보드 조작까지 같다는 뜻은 아니다. 후속 패리티 작업과 상태는 `docs/progress.md` 11절에
 기록한다. C 커널은 전부 연결됐다.
 
