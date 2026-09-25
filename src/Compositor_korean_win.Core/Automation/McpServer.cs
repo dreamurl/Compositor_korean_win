@@ -33,7 +33,11 @@ public sealed class McpServer(McpTools tools, string version, AiRules? rules = n
         "from layers (add_image, add_text, add_shape, add_gradient, add_adjustment), shape it with set_mask, set_clipping " +
         "and set_effects, and call render often to look at what you have made. Layers are referred to by the ids tools " +
         "answer with (or by name). Save the layered result with save_document (.psd for other editors, .comp for this one) " +
-        "and the picture with export_image. Photographs you cannot draw can come from generate_image or add_image.";
+        "and the picture with export_image. Photographs you cannot draw can come from generate_image or add_image. " +
+        "For retouching there are the hand tools, driven by points: paint_stroke (brush, eraser, clone, heal, blur — on " +
+        "pixels or on a mask), liquify, warp_layer and distort_layer; select and modify_selection make a selection that " +
+        "they, fill_selection, copy_to_layer, apply_filter and set_mask keep to. Send a sequence that only makes sense " +
+        "whole as one batch: one undo step, and nothing kept if a call fails.";
 
     public void Run(TextReader input, TextWriter output, TextWriter? log = null)
     {

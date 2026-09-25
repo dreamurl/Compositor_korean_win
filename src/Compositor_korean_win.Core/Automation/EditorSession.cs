@@ -31,6 +31,19 @@ public sealed class EditorSession(IEditorServices services, bool ownsPixels = tr
         public string Title { get; set; } = "";
         public Guid? Active { get; set; }
 
+        /// <summary>
+        /// What is selected, in document pixels; null for no selection, which is not the same as an
+        /// empty one (<see cref="DocumentSelection"/>). Pixel tools keep to it.
+        /// </summary>
+        public DocumentSelection? Selection { get; set; }
+
+        /// <summary>
+        /// How far the selection's edge fades, in document pixels. The editor's own selections are
+        /// hard-edged outlines, so this lives beside the outline rather than in it, and is applied
+        /// when the selection is turned into coverage.
+        /// </summary>
+        public double Feather { get; set; }
+
         /// <summary>Whatever the host ties this document to — the window's tab, for a live session.</summary>
         public object? Tag { get; set; }
     }

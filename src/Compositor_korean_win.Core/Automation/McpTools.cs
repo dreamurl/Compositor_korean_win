@@ -33,6 +33,9 @@ public sealed partial class McpTools
         DefineDocumentTools();
         DefineLayerTools();
         DefineEffectTools();
+        DefineSelectionTools();
+        DefinePixelTools();
+        DefineBatchTool();
     }
 
     public IReadOnlyList<ToolDefinition> Definitions => _tools;
@@ -195,11 +198,14 @@ public sealed partial class McpTools
             arguments => Described(Doc(arguments), null));
 
         Define("render",
-            "Look at the document (or one layer alone, or a region) as a PNG. Call this after changes to check the result.",
-            Build(Str("layer", "Show only this layer (id or name)."),
+            "Look at the document as a PNG — or only some layers, with some hidden, or a region. Call this after changes to " +
+            "check the result. 'zoom' enlarges a region pixel for pixel (2 = each canvas pixel twice as wide) to inspect detail.",
+            Build(Str("layer", "Show only this layer (id or name); a group shows with everything in it."),
+                  Strings("layers", "Show only these layers, together."), Strings("hide", "Hide these layers for this look."),
                   Object("region", "Only this part of the canvas.",
                          Num("x", "Left.", true), Num("y", "Top.", true), Num("width", "Width.", true), Num("height", "Height.", true)),
                   Int("max_size", "Longest side of the returned image. Default 1024."),
+                  Num("zoom", "Canvas pixels to image pixels, 0.05–16, instead of max_size: 4 shows each pixel 4×4."),
                   Choice("background", "What shows through transparency. Default checker.", ["checker", "white", "black", "transparent"]),
                   DocumentArgument),
             arguments => Render(Doc(arguments), arguments));
@@ -305,17 +311,42 @@ public sealed partial class McpTools
     {
         CanvasDocument document = open.Document;
         CanvasDocument shown = document;
-        if (arguments.String("layer") is string reference)
+
+        List<string> only = [];
+        if (arguments.String("layer") is string reference) only.Add(reference);
+        if (arguments.Strings("layers") is List<string> several) only.AddRange(several);
+        if (only.Count > 0)
         {
-            ImageLayer layer = EditorSession.Layer(document, reference);
-            var ids = LayerCommands.Descendants(document, layer.Id);
-            ids.Add(layer.Id);
+            var tops = new HashSet<Guid>();
+            var ids = new HashSet<Guid>();
+            foreach (string each in only)
+            {
+                ImageLayer layer = EditorSession.Layer(document, each);
+                tops.Add(layer.Id);
+                ids.Add(layer.Id);
+                ids.UnionWith(LayerCommands.Descendants(document, layer.Id));
+            }
+
+            // A chosen layer shows even in a hidden folder, and one clipped to a layer left out
+            // shows unclipped rather than not at all.
             shown = document with
             {
                 Layers = document.Layers.Where(each => ids.Contains(each.Id))
-                    .Select(each => each.Id == layer.Id ? each with { ParentId = null, IsVisible = true } : each)
+                    .Select(each => tops.Contains(each.Id)
+                        ? each with
+                        {
+                            ParentId = each.ParentId is Guid parent && ids.Contains(parent) ? parent : null,
+                            MaskSourceId = each.MaskSourceId is Guid clip && ids.Contains(clip) ? clip : null,
+                            IsVisible = true,
+                        }
+                        : each)
                     .ToEquatableList(),
             };
+        }
+        if (arguments.Strings("hide") is List<string> hidden)
+        {
+            HashSet<Guid> off = [.. hidden.Select(each => EditorSession.Layer(document, each).Id)];
+            shown = shown with { Layers = shown.Layers.Select(each => off.Contains(each.Id) ? each with { IsVisible = false } : each).ToEquatableList() };
         }
 
         var area = new PixelRect(0, 0, document.Width, document.Height);
@@ -327,24 +358,49 @@ public sealed partial class McpTools
             if (area.IsEmpty) throw new ToolException("'region' is outside the canvas.");
         }
 
-        int limit = Math.Clamp(arguments.Int("max_size") ?? 1024, 16, 4096);
-        double scale = Math.Min(1, (double)limit / Math.Max(area.Width, area.Height));
+        const int Largest = 4096;
+        double scale;
+        if (arguments.Number("zoom") is double zoom)
+        {
+            if (!(zoom > 0)) throw new ToolException("'zoom' must be above 0.");
+            scale = Math.Min(Math.Clamp(zoom, 0.05, 16), (double)Largest / Math.Max(area.Width, area.Height));
+        }
+        else
+        {
+            int limit = Math.Clamp(arguments.Int("max_size") ?? 1024, 16, Largest);
+            scale = Math.Min(1, (double)limit / Math.Max(area.Width, area.Height));
+        }
         int outWidth = Math.Max(1, (int)Math.Round(area.Width * scale)), outHeight = Math.Max(1, (int)Math.Round(area.Height * scale));
 
         byte[] png;
         using (PixelBuffer whole = Flatten(shown))
         using (PixelBuffer cut = PixelRegion.Copy(whole, area))
-        using (PixelBuffer small = Downscaled(cut, outWidth, outHeight))
+        using (PixelBuffer sized = scale > 1 ? Enlarged(cut, outWidth, outHeight) : Downscaled(cut, outWidth, outHeight))
         {
-            Backdrop(small, arguments.String("background") ?? "checker");
-            png = Png.Encode(small);
+            Backdrop(sized, arguments.String("background") ?? "checker");
+            png = Png.Encode(sized);
         }
 
+        string what = only.Count == 0 ? open.Id : only.Count == 1 ? $"Layer '{only[0]}'" : $"Layers {string.Join(", ", only.Select(each => $"'{each}'"))}";
         var result = new ToolResult();
         result.Content.Add(ToolContent.Of(
-            $"{(arguments.String("layer") is string only ? $"Layer '{only}'" : open.Id)}, canvas region {area.X},{area.Y} {area.Width}×{area.Height}" +
-            (scale < 1 ? $", shown at {scale:P0} as {outWidth}×{outHeight}." : ".")));
+            $"{what}, canvas region {area.X},{area.Y} {area.Width}×{area.Height}" +
+            (scale == 1 ? "." : $", shown at {scale:P0} as {outWidth}×{outHeight}; image pixel (px, py) is canvas ({area.X} + px/{scale:0.###}, {area.Y} + py/{scale:0.###}).")));
         result.Content.Add(ToolContent.Png(png));
+        return result;
+    }
+
+    /// <summary>Each source pixel repeated into a block, so a zoomed look shows pixels rather than a blur.</summary>
+    private static PixelBuffer Enlarged(PixelBuffer source, int width, int height)
+    {
+        PixelBuffer result = PixelBuffer.Allocate(width, height);
+        for (int y = 0; y < height; y++)
+        {
+            ReadOnlySpan<byte> line = source.Row(Math.Min(source.Height - 1, y * source.Height / height));
+            Span<byte> row = result.Row(y);
+            for (int x = 0; x < width; x++)
+                line.Slice(Math.Min(source.Width - 1, x * source.Width / width) * 4, 4).CopyTo(row.Slice(x * 4, 4));
+        }
         return result;
     }
 
@@ -444,6 +500,22 @@ public sealed partial class McpTools
             writer.WriteNumber("resolution", document.Resolution);
             if (open.Path is string path) writer.WriteString("path", path);
             writer.WriteBoolean("unsaved_changes", open.History.IsModified);
+            if (open.Selection is DocumentSelection selection)
+            {
+                writer.WriteStartObject("selection");
+                PixelRect box = selection.IsEmpty ? default
+                    : selection.Bounds.Enclosing().Intersect(new PixelRect(0, 0, document.Width, document.Height));
+                writer.WriteBoolean("empty", box.IsEmpty);
+                if (!box.IsEmpty)
+                {
+                    writer.WriteNumber("x", box.X);
+                    writer.WriteNumber("y", box.Y);
+                    writer.WriteNumber("width", box.Width);
+                    writer.WriteNumber("height", box.Height);
+                }
+                if (open.Feather > 0) writer.WriteNumber("feather", Math.Round(open.Feather, 2));
+                writer.WriteEndObject();
+            }
             writer.WriteString("layer_order", "top first; a folder's members follow it, indented by depth");
             writer.WriteStartArray("layers");
             for (int i = document.Layers.Count - 1; i >= 0; i--) WriteLayer(writer, document, document.Layers[i], depth[document.Layers[i].Id]);
@@ -524,7 +596,12 @@ public sealed partial class McpTools
             writer.WriteEndObject();
         }
 
-        if (layer.Adjustment is LayerAdjustment adjustment) writer.WriteString("adjustment", AdjustmentName(adjustment.Kind));
+        if (layer.Adjustment is LayerAdjustment adjustment && !layer.IsGroup)
+        {
+            writer.WriteString("adjustment", AdjustmentName(adjustment.Kind));
+            writer.WritePropertyName("settings");
+            WriteAdjustment(writer, adjustment);
+        }
 
         if (layer.Effects is LayerEffects effects)
         {
@@ -539,6 +616,103 @@ public sealed partial class McpTools
         }
 
         writer.WriteEndObject();
+    }
+
+    /// <summary>An adjustment's settings as JSON, in the names add_adjustment and edit_adjustment take.</summary>
+    private static void WriteAdjustment(Utf8JsonWriter writer, LayerAdjustment adjustment)
+    {
+        writer.WriteStartObject();
+        switch (adjustment.Kind)
+        {
+            case AdjustmentKind.Levels:
+            {
+                string[] names = ["", "red", "green", "blue"];
+                for (int i = 0; i < Math.Min(4, adjustment.Levels.Ranges.Count); i++)
+                {
+                    LevelRange range = adjustment.Levels.Ranges[i];
+                    if (i > 0)
+                    {
+                        if (range == new LevelRange()) continue;
+                        writer.WriteStartObject(names[i]);
+                    }
+                    writer.WriteNumber("black", Math.Round(range.Black, 2));
+                    writer.WriteNumber("white", Math.Round(range.White, 2));
+                    writer.WriteNumber("gamma", Math.Round(range.Gamma, 3));
+                    writer.WriteNumber("output_black", Math.Round(range.OutputBlack, 2));
+                    writer.WriteNumber("output_white", Math.Round(range.OutputWhite, 2));
+                    if (i > 0) writer.WriteEndObject();
+                }
+                break;
+            }
+            case AdjustmentKind.Curves:
+            {
+                string[] names = ["points", "red_points", "green_points", "blue_points"];
+                for (int i = 0; i < Math.Min(4, adjustment.Curves.Channels.Count); i++)
+                {
+                    EquatableList<CurvePoint> points = adjustment.Curves.Channels[i];
+                    if (i > 0 && points.Count == 2 && points[0] == new CurvePoint(0, 0) && points[1] == new CurvePoint(255, 255)) continue;
+                    writer.WriteStartArray(names[i]);
+                    foreach (CurvePoint point in points)
+                    {
+                        writer.WriteStartArray();
+                        writer.WriteNumberValue(Math.Round(point.X, 2));
+                        writer.WriteNumberValue(Math.Round(point.Y, 2));
+                        writer.WriteEndArray();
+                    }
+                    writer.WriteEndArray();
+                }
+                break;
+            }
+            case AdjustmentKind.Hsv:
+            {
+                HueSaturationSettings hsv = adjustment.ResolvedHsv;
+                RangeAdjustment master = hsv.Adjustments.ValueOr(ColorRange.Master, new RangeAdjustment());
+                writer.WriteNumber("hue", Math.Round(master.Hue, 2));
+                writer.WriteNumber("saturation", Math.Round(master.Saturation, 2));
+                writer.WriteNumber("lightness", Math.Round(master.Lightness, 2));
+                writer.WriteBoolean("colorize", hsv.Colorize);
+                bool started = false;
+                foreach (ColorRange range in ColorRanges.Colors)
+                {
+                    if (hsv.Adjustments.ValueOr(range, new RangeAdjustment()) is not { } one
+                        || (one.Hue == 0 && one.Saturation == 0 && one.Lightness == 0)) continue;
+                    if (!started) writer.WriteStartObject("ranges");
+                    started = true;
+                    writer.WriteStartObject(range.ToString().ToLowerInvariant());
+                    writer.WriteNumber("hue", Math.Round(one.Hue, 2));
+                    writer.WriteNumber("saturation", Math.Round(one.Saturation, 2));
+                    writer.WriteNumber("lightness", Math.Round(one.Lightness, 2));
+                    writer.WriteEndObject();
+                }
+                if (started) writer.WriteEndObject();
+                break;
+            }
+            case AdjustmentKind.Exposure:
+                writer.WriteNumber("exposure", Math.Round(adjustment.Exposure.Exposure, 3));
+                writer.WriteNumber("offset", Math.Round(adjustment.Exposure.Offset, 4));
+                writer.WriteNumber("gamma", Math.Round(adjustment.Exposure.Gamma, 3));
+                break;
+            case AdjustmentKind.GradientMap:
+                writer.WriteString("shadows", Hex(adjustment.GradientMap.Shadows.Red, adjustment.GradientMap.Shadows.Green, adjustment.GradientMap.Shadows.Blue));
+                writer.WriteString("highlights", Hex(adjustment.GradientMap.Highlights.Red, adjustment.GradientMap.Highlights.Green, adjustment.GradientMap.Highlights.Blue));
+                writer.WriteBoolean("reversed", adjustment.GradientMap.Reversed);
+                break;
+            default:
+                writer.WriteNumber("amount", Math.Round(adjustment.Grain.Amount, 2));
+                writer.WriteNumber("size", Math.Round(adjustment.Grain.Size, 3));
+                writer.WriteNumber("roughness", Math.Round(adjustment.Grain.Roughness, 2));
+                writer.WriteNumber("seed", adjustment.Grain.Seed);
+                break;
+        }
+        writer.WriteEndObject();
+    }
+
+    /// <summary><see cref="WriteAdjustment"/> on one line, for an answer.</summary>
+    private static string AdjustmentSummary(LayerAdjustment adjustment)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream)) WriteAdjustment(writer, adjustment);
+        return Encoding.UTF8.GetString(stream.ToArray());
     }
 
     private static string Hex(double red, double green, double blue) =>

@@ -74,6 +74,37 @@ public sealed class ToolArguments
     public string Required(string name) =>
         String(name) is string value && value.Length > 0 ? value : throw new ToolException($"'{name}' is required.");
 
+    /// <summary>
+    /// Words as meant: <c>\n</c> is a line break and <c>\\</c> one backslash; any other backslash
+    /// stays as it is.
+    /// </summary>
+    /// <remarks>
+    /// A model writing JSON often escapes a line break twice, and a shell cannot type one at all, so
+    /// both arrive as a backslash and an n. Reading that as a line break here, for every client
+    /// alike, is what lets a doubled backslash mean a real backslash and an n, which it could not
+    /// if the command line and the server each unescaped in turn.
+    /// </remarks>
+    public string? Words(string name) => String(name) is string text ? Unescape(text) : null;
+
+    public static string Unescape(string text)
+    {
+        if (!text.Contains('\\')) return text;
+        var words = new StringBuilder(text.Length);
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (text[i] == '\\' && i + 1 < text.Length && text[i + 1] is 'n' or '\\')
+            {
+                words.Append(text[i + 1] == 'n' ? '\n' : '\\');
+                i++;
+            }
+            else
+            {
+                words.Append(text[i]);
+            }
+        }
+        return words.ToString();
+    }
+
     public double? Number(string name)
     {
         JsonElement? value = Get(name);

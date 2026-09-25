@@ -21,7 +21,7 @@ namespace Compositor_korean_win.Cli;
 /// Arguments are <c>key=value</c> rather than JSON because JSON's quotes survive PowerShell, cmd
 /// and bash each differently; a value written as a JSON number or true/false is typed, one that
 /// starts with <c>[</c> or <c>{</c> is JSON, and anything else is text. <c>text</c> and
-/// <c>prompt</c> are always words, with <c>\n</c> for a line break. A single JSON object — a whole
+/// <c>prompt</c> are always words; the editor reads <c>\n</c> in them as a line break. A single JSON object — a whole
 /// request, or a tool's arguments — is taken as it is, for whoever prefers it.
 /// </para>
 /// <para>
@@ -54,9 +54,11 @@ internal static class Program
     private static readonly TimeSpan WaitingNoticeAfter = TimeSpan.FromSeconds(10);
 
     /// <summary>
-    /// Arguments that are always words: nothing in them is typed, and <c>\n</c> is a line break.
-    /// Only these, because a backslash elsewhere is far more often a Windows path
-    /// (<c>path=C:\new\poster.psd</c>) than an escape.
+    /// Arguments that are always words, sent as typed: <c>text=2024</c> is a year, not a number, and
+    /// <c>text=[SALE]</c> is not a JSON list. Their <c>\n</c> and <c>\\</c> are left for the editor,
+    /// which reads them the same way for every client (<c>ToolArguments.Words</c>); unescaping here
+    /// too would take one level of backslashes away before it saw them. Other values are never
+    /// unescaped, since a backslash there is far more often a Windows path (<c>path=C:\new\a.psd</c>).
     /// </summary>
     private static readonly HashSet<string> Worded = new(StringComparer.Ordinal) { "text", "prompt" };
 
@@ -128,7 +130,7 @@ internal static class Program
             if (equals <= 0) throw new ArgumentException($"Arguments are key=value, as in text=Hello x=100. Not understood: {each}");
             string key = each[..equals];
             string value = each[(equals + 1)..];
-            arguments[key] = Worded.Contains(key) ? JsonValue.Create(Unescape(value)) : Value(value);
+            arguments[key] = Worded.Contains(key) ? JsonValue.Create(value) : Value(value);
         }
 
         var call = new JsonObject { ["tool"] = first, ["arguments"] = arguments };
@@ -170,30 +172,6 @@ internal static class Program
             }
         }
         return JsonValue.Create(text);
-    }
-
-    /// <summary>
-    /// Words as meant: <c>\n</c> typed in a shell is two characters, and a line break is what is
-    /// meant; <c>\\</c> is one backslash, so <c>\\n</c> keeps a backslash and an n. Any other
-    /// backslash is left as it is.
-    /// </summary>
-    private static string Unescape(string text)
-    {
-        if (!text.Contains('\\')) return text;
-        var words = new StringBuilder(text.Length);
-        for (int i = 0; i < text.Length; i++)
-        {
-            if (text[i] == '\\' && i + 1 < text.Length && text[i + 1] is 'n' or '\\')
-            {
-                words.Append(text[i + 1] == 'n' ? '\n' : '\\');
-                i++;
-            }
-            else
-            {
-                words.Append(text[i]);
-            }
-        }
-        return words.ToString();
     }
 
     private static string Compact(string json)

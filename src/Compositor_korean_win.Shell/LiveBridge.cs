@@ -321,6 +321,13 @@ internal sealed class LiveBridge : IDisposable
             open.Path = tab.FilePath;
             open.Title = CanvasView.TabTitle(tab);
             open.Active = tab.Chosen.Count > 0 ? tab.Chosen[^1] : document.Layers.Count > 0 ? document.Layers[^1].Id : null;
+            // The person's selection is the model's too. A feather is the model's own and goes with
+            // the outline it was set on: once the person selects something else, it no longer applies.
+            if (!ReferenceEquals(open.Selection, tab.Selection))
+            {
+                open.Selection = tab.Selection;
+                open.Feather = 0;
+            }
             // Not owning its pixels, the session's history only drops what the last call left in it.
             open.History.Clear(document);
             _before[open] = document;
@@ -352,6 +359,10 @@ internal sealed class LiveBridge : IDisposable
                 if (_canvas.ActiveTab >= 0) open.Tag = _canvas.Tabs[_canvas.ActiveTab];
             }
         }
+
+        // What the model selected shows as the marching ants, where the person can see and change it.
+        foreach (EditorSession.Open open in _session.Documents)
+            if (open.Tag is DocumentTab tab && !ReferenceEquals(open.Selection, tab.Selection)) _canvas.SetSelection(tab, open.Selection);
 
         // The document the model last worked on is the one on screen, as select_document asks.
         if (current?.Tag is DocumentTab shown && IndexOf(shown) is int at and >= 0) _canvas.SwitchTo(at);

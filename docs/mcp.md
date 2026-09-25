@@ -32,9 +32,12 @@ compositor render                            # image: <PNG 경로>
 
 값은 `key=value`다. JSON 숫자 형식인 값과 `true`/`false`는 그 형식으로, `[..]`·`{..}`는 JSON으로, 나머지는
 글자로 넘어간다. 숫자는 쓴 그대로 보내므로 `layer=007`은 `7`이 되지 않고 "007"로 도착한다(`.5`·`+3`처럼 JSON이
-아닌 숫자는 글자로 가고, 도구가 숫자가 필요한 자리에서는 숫자로 읽는다). `text`와 `prompt`는 항상 글자이고,
-그 안에서만 `\n`이 줄바꿈, `\\`가 역슬래시 하나다(`text=a\\nb` → `a\nb` 글자 그대로). 다른 인수의 역슬래시는
-그대로 두므로 `path=C:\new\poster.psd` 같은 윈도우 경로가 깨지지 않는다.
+아닌 숫자는 글자로 가고, 도구가 숫자가 필요한 자리에서는 숫자로 읽는다). `text`와 `prompt`는 형식을 판별하지 않고
+항상 글자로 보낸다(`text=2024`, `text=[SALE]`도 글자). 그 안의 `\n`은 줄바꿈, `\\`는 역슬래시 하나로 **편집기가**
+읽는다(`text=a\\nb` → `a\nb` 글자 그대로). 명령이 아니라 편집기가 읽으므로 MCP·파이프로 JSON을 보내는 AI에게도
+같은 규칙이다. 다른 인수의 역슬래시는 그대로 두므로 `path=C:\new\poster.psd` 같은 윈도우 경로가 깨지지 않는다.
+PowerShell에서 쉼표가 든 값(`points=[[10,20],[30,40]]`)은 따옴표로 감싼다 — 감싸지 않으면 PowerShell이 쉼표에서
+인수를 나눈다.
 
 종료 코드는 도구 실패 1, 인수 오류 2, 편집기 시작 실패 3, 권한 거부 4, 연결 실패 5, 응답 시간 초과 6이다.
 실행 중인 Compositor 프로세스가 있으면 연결에 실패해도 새 창을 열지 않는다.
@@ -132,9 +135,25 @@ args = ["--mcp"]
 | 기록 | `undo`, `redo` | 편집기와 같은 실행 취소 기록 |
 | 레이어 만들기 | `add_layer`, `add_image`, `add_text`, `add_shape`, `add_gradient`, `add_adjustment`, `generate_image` | 빈 레이어, 사진 배치, 살아 있는 텍스트(뒤틀기 15종), 사각형·타원·다각형·별·선, 그라디언트, 조정 레이어 6종, 이미지 생성 |
 | 레이어 다루기 | `update_layer`, `arrange_layer`, `delete_layers`, `duplicate_layer`, `group_layers`, `ungroup`, `merge_layers`, `rasterize_layer` | 이름·표시·불투명도·혼합 모드·위치·크기·회전·뒤집기, 순서, 그룹 |
-| 합성 | `set_clipping`, `set_mask`, `set_effects` | 클리핑, 마스크(사각형·타원·선형·원형 그라디언트), 드롭 섀도·외부 광선·획 |
-| 픽셀 | `apply_filter`, `remove_background` | 가우시안·동작 흐림, 노이즈, AI 배경 제거 |
+| 합성 | `set_clipping`, `set_mask`, `set_effects` | 클리핑, 마스크(사각형·타원·선형·원형 그라디언트·선택 영역·이미지, 페더, 반전), 드롭 섀도·외부 광선·획 |
+| 조정 | `add_adjustment`, `edit_adjustment` | 조정 레이어 6종. 레벨·곡선은 채널별(`red`/`green`/`blue`, `red_points`…), 색조/채도는 색 범위별(`ranges`). 나중에 값 일부만 바꾸기 |
+| 선택 | `select`, `modify_selection` | 사각형·타원·올가미(점 목록)·레이어 픽셀·마술봉·전체·해제, 더하기·빼기·교차, 반전·확장·축소·크기·회전·이동, 페더 |
+| 픽셀 | `apply_filter`, `fill_selection`, `copy_to_layer`, `remove_background` | 흐림·노이즈·렌즈 보정·핀치·구형화·돌리기·물결·극좌표·반전, 조정을 픽셀에 굽기, 선택 영역 채우기·지우기·내용 인식 채우기, 선택 영역을 새 레이어로(복사·잘라내기), AI 배경 제거 |
+| 손 도구 | `paint_stroke`, `liquify`, `warp_layer`, `distort_layer` | 점 목록으로 브러시·지우개·복제 도장·스팟 힐링·흐림(마스크에도), 유동화 8종, 4×4 뒤틀기(프리셋·점), 네 모서리 왜곡·원근 |
+| 묶음 | `batch` | 여러 호출을 한 번에: 실행 취소 한 단계, 하나라도 실패하면 전부 되돌림 |
 | 기타 | `edit_text`, `list_fonts` | 글자·스타일 바꾸기(`start`/`end`로 일부 글자만), 설치된 글꼴 |
+
+손 도구와 선택은 사람이 마우스로 하는 동작을 좌표로 한다.
+
+- 점과 크기는 모두 문서 픽셀이다. 옮기거나 크기를 바꾸거나 돌린 레이어에도 `render`에서 보이는 자리에 칠해진다.
+- 선택 영역은 `paint_stroke`, `fill_selection`, `copy_to_layer`, `apply_filter`, `set_mask shape=selection`이 따른다.
+  열린 창에서는 사람의 선택 영역이 곧 AI의 선택 영역이고, AI가 만든 선택 영역은 창에 개미 행렬로 보인다.
+  페더는 편집기 선택 영역에는 없는 값이라 AI 쪽에만 있고, 사람이 선택을 바꾸면 0으로 돌아간다.
+- 텍스트 레이어에 칠하거나 유동화·뒤틀기·왜곡을 하면 픽셀이 된다. 살아 있는 텍스트를 휘게 하려면 `edit_text`의 `warp`를 쓴다.
+- `render`의 `zoom`으로 영역을 픽셀 그대로 확대해 볼 수 있고(`zoom=4`면 한 픽셀이 4×4), `layers`·`hide`로
+  몇 레이어만 보거나 숨겨서 본다.
+- `batch`는 `{"calls":[{"tool":…,"arguments":{…}}, …]}`를 받는다. 창에서는 한 번의 실행 취소로 전부 되돌아간다.
+  `undo`·`redo`·`close_document`·`batch`는 넣을 수 없다.
 
 ## 3. 이미지 생성 (`generate_image`)
 

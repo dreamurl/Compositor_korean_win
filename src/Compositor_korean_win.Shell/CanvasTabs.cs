@@ -137,6 +137,17 @@ internal sealed partial class CanvasView
         }
     }
 
+    /// <summary>
+    /// A tab's selection set from outside — an assistant's <c>select</c> (<see cref="LiveBridge"/>) —
+    /// and shown at once when that tab is the one on the canvas.
+    /// </summary>
+    public void SetSelection(DocumentTab tab, DocumentSelection? selection)
+    {
+        tab.Selection = selection;
+        if (_active >= 0 && _active < _tabs.Count && ReferenceEquals(_tabs[_active], tab)) _selection = selection;
+        NeedsRedraw = true;
+    }
+
     /// <summary>The canvas's fields for the active document, written back into its tab.</summary>
     private void Stash()
     {

@@ -46,26 +46,54 @@ public sealed partial class McpTools
         arguments.Number("opacity") is double value ? Math.Clamp(value > 1 ? value / 100 : value, 0, 1) : null;
 
     /// <summary>A new layer placed above a given layer, inside a given group, or at the top.</summary>
-    private static CanvasDocument Insert(CanvasDocument document, ImageLayer layer, ToolArguments arguments)
+    /// <remarks>
+    /// <para>
+    /// Siblings are ordered by where they sit in the flat list, and a folder's members need not sit
+    /// next to the folder (<see cref="LayerCommands"/>). So "above X" is the entry right after X, and
+    /// "into G" is right after G's last member — not G's index plus how many members it has, which
+    /// lands wherever the list happens to continue and can put the layer under the members it was
+    /// meant to cover.
+    /// </para>
+    /// <para>
+    /// A layer put between a clipping base and the layers clipped to it joins them, as Photoshop
+    /// does. Left unclipped it would split the group: the layers above it would no longer sit on
+    /// their base and would draw by themselves, restricted to it — text clipped to a shape would
+    /// show only partly, or not at all.
+    /// </para>
+    /// </remarks>
+    private static CanvasDocument Insert(CanvasDocument document, ImageLayer layer, ToolArguments arguments) =>
+        InsertAt(document, layer, arguments.String("into"), arguments.String("above"));
+
+    private static CanvasDocument InsertAt(CanvasDocument document, ImageLayer layer, string? into, string? above)
     {
         List<ImageLayer> layers = [.. document.Layers];
-        if (arguments.String("into") is string group)
+        int at;
+        Guid? parent;
+        if (into is string group)
         {
             ImageLayer folder = EditorSession.Layer(document, group);
             if (!folder.IsGroup) throw new ToolException($"'{folder.Name}' is not a group.");
-            int end = document.IndexOf(folder.Id) + LayerCommands.Descendants(document, folder.Id).Count;
-            layers.Insert(end + 1, layer with { ParentId = folder.Id });
+            int last = layers.FindLastIndex(each => each.ParentId == folder.Id);
+            at = Math.Max(last, document.IndexOf(folder.Id)) + 1;
+            parent = folder.Id;
         }
-        else if (arguments.String("above") is string reference)
+        else if (above is string reference)
         {
             ImageLayer below = EditorSession.Layer(document, reference);
-            int end = document.IndexOf(below.Id) + (below.IsGroup ? LayerCommands.Descendants(document, below.Id).Count : 0);
-            layers.Insert(end + 1, layer with { ParentId = below.ParentId });
+            at = document.IndexOf(below.Id) + 1;
+            parent = below.ParentId;
         }
         else
         {
-            layers.Add(layer with { ParentId = null });
+            at = layers.Count;
+            parent = null;
         }
+
+        ImageLayer placed = layer with { ParentId = parent };
+        if (!placed.IsGroup && layers.Skip(at).FirstOrDefault(each => each.ParentId == parent) is { MaskSourceId: Guid joined })
+            placed = placed with { MaskSourceId = joined };
+        layers.Insert(at, placed);
+        LayerCommands.ReleaseDetachedClipping(layers);
         return document with { Layers = layers.ToEquatableList() };
     }
 
@@ -103,7 +131,7 @@ public sealed partial class McpTools
 
         Define("add_text",
             "Add a live text layer. (x, y) is where the first line's baseline starts — or its middle or end for " +
-            "align center/right — as in Photoshop's point text. Lines break at \\n. The answer gives the text's bounds.",
+            "align center/right — as in Photoshop's point text. Lines break at \\n (\\\\ is a backslash). The answer gives the text's bounds.",
             Build(With(Str("text", "The words; \\n starts a new line.", true), Num("x", "Anchor x.", true), Num("y", "Anchor y (the first baseline).", true),
                        Str("font", "Font family, e.g. \"Malgun Gothic\", \"Arial\" (see list_fonts). Default Malgun Gothic."),
                        Num("size", "Size in pixels. Default 72."), Int("weight", "100–900; 400 regular, 700 bold."),
@@ -116,10 +144,8 @@ public sealed partial class McpTools
             {
                 EditorSession.Open open = Doc(arguments);
                 IGlyphSource glyphs = Glyphs();
-                LayerText recipe = TextStyle(new LayerText { Font = "Malgun Gothic", Size = 72 }, arguments) with
-                {
-                    Text = arguments.Required("text").Replace("\\n", "\n"),
-                };
+                string words = arguments.Words("text") is { Length: > 0 } given ? given : throw new ToolException("'text' is required.");
+                LayerText recipe = TextStyle(new LayerText { Font = "Malgun Gothic", Size = 72 }, arguments) with { Text = words };
                 var blank = new ImageLayer { Id = Guid.NewGuid(), Name = FirstLine(recipe.Text), Transform = Canvas(open.Document) };
                 ImageLayer layer = TextPlacement.Set(blank, recipe, glyphs,
                                                      new Point(arguments.RequiredNumber("x"), arguments.RequiredNumber("y")));
@@ -146,7 +172,7 @@ public sealed partial class McpTools
                     throw new ToolException($"'{layer.Name}' is not live text (it may have been painted on or rasterized).");
                 // New words first, so a range counts letters of the words being set.
                 LayerText recipe = current;
-                if (arguments.String("text") is string words) recipe = TextRuns.Retype(recipe, words.Replace("\\n", "\n"));
+                if (arguments.Words("text") is string words) recipe = TextRuns.Retype(recipe, words);
                 if (arguments.Has("start") != arguments.Has("end"))
                     throw new ToolException("Give both start and end to restyle a range of letters.");
                 int start = arguments.Int("start") ?? 0, end = arguments.Int("end") ?? 0;
@@ -350,19 +376,26 @@ public sealed partial class McpTools
 
         Define("set_mask",
             "Give a layer (or group or adjustment) a mask: reveal_all, hide_all, a rectangle or ellipse that shows " +
-            "(invert to hide it), or a linear/radial gradient fading from shown at 'start' to hidden at 'end'. " +
-            "shape none removes the mask; 'enabled' switches it off and on.",
+            "(invert to hide it), a linear/radial gradient fading from shown at 'start' to hidden at 'end', the current " +
+            "selection (feathered as it is), or an image — its lightness, or its alpha with channel alpha — stretched over " +
+            "the layer or placed at x/y/width/height. shape none removes the mask; 'enabled' switches it off and on; " +
+            "'feather' softens the mask's edges; invert alone flips the mask the layer has. To paint a mask by hand, use " +
+            "paint_stroke with mask true.",
             Build(LayerArgument,
-                  Choice("shape", "The mask.", ["reveal_all", "hide_all", "rectangle", "ellipse", "linear_gradient", "radial_gradient", "none"]),
-                  Num("x", "Rectangle/ellipse left."), Num("y", "Top."), Num("width", "Width."), Num("height", "Height."),
+                  Choice("shape", "The mask.", ["reveal_all", "hide_all", "rectangle", "ellipse", "linear_gradient", "radial_gradient",
+                                                "selection", "image", "none"]),
+                  Num("x", "Rectangle/ellipse/image left."), Num("y", "Top."), Num("width", "Width."), Num("height", "Height."),
                   PointOf("start", "Gradient: where the layer is fully shown (a radial gradient's centre)."),
                   PointOf("end", "Gradient: where it is fully hidden."), Bool("invert", "Swap shown and hidden."),
+                  Str("path", "image: the picture file."), Str("data", "image: the picture as base64, instead of 'path'."),
+                  Choice("channel", "image: what of the picture becomes the mask. Default luminance.", ["luminance", "alpha"]),
+                  Num("feather", "Blur the mask's edges by this many pixels."),
                   Bool("enabled", "Switch the mask on or off."), DocumentArgument),
             arguments =>
             {
                 EditorSession.Open open = Doc(arguments);
                 ImageLayer layer = EditorSession.Layer(open.Document, arguments.String("layer"));
-                _session.Edit(open, "Layer Mask", document => document.Replacing(Masked(document, layer, arguments)));
+                _session.Edit(open, "Layer Mask", document => document.Replacing(Masked(open, document, layer, arguments)));
                 ImageLayer after = open.Document.Layer(layer.Id)!;
                 return ToolResult.Text(after.Mask is null ? $"'{after.Name}' has no mask." : $"'{after.Name}' mask set{(after.Mask.IsEnabled ? "" : " (off)")}.");
             });
@@ -677,7 +710,7 @@ public sealed partial class McpTools
     }
 
     /// <summary>The layer with the mask the arguments describe.</summary>
-    private static ImageLayer Masked(CanvasDocument document, ImageLayer layer, ToolArguments arguments)
+    private ImageLayer Masked(EditorSession.Open open, CanvasDocument document, ImageLayer layer, ToolArguments arguments)
     {
         string? shape = arguments.String("shape");
         bool invert = arguments.Bool("invert") ?? false;
@@ -686,6 +719,22 @@ public sealed partial class McpTools
         switch (shape)
         {
             case null:
+                // Invert on its own flips the mask the layer has.
+                if (invert && layer.Mask is not null)
+                {
+                    if (MaskEditing.Invert(layer, selection: null) is ImageLayer flipped) next = flipped;
+                }
+                break;
+            case "selection":
+            {
+                if (open.Selection is null) throw new ToolException("Nothing is selected. Call select first.");
+                (int width, int height) = Grid(document, layer);
+                byte[] levels = CoverageOver(open, layer.Transform, width, height);
+                next = layer with { Mask = new LayerMask { Coverage = Coverage(width, height, i => invert ? (byte)(255 - levels[i]) : levels[i]) } };
+                break;
+            }
+            case "image":
+                next = layer with { Mask = new LayerMask { Coverage = ImageMask(document, layer, arguments, invert) } };
                 break;
             case "none":
                 next = layer with { Mask = null };
@@ -737,13 +786,103 @@ public sealed partial class McpTools
                 throw new ToolException("'shape' is reveal_all, hide_all, rectangle, ellipse, linear_gradient, radial_gradient or none.");
         }
 
+        if (arguments.Number("feather") is double feather && feather > 0)
+        {
+            if (next.Mask is null) throw new ToolException($"'{layer.Name}' has no mask to feather.");
+            next = SoftenedMask(next, feather);
+        }
         if (arguments.Bool("enabled") is bool enabled)
         {
             if (next.Mask is null) throw new ToolException($"'{layer.Name}' has no mask to switch.");
             next = next with { Mask = next.Mask with { IsEnabled = enabled } };
         }
-        if (shape is null && !arguments.Has("enabled")) throw new ToolException("Give 'shape' or 'enabled'.");
+        if (shape is null && !arguments.Has("enabled") && !arguments.Has("feather") && !invert)
+            throw new ToolException("Give 'shape', 'invert', 'feather' or 'enabled'.");
         return next;
+    }
+
+    /// <summary>
+    /// A mask from a picture: its lightness over black, or its alpha, sampled over the layer's own
+    /// grid — stretched across the layer, or where x/y/width/height place it on the document, with
+    /// everything outside hidden.
+    /// </summary>
+    private PixelBuffer ImageMask(CanvasDocument document, ImageLayer layer, ToolArguments arguments, bool invert)
+    {
+        (PixelBuffer picture, _) = Picture(arguments);
+        try
+        {
+            (int width, int height) = Grid(document, layer);
+            bool alpha = arguments.String("channel") == "alpha";
+            Rect? placed = arguments.Has("x") || arguments.Has("width")
+                ? new Rect(arguments.Number("x", 0), arguments.Number("y", 0),
+                           arguments.Number("width", picture.Width), arguments.Number("height", picture.Height))
+                : null;
+            if (placed is { IsEmpty: true }) throw new ToolException("'width' and 'height' must be above 0.");
+
+            PixelBuffer coverage = PixelBuffer.Allocate(width, height);
+            var sample = new byte[4];
+            for (int y = 0; y < height; y++)
+            {
+                Span<byte> row = coverage.Row(y);
+                for (int x = 0; x < width; x++)
+                {
+                    double u, v;
+                    if (placed is Rect box)
+                    {
+                        Point at = LayerGeometry.ToDocument(layer.Transform, new Point(x + 0.5, y + 0.5), width, height);
+                        u = (at.X - box.X) / box.Width * picture.Width;
+                        v = (at.Y - box.Y) / box.Height * picture.Height;
+                    }
+                    else
+                    {
+                        u = (x + 0.5) / width * picture.Width;
+                        v = (y + 0.5) / height * picture.Height;
+                    }
+
+                    PixelSampling.Bilinear(picture, u, v, sample);
+                    int level = alpha ? sample[3]
+                        : (int)Math.Round(0.2126 * sample[0] + 0.7152 * sample[1] + 0.0722 * sample[2]);
+                    if (invert) level = 255 - level;
+                    row[x * 4] = row[x * 4 + 1] = row[x * 4 + 2] = (byte)Math.Clamp(level, 0, 255);
+                    row[x * 4 + 3] = 255;
+                }
+            }
+            return coverage;
+        }
+        finally
+        {
+            picture.Release();
+        }
+    }
+
+    /// <summary>
+    /// The layer with its mask blurred by <paramref name="feather"/> document pixels, the grid's
+    /// edge carried outwards first so the blur does not fade the mask where the layer ends.
+    /// </summary>
+    private static ImageLayer SoftenedMask(ImageLayer layer, double feather)
+    {
+        if (MaskEditing.Canvas(layer) is not (PixelBuffer working, LayerTransform placement)) return layer;
+        try
+        {
+            int width = working.Width, height = working.Height;
+            double sigma = Math.Max(0.3, feather / 2 * LayerScale(placement, width, height));
+            int pad = (int)Math.Ceiling(sigma * 3) + 1;
+            int paddedWidth = width + pad * 2, paddedHeight = height + pad * 2;
+            var levels = new byte[paddedWidth * paddedHeight];
+            for (int y = 0; y < paddedHeight; y++)
+            {
+                Span<byte> row = working.Row(Math.Clamp(y - pad, 0, height - 1));
+                for (int x = 0; x < paddedWidth; x++) levels[y * paddedWidth + x] = row[Math.Clamp(x - pad, 0, width - 1) * 4];
+            }
+
+            byte[] soft = Blurred(levels, paddedWidth, paddedHeight, sigma);
+            PixelBuffer coverage = Coverage(width, height, i => soft[(i / width + pad) * paddedWidth + i % width + pad]);
+            return MaskEditing.WithMask(layer, coverage);
+        }
+        finally
+        {
+            working.Release();
+        }
     }
 
     /// <summary>The pixel grid a layer's mask covers: its own pixels, or the canvas for a layer without any.</summary>

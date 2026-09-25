@@ -239,6 +239,22 @@ jobs:
             $null = & $cli update_layer layer=NoSuchLayer 2>&1
             if ($LASTEXITCODE -ne 1) { throw "a failed tool did not exit with 1" }
 
+            # The hand tools from the command: a selection made in one request stays in the window
+            # for the next, a stroke keeps to it, and a batch that fails leaves nothing behind.
+            $printed = & $cli add_layer name=CliPaint 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) { throw "compositor add_layer failed: $printed" }
+            $printed = & $cli select shape=rectangle x=100 y=100 width=200 height=200 feather=4 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) { throw "compositor select failed: $printed" }
+            $printed = & $cli paint_stroke layer=CliPaint tool=brush 'points=[[50,150],[350,150]]' size=12 color=#20A040 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) { throw "compositor paint_stroke failed: $printed" }
+            $after = Call '{"tool":"get_document"}'
+            if ($after.text -notmatch '"selection"') { throw "the selection did not stay in the window: $($after.text)" }
+            $batch = Compositor '{"tool":"batch","arguments":{"calls":[{"tool":"add_layer","arguments":{"name":"BatchOne"}},{"tool":"update_layer","arguments":{"layer":"NoSuchLayer","visible":false}}]}}' | ConvertFrom-Json
+            if ($batch.ok) { throw "a failing batch reported success" }
+            $after = Call '{"tool":"get_document"}'
+            if ($after.text -match 'BatchOne') { throw "a failed batch left its layer behind" }
+            $null = Call '{"tool":"select","arguments":{"shape":"none"}}'
+
             # --mcp relays to the window: the document it reports is the window's, not a new one.
             $relay = python -c "import subprocess,json,sys; p=subprocess.run(['build/publish/Compositor_korean_win.exe','--mcp'],input=json.dumps({'jsonrpc':'2.0','id':1,'method':'tools/call','params':{'name':'get_document','arguments':{}}})+'\n',capture_output=True,text=True,encoding='utf-8',timeout=60); print(p.stdout.strip()); print('STDERR:'+p.stderr.strip())"
             if ($LASTEXITCODE -ne 0) { throw "the --mcp relay did not run" }
@@ -258,7 +274,7 @@ jobs:
           $printed = & build/publish/compositor.exe 2>&1 | Out-String
           Get-Process Compositor_korean_win -ErrorAction SilentlyContinue | Stop-Process -Force
           if ($LASTEXITCODE -ne 0 -or $printed -notmatch 'starting it') { throw "compositor did not start the editor: $printed" }
-          "- ``compositor`` 명령: 가이드, key=value 호출, 렌더, 실패 종료 코드, 꺼진 창 자동 실행 통과" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          "- ``compositor`` 명령: 가이드, key=value 호출, 렌더, 실패 종료 코드, 선택 영역 유지·붓질·묶음 되돌림, 꺼진 창 자동 실행 통과" | Out-File -Append $env:GITHUB_STEP_SUMMARY
 
       # A run started by hand also puts the poster on the mcp-results branch, where it can be looked
       # at without downloading artifacts.
