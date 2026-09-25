@@ -161,7 +161,7 @@ public static class LiveRequests
         guide.AppendLine("```powershell");
         guide.AppendLine(PowerShellFunction);
         guide.AppendLine("Compositor '{\"tool\":\"get_document\"}'");
-        guide.AppendLine("Compositor '{\"tool\":\"add_text\",\"arguments\":{\"text\":\"안녕\",\"x\":100,\"y\":200,\"size\":72}}'");
+        guide.AppendLine("Compositor '{\"tool\":\"add_text\",\"arguments\":{\"text\":\"Hello\",\"x\":100,\"y\":200,\"size\":72}}'");
         guide.AppendLine("```");
         guide.AppendLine();
         guide.AppendLine("Answers are {\"ok\": true|false, \"text\": \"...\", \"images\": [paths]}. render writes a PNG and answers with " +
