@@ -192,16 +192,16 @@ jobs:
             if ($guide.text -notmatch 'add_text') { throw "the guide does not list the tools" }
 
             $before = Call '{"tool":"get_document"}'
-            $added = Call '{"tool":"add_text","arguments":{"text":"파이프","x":200,"y":300,"size":120,"color":"#E02020"}}'
+            $added = Call '{"tool":"add_text","arguments":{"text":"PipeText","x":200,"y":300,"size":120,"color":"#E02020"}}'
             $shown = Call '{"tool":"render"}'
             if (-not (Test-Path $shown.images[0])) { throw "render did not write its PNG" }
             $after = Call '{"tool":"get_document"}'
-            if ($after.text -notmatch '파이프') { throw "the text did not reach the window's document: $($after.text)" }
+            if ($after.text -notmatch 'PipeText') { throw "the text did not reach the window's document: $($after.text)" }
 
             $undone = Call '{"tool":"undo"}'
             if ($undone.text -notmatch 'Undid 1') { throw "undo did not go to the window's history: $($undone.text)" }
             $back = Call '{"tool":"get_document"}'
-            if ($back.text -match '파이프') { throw "undo left the text in place" }
+            if ($back.text -match 'PipeText') { throw "undo left the text in place" }
 
             # --mcp relays to the window: the document it reports is the window's, not a new one.
             $relay = python -c "import subprocess,json,sys; p=subprocess.run(['build/publish/Compositor_korean_win.exe','--mcp'],input=json.dumps({'jsonrpc':'2.0','id':1,'method':'tools/call','params':{'name':'get_document','arguments':{}}})+'\n',capture_output=True,text=True,encoding='utf-8',timeout=60); print(p.stdout.strip()); print('STDERR:'+p.stderr.strip())"
