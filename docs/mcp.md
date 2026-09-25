@@ -57,7 +57,7 @@ args = ["--mcp"]
 | 레이어 다루기 | `update_layer`, `arrange_layer`, `delete_layers`, `duplicate_layer`, `group_layers`, `ungroup`, `merge_layers`, `rasterize_layer` | 이름·표시·불투명도·혼합 모드·위치·크기·회전·뒤집기, 순서, 그룹 |
 | 합성 | `set_clipping`, `set_mask`, `set_effects` | 클리핑, 마스크(사각형·타원·선형·원형 그라디언트), 드롭 섀도·외부 광선·획 |
 | 픽셀 | `apply_filter`, `remove_background` | 가우시안·동작 흐림, 노이즈, AI 배경 제거 |
-| 기타 | `edit_text`, `list_fonts` | 글자·스타일 바꾸기, 설치된 글꼴 |
+| 기타 | `edit_text`, `list_fonts` | 글자·스타일 바꾸기(`start`/`end`로 일부 글자만), 설치된 글꼴 |
 
 ## 3. 이미지 생성 (`generate_image`)
 

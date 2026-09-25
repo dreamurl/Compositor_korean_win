@@ -340,7 +340,42 @@ public static class PsdImport
                 AnchorX = type.AnchorX - box.X,
                 AnchorY = type.AnchorY - box.Y,
                 Rendered = image,
+                Runs = null,
             };
+
+            // A run's face is a PostScript name too; each is found installed the same way, and the
+            // runs are rebuilt against the layer's resolved face so a run naming it adds nothing.
+            if (type.Text.Runs is not null)
+            {
+                LayerText[] letters = TextRuns.PerCharacter(type.Text);
+                var resolved = new Dictionary<LayerText, LayerText>(ReferenceEqualityComparer.Instance);
+                for (int i = 0; i < letters.Length; i++)
+                {
+                    LayerText letter = letters[i];
+                    if (!resolved.TryGetValue(letter, out LayerText? found))
+                    {
+                        TextFace runFace = PsdFonts.Resolve(letter.Font, families, out bool here);
+                        if (!here)
+                        {
+                            Note(PsdNote.FontMissing);
+                            _missingFonts.Add(runFace.Family);
+                        }
+                        found = text with
+                        {
+                            Font = runFace.Family,
+                            Weight = Math.Max(letter.Weight, runFace.Weight),
+                            Italic = letter.Italic || runFace.Italic,
+                            Size = letter.Size,
+                            Red = letter.Red,
+                            Green = letter.Green,
+                            Blue = letter.Blue,
+                        };
+                        resolved[letter] = found;
+                    }
+                    letters[i] = found;
+                }
+                text = TextRuns.FromCharacters(text, letters) with { Rendered = image };
+            }
             return text.IsValid ? text : null;
         }
 

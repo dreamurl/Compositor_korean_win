@@ -402,7 +402,10 @@ internal sealed unsafe class MainWindow : IDisposable
 
                         // A click on the canvas while words are being typed only keeps them, as
                         // Photoshop's does; on a panel it goes on to do what it does there too.
-                        if (window.Chrome?.FinishTextBox(commit: true) == true && message != WM_MBUTTONDOWN
+                        // On the options bar it stays open, so a size or colour reaches the letters
+                        // selected in it.
+                        if (window.Chrome?.KeepsTextBox(at) != true
+                            && window.Chrome?.FinishTextBox(commit: true) == true && message != WM_MBUTTONDOWN
                             && window.Chrome.OverPanels(at) == false)
                         {
                             window.Invalidate();

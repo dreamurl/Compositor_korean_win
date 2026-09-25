@@ -98,6 +98,13 @@ public sealed record LayerText
     [JsonPropertyName("warp")] public TextWarp? Warp { get; init; }
 
     /// <summary>
+    /// Letters set differently from the rest — a bigger word, a coloured syllable — in order and
+    /// apart (<see cref="TextRun"/>). Null when every letter looks the same, which keeps a project
+    /// of plain text byte for byte what it was before runs existed.
+    /// </summary>
+    [JsonPropertyName("runs")] public IReadOnlyList<TextRun>? Runs { get; init; }
+
+    /// <summary>
     /// Where the text was set from, in the raster's own pixels: the start of the first baseline for
     /// left-aligned text, its middle or end otherwise. Setting the text again keeps this point
     /// where it is on the document, so typing grows the words away from where they were clicked.
@@ -127,6 +134,7 @@ public sealed record LayerText
         && double.IsFinite(Tracking) && Tracking is >= -1000 and <= 10_000
         && double.IsFinite(Leading) && Leading is >= 0.1 and <= 20
         && (Warp is null || Warp.IsValid)
+        && TextRuns.AreValid(this)
         && double.IsFinite(AnchorX) && double.IsFinite(AnchorY);
 
     public LayerText WithColour(Rgba colour) => this with

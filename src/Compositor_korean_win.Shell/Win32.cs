@@ -283,6 +283,8 @@ internal static unsafe partial class Win32
     internal const uint WM_LBUTTONDBLCLK = 0x0203;
     internal const uint CS_DBLCLKS = 0x0008;
     internal const uint EM_SETSEL = 0x00B1;
+    internal const uint EM_GETSEL = 0x00B0;
+    internal const uint ES_NOHIDESEL = 0x0100;
     internal const uint WS_CHILD = 0x40000000;
     internal const uint WS_BORDER = 0x00800000;
     internal const uint ES_AUTOHSCROLL = 0x0080;

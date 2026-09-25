@@ -458,6 +458,49 @@ public sealed class PsdTests
     }
 
     [Fact]
+    public void LettersStyledApartComeBackAsRuns()
+    {
+        PixelBuffer pixels = RenderFixture.Solid(48, 24, 0, 0, 0);
+        LayerText styled = TextRuns.Restyle(new LayerText { Text = "hello\nworld", Font = "Malgun Gothic", Size = 30 },
+                                            0, 3, style => style.WithColour(new Rgba(255, 0, 0)) with { Size = 60 });
+        styled = TextRuns.Restyle(styled, 8, 11, style => style with { Italic = true });
+        CanvasDocument document = ProjectFixture.Document(new ImageLayer
+        {
+            Id = Guid.NewGuid(),
+            Name = "runs",
+            Transform = new LayerTransform(new Point(8, 6), new Size(48, 24)),
+            Image = pixels,
+            Text = styled with { AnchorX = 4, AnchorY = 18, Rendered = pixels },
+        });
+
+        try
+        {
+            byte[] psd = Export(document, "text-runs.psd", out IReadOnlyDictionary<PsdNote, int> notes);
+            Assert.False(notes.ContainsKey(PsdNote.TextExportedAsPixels));
+
+            using var back = new Opened(PsdImport.Read(psd, ["Malgun Gothic"]));
+            Assert.DoesNotContain(PsdNote.TypeSimplified, back.Notes.Keys);
+            LayerText read = back.Document.Layers.Single().Text!;
+            Assert.Equal("hello\nworld", read.Text);
+            Assert.Equal(30, read.Size, 3);
+            Assert.Equal(2, read.Runs!.Count);
+
+            TextRun big = read.Runs[0];
+            Assert.Equal((0, 3), (big.Start, big.Length));
+            Assert.Equal(60, big.Size!.Value, 3);
+            Assert.Equal((1.0, 0.0, 0.0), (big.Red!.Value, big.Green!.Value, big.Blue!.Value));
+
+            TextRun slanted = read.Runs[1];
+            Assert.Equal((8, 3), (slanted.Start, slanted.Length));
+            Assert.True(slanted.Italic);
+        }
+        finally
+        {
+            Release(document);
+        }
+    }
+
+    [Fact]
     public void TypeLayerNumbersAreWrittenTheWayPhotoshopReadsThem()
     {
         // 48 × 1.2 is 57.599999999999994 in doubles. Photoshop 2025 rasterizes the whole type

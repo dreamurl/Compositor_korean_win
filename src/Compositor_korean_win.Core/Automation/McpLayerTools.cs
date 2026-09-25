@@ -129,11 +129,14 @@ public sealed partial class McpTools
             });
 
         Define("edit_text",
-            "Change a text layer's words or style. Anything left out stays as it is; the anchor stays put unless x/y are given.",
+            "Change a text layer's words or style. Anything left out stays as it is; the anchor stays put unless x/y are given. " +
+            "Give start/end (character indices into the words, end exclusive) to set font, size, weight, italic or color on " +
+            "those letters only, as selecting them in Photoshop does.",
             Build(LayerArgument, Str("text", "New words."), Num("x", "New anchor x."), Num("y", "New anchor y."),
                   Str("font", "Font family."), Num("size", "Size in pixels."), Int("weight", "100–900."), Bool("bold", "Weight 700 or 400."),
                   Bool("italic", "Italic."), Colour("color", "Text colour."), Choice("align", "Alignment.", ["left", "center", "right"]),
-                  Num("tracking", "Letter spacing in 1/1000 em."), Num("leading", "Line spacing multiple."), WarpArgument, DocumentArgument),
+                  Num("tracking", "Letter spacing in 1/1000 em."), Num("leading", "Line spacing multiple."), WarpArgument,
+                  Int("start", "First letter to restyle, 0-based."), Int("end", "Letter after the last to restyle."), DocumentArgument),
             arguments =>
             {
                 EditorSession.Open open = Doc(arguments);
@@ -141,8 +144,15 @@ public sealed partial class McpTools
                 ImageLayer layer = EditorSession.Layer(open.Document, arguments.String("layer"));
                 if (!layer.IsLiveText || layer.Text is not LayerText current)
                     throw new ToolException($"'{layer.Name}' is not live text (it may have been painted on or rasterized).");
-                LayerText recipe = TextStyle(current, arguments);
-                if (arguments.String("text") is string words) recipe = recipe with { Text = words.Replace("\\n", "\n") };
+                // New words first, so a range counts letters of the words being set.
+                LayerText recipe = current;
+                if (arguments.String("text") is string words) recipe = TextRuns.Retype(recipe, words.Replace("\\n", "\n"));
+                if (arguments.Has("start") != arguments.Has("end"))
+                    throw new ToolException("Give both start and end to restyle a range of letters.");
+                int start = arguments.Int("start") ?? 0, end = arguments.Int("end") ?? 0;
+                if (start < 0 || end > recipe.Text.Length || start > end || (arguments.Has("start") && start == end))
+                    throw new ToolException($"start/end must pick letters within 0–{recipe.Text.Length}.");
+                recipe = TextRuns.Restyle(recipe, start, end, style => TextStyle(style, arguments));
                 Point? anchor = arguments.Number("x") is double x && arguments.Number("y") is double y ? new Point(x, y) : null;
                 if (anchor is null && (arguments.Has("x") || arguments.Has("y")))
                     throw new ToolException("Give both x and y to move the text's anchor.");

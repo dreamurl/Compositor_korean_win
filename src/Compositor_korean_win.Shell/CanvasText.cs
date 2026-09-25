@@ -35,6 +35,12 @@ internal sealed partial class CanvasView
     /// <summary>The text layer whose words are being typed, if any.</summary>
     public Guid? EditingText { get; private set; }
 
+    /// <summary>
+    /// The letters selected in the typing box, as indices into the words, while it is open. A style
+    /// change then reaches only those letters, as it does in Photoshop with letters selected.
+    /// </summary>
+    public Func<(int Start, int End)?>? TextSelection { get; set; }
+
     private CanvasDocument? _textBefore;
     private bool _textIsNew;
 
@@ -129,7 +135,7 @@ internal sealed partial class CanvasView
         _chosen.Clear();
         _chosen.Add(id);
         // The tool takes on the style of what is being edited, as Photoshop's options bar does.
-        TextStyle = layer.Text! with { Text = "", Rendered = null };
+        TextStyle = layer.Text! with { Text = "", Rendered = null, Runs = null };
         NeedsRedraw = true;
         return true;
     }
@@ -144,7 +150,8 @@ internal sealed partial class CanvasView
         if (_document is null || EditingText is not Guid id || _document.Layer(id) is not { Text: LayerText recipe } layer) return;
         if (recipe.Text == words) return;
 
-        ImageLayer set = Set(layer, recipe with { Text = words }, anchor: null);
+        // Runs stay on the letters they were on; new letters take the style of the one before.
+        ImageLayer set = Set(layer, TextRuns.Retype(recipe, words), anchor: null);
         ReplaceEdited(set with { Name = NameFor(words, layer.Name, _textIsNew) });
         NeedsRedraw = true;
     }
@@ -179,16 +186,21 @@ internal sealed partial class CanvasView
     /// </summary>
     public void ChangeTextStyle(Func<LayerText, LayerText> change)
     {
-        TextStyle = change(TextStyle) with { Text = "", Rendered = null };
+        TextStyle = change(TextStyle) with { Text = "", Rendered = null, Runs = null };
         if (_document is null) return;
 
         IEnumerable<Guid> targets = EditingText is Guid editing ? [editing] : _chosen.ToList();
+
+        // Letters selected in the typing box take the change alone; otherwise the whole layer does,
+        // its runs included.
+        (int Start, int End) range = EditingText is not null && TextSelection?.Invoke() is (int start, int end) ? (start, end) : (0, 0);
+        LayerText Restyled(LayerText recipe) => TextRuns.Restyle(recipe, range.Start, range.End, change);
 
         if (EditingText is not null || InSession)
         {
             foreach (Guid id in targets)
                 if (_document.Layer(id) is { IsLiveText: true, Text: LayerText recipe } layer)
-                    ReplaceEdited(Set(layer, change(recipe) with { Text = recipe.Text }, anchor: null));
+                    ReplaceEdited(Set(layer, Restyled(recipe), anchor: null));
             NeedsRedraw = true;
             return;
         }
@@ -200,18 +212,30 @@ internal sealed partial class CanvasView
             foreach (Guid id in targets)
             {
                 if (next.Layer(id) is not { IsLiveText: true, Text: LayerText recipe } layer) continue;
-                next = next.Replacing(Set(layer, change(recipe) with { Text = recipe.Text }, anchor: null));
+                next = next.Replacing(Set(layer, Restyled(recipe), anchor: null));
                 changed = true;
             }
             return changed ? (next, null) : null;
         });
     }
 
-    /// <summary>The style of the text being typed, or of the first chosen text layer, or the tool's.</summary>
-    public LayerText ShownTextStyle =>
-        (EditingText is Guid editing ? _document?.Layer(editing)?.Text : null)
-        ?? _chosen.Select(id => _document?.Layer(id)).FirstOrDefault(layer => layer?.IsLiveText == true)?.Text
-        ?? TextStyle;
+    /// <summary>
+    /// The style of the letters selected in the text being typed — of the letter before the caret
+    /// when none are, as Photoshop shows — or of the first chosen text layer, or the tool's.
+    /// </summary>
+    public LayerText ShownTextStyle
+    {
+        get
+        {
+            if (EditingText is Guid editing && _document?.Layer(editing)?.Text is LayerText typed)
+            {
+                (int start, int end) = TextSelection?.Invoke() ?? (typed.Text.Length, typed.Text.Length);
+                return TextRuns.StyleAt(typed, start < end ? start : Math.Max(0, start - 1));
+            }
+            return _chosen.Select(id => _document?.Layer(id)).FirstOrDefault(layer => layer?.IsLiveText == true)?.Text
+                   ?? TextStyle;
+        }
+    }
 
     /// <summary>Whether a style change would reach a layer, rather than only the tool.</summary>
     public bool ChosenLiveText => _chosen.Any(id => _document?.Layer(id)?.IsLiveText == true);
@@ -254,7 +278,7 @@ internal sealed partial class CanvasView
     /// </summary>
     public Guid? PlaceText(Point document, string words, LayerText? style = null)
     {
-        if (style is not null) TextStyle = style with { Text = "", Rendered = null };
+        if (style is not null) TextStyle = style with { Text = "", Rendered = null, Runs = null };
         if (AddTextLayer(document, "") is not Guid id) return null;
         UpdateEditedText(words);
         EndTextEdit(commit: true);

@@ -72,6 +72,7 @@ internal sealed unsafe class Chrome : IDisposable
         _open = open;
         _runCommand = runCommand;
         _canvas.TextEditRequested = StartTextBox;
+        _canvas.TextSelection = TextBoxSelection;
     }
 
     public Ui Ui => _ui;
@@ -1678,7 +1679,9 @@ internal sealed unsafe class Chrome : IDisposable
                                 Localizer.Current == Language.Korean ? "Malgun Gothic" : "Segoe UI");
         GetCursorPos(out POINTSTRUCT at);
         _textBox = CreateWindowExW(WS_EX_TOOLWINDOW, "EDIT", _canvas.EditedText.Replace("\n", "\r\n"),
-                                   WS_POPUP | WS_VISIBLE | WS_BORDER | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN,
+                                   WS_POPUP | WS_VISIBLE | WS_BORDER | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN
+                                   // The selection stays shown while the options bar is being used on it.
+                                   | ES_NOHIDESEL,
                                    at.X + (int)_ui.P(14), at.Y + (int)_ui.P(18), (int)_ui.P(380), (int)_ui.P(104),
                                    _window, 0, GetModuleHandleW(0), 0);
         SendMessageW(_textBox, WM_SETFONT, (nuint)_textFont, 1);
@@ -1695,6 +1698,40 @@ internal sealed unsafe class Chrome : IDisposable
         fixed (char* text = buffer) read = GetWindowTextW(_textBox, text, buffer.Length);
         return new string(buffer, 0, Math.Max(0, read)).Replace("\r\n", "\n");
     }
+
+    /// <summary>
+    /// The letters selected in the typing box, as indices into the layer's words: the box counts a
+    /// line break as two characters (\r\n) where the words hold one.
+    /// </summary>
+    private (int Start, int End)? TextBoxSelection()
+    {
+        if (_textBox == 0) return null;
+        nint packed = SendMessageW(_textBox, EM_GETSEL, 0, 0);
+        int start = (int)(packed & 0xFFFF), end = (int)((packed >> 16) & 0xFFFF);
+
+        int length = (int)SendMessageW(_textBox, WM_GETTEXTLENGTH, 0, 0);
+        char[] buffer = new char[Math.Max(1, length + 1)];
+        int read;
+        fixed (char* text = buffer) read = GetWindowTextW(_textBox, text, buffer.Length);
+        int Words(int boxed)
+        {
+            int index = 0;
+            for (int i = 0; i < Math.Min(boxed, read); i++)
+                if (!(buffer[i] == '\r' && i + 1 < read && buffer[i + 1] == '\n')) index++;
+            return index;
+        }
+        (int first, int last) = (Words(Math.Min(start, end)), Words(Math.Max(start, end)));
+        return (first, last);
+    }
+
+    /// <summary>
+    /// Whether a click leaves the typing box open: one on the options bar, or on a sheet the bar
+    /// opened, is styling the letters selected in it, as in Photoshop.
+    /// </summary>
+    public bool KeepsTextBox(Point at) =>
+        _textBox != 0
+        && ((at.Y >= 0 && at.Y < TopBar * _ui.Scale && _sheets.Count == 0)
+            || (_sheets.Count > 0 && _sheetAreas.Any(area => Contains(area, at))));
 
     /// <summary>The box's words changed: set the layer again.</summary>
     public void TextBoxChanged()

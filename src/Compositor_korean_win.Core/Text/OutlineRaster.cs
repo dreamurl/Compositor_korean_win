@@ -136,4 +136,28 @@ public static class OutlineRaster
         }
         return result;
     }
+
+    /// <summary>
+    /// One colour through <paramref name="coverage"/>, laid over what <paramref name="target"/>
+    /// already holds — source over, premultiplied — for a text whose letters differ in colour.
+    /// </summary>
+    public static void PaintOver(PixelBuffer target, byte[] coverage, Rgba colour)
+    {
+        int width = target.Width;
+        for (int y = 0; y < target.Height; y++)
+        {
+            Span<byte> row = target.Row(y);
+            for (int x = 0; x < width; x++)
+            {
+                int level = coverage[y * width + x];
+                if (level == 0) continue;
+                Span<byte> pixel = row.Slice(x * 4, 4);
+                int keep = 255 - level;
+                pixel[0] = (byte)((colour.R * level + pixel[0] * keep + 127) / 255);
+                pixel[1] = (byte)((colour.G * level + pixel[1] * keep + 127) / 255);
+                pixel[2] = (byte)((colour.B * level + pixel[2] * keep + 127) / 255);
+                pixel[3] = (byte)((255 * level + pixel[3] * keep + 127) / 255);
+            }
+        }
+    }
 }
