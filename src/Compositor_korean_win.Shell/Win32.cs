@@ -15,6 +15,7 @@ internal static unsafe partial class Win32
     internal const uint WS_VISIBLE = 0x10000000;
     internal const int SW_SHOW = 5;
     internal const int SW_HIDE = 0;
+    internal const int SW_RESTORE = 9;
 
     internal const uint WM_DESTROY = 0x0002;
     internal const uint WM_SIZE = 0x0005;
@@ -659,6 +660,17 @@ internal static unsafe partial class Win32
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool ShowWindow(nint hwnd, int command);
+
+    [LibraryImport("user32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial nint FindWindowW(string? className, string? windowName);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool IsIconic(nint hwnd);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool SetForegroundWindow(nint hwnd);
 
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

@@ -201,6 +201,12 @@ jobs:
             }
             if (-not $ready) { throw "the window never opened its pipe" }
 
+            # A second GUI launch returns immediately and brings the existing window forward.
+            $duplicate = Start-Process -FilePath "build/publish/Compositor_korean_win.exe" -Wait -PassThru
+            if ($duplicate.ExitCode -ne 0) { throw "the duplicate editor exited with $($duplicate.ExitCode)" }
+            $editors = @(Get-Process Compositor_korean_win -ErrorAction SilentlyContinue)
+            if ($editors.Count -ne 1) { throw "a duplicate launch left $($editors.Count) editor processes" }
+
             $guide = Call '{"tool":"guide"}'
             if ($guide.text -notmatch 'add_text') { throw "the guide does not list the tools" }
 
@@ -218,6 +224,10 @@ jobs:
 
             # The command an assistant is told about: guide, a key=value tool call, a failure's exit code.
             $cli = "build/publish/compositor.exe"
+            $printed = & $cli --version 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0 -or $printed.Trim() -ne "compositor ${{ steps.version.outputs.version }}") {
+              throw "compositor --version was wrong: $printed"
+            }
             $printed = & $cli 2>&1 | Out-String
             if ($LASTEXITCODE -ne 0 -or $printed -notmatch 'compositor add_text') { throw "compositor printed no guide: $printed" }
             $printed = & $cli add_text text="Cli words" x=120 y=500 size=60 color=#2050E0 2>&1 | Out-String
@@ -237,7 +247,7 @@ jobs:
             if ($relayText -match 'No document is open') { throw "--mcp answered from a server of its own: $relayText" }
 
             "## 열린 창 연결" | Out-File -Append $env:GITHUB_STEP_SUMMARY
-            "- 파이프로 안내·문서 조회·텍스트 추가·렌더·실행 취소, `--mcp` 중계 모두 통과" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            "- 파이프로 안내·문서 조회·텍스트 추가·렌더·실행 취소, 단일 인스턴스, 버전 조회, `--mcp` 중계 모두 통과" | Out-File -Append $env:GITHUB_STEP_SUMMARY
           }
           finally {
             if (-not $window.HasExited) { Stop-Process -Id $window.Id -Force }

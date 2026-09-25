@@ -20,9 +20,18 @@ namespace Compositor_korean_win.Shell;
 /// </remarks>
 internal sealed unsafe class MainWindow : IDisposable
 {
-    private const string ClassName = "CompositorKoreanWinMain";
+    internal const string ClassName = "CompositorKoreanWinMain";
 
     private static MainWindow? s_instance;
+
+    /// <summary>Brings the first process's window forward when a second launch is refused.</summary>
+    public static void ActivateExisting()
+    {
+        nint existing = FindWindowW(ClassName, null);
+        if (existing == 0) return;
+        if (IsIconic(existing)) ShowWindow(existing, SW_RESTORE);
+        SetForegroundWindow(existing);
+    }
 
     private readonly GraphicsDevice _device;
     private readonly Format _format;

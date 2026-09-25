@@ -23,6 +23,7 @@ Compositor가 꺼져 있으면 명령이 알아서 켠다. 설치 프로그램�
 
 ```
 compositor                                   # 가이드
+compositor --version                         # 앱에 연결하지 않고 설치 버전 확인
 compositor get_document
 compositor add_text text="안녕하세요" x=100 y=200 size=72 color=#E02020
 compositor edit_text layer=제목 start=0 end=2 size=120
@@ -30,7 +31,8 @@ compositor render                            # image: <PNG 경로>
 ```
 
 값은 `key=value`다. 숫자·`true`/`false`는 그 형식으로, `[..]`·`{..}`는 JSON으로, 나머지는 글자로 넘어간다.
-도구가 실패하면 이유를 출력하고 종료 코드 1로 끝난다.
+종료 코드는 도구 실패 1, 인수 오류 2, 편집기 시작 실패 3, 권한 거부 4, 연결 실패 5, 응답 시간 초과 6이다.
+실행 중인 Compositor 프로세스가 있으면 연결에 실패해도 새 창을 열지 않는다.
 
 설치하지 않은 휴대용(zip)이나 명령을 못 찾는 경우에는 메뉴 **도움말 › AI 작업 안내 복사**로 받은 안내문을
 AI에게 붙여넣으면 된다. 안내문에는 명령과, 명령이 없을 때 쓰는 PowerShell 함수가 함께 들어 있다.
@@ -49,7 +51,15 @@ Compositor '{"tool":"render"}'                # 결과를 PNG 파일로 저장�
 
 답은 `{"ok": true|false, "text": "...", "images": ["...png"]}` 형태다. 도구는 창에 보이는 문서에
 작동하고, `new_document`·`open_document`는 새 탭을 연다. `undo`·`redo`는 창의 실행 취소 기록을 쓴다.
-창이 두 개 열려 있으면 먼저 연 창이 통로를 갖는다.
+Compositor는 한 번만 실행된다. 다시 실행하면 기존 창을 앞으로 가져오며, 명령은 그 창의 통로를 쓴다.
+
+### 연결 문제 해결
+
+- Compositor와 `compositor` 명령은 같은 Windows 사용자와 권한 수준으로 실행한다.
+- Codex 같은 샌드박스에서는 현재 사용자 전용 named pipe 접근 승인이 필요할 수 있다. 보안을 위해
+  `CurrentUserOnly` 제한을 제거하지 않는다.
+- 앱이 실행 중인데 연결되지 않으면 CLI는 새 창을 만들지 않고 권한 거부, 연결 실패 또는 응답 시간 초과를
+  구분해서 출력한다. 메시지와 종료 코드를 확인한 뒤 권한을 승인하거나 앱을 다시 시작한다.
 
 ### 작업 규칙
 

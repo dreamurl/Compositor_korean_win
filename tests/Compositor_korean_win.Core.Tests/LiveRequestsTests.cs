@@ -89,6 +89,28 @@ public sealed class LiveRequestsTests : IDisposable
     }
 
     [Fact]
+    public void TheGuideUsesKoreanForTheKoreanInterface()
+    {
+        Language before = Localizer.Current;
+        try
+        {
+            Localizer.Current = Language.Korean;
+            using JsonDocument guide = Send("""{"tool":"guide"}""");
+            string text = guide.RootElement.GetProperty("text").GetString()!;
+
+            Assert.Contains("열려 있는 편집기에서 작업하기", text);
+            Assert.Contains("연결 문제 해결", text);
+            Assert.Contains("권한 거부", text);
+            Assert.Contains("compositor --version", text);
+            Assert.Contains("## 도구 (* = 필수)", text);
+        }
+        finally
+        {
+            Localizer.Current = before;
+        }
+    }
+
+    [Fact]
     public void ThePersonsRulesComeWithTheGuideAndTheInstructionsAndFollowTheFile()
     {
         string path = Path.Combine(_images, "ai-rules.md");

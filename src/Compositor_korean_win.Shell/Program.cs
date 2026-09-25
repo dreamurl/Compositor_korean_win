@@ -5,6 +5,8 @@ namespace Compositor_korean_win.Shell;
 
 internal static class Program
 {
+    private const string WindowMutex = @"Local\Compositor_korean_win.MainWindow";
+
     [STAThread]
     private static int Main(string[] args)
     {
@@ -31,6 +33,13 @@ internal static class Program
 
     private static int RunWindow(string? imagePath)
     {
+        using var singleInstance = new Mutex(initiallyOwned: true, WindowMutex, out bool firstWindow);
+        if (!firstWindow)
+        {
+            MainWindow.ActivateExisting();
+            return 0;
+        }
+
         AppSettings.Apply();
 
         using GraphicsDevice device = GraphicsDevice.Create();
