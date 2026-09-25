@@ -441,38 +441,6 @@ public sealed class PsdTests
             byte[] psd = Export(document, "editable-text.psd", out IReadOnlyDictionary<PsdNote, int> notes);
             Assert.False(notes.ContainsKey(PsdNote.TextExportedAsPixels));
 
-            // Match Photoshop 2025's strict TySh shape, not merely what a permissive PSD reader
-            // happens to accept. In particular its final rectangle is four int32 values (16
-            // bytes), and both text-engine resource dictionaries and default runs are present.
-            PsdBlockWriter typeBlock = Assert.IsType<PsdBlockWriter>(PsdType.Writer(document.Layers.Single()));
-            using var typeBytes = new MemoryStream();
-            typeBlock.Write(new PsdWriter(typeBytes));
-            var typeReader = new PsdReader(typeBytes.ToArray());
-            Assert.Equal(1, typeReader.U16());
-            for (int i = 0; i < 6; i++) typeReader.F64();
-            Assert.Equal(50, typeReader.U16());
-            Assert.Equal(16u, typeReader.U32());
-            PsdDescriptor descriptor = PsdDescriptor.Read(typeReader);
-            Assert.Equal("TxNM", descriptor.Enum("TxMg"));
-            Assert.NotNull(descriptor.Object("bounds"));
-            Assert.NotNull(descriptor.Object("boundingBox"));
-
-            byte[] engineBytes = Assert.IsType<byte[]>(descriptor["EngineData"]);
-            var root = Assert.IsType<Dictionary<string, object?>>(EngineData.Parse(engineBytes));
-            var engine = Assert.IsType<Dictionary<string, object?>>(root["EngineDict"]);
-            var paragraphRun = Assert.IsType<Dictionary<string, object?>>(engine["ParagraphRun"]);
-            var styleRun = Assert.IsType<Dictionary<string, object?>>(engine["StyleRun"]);
-            Assert.True(paragraphRun.ContainsKey("DefaultRunData"));
-            Assert.True(styleRun.ContainsKey("DefaultRunData"));
-            Assert.IsType<Dictionary<string, object?>>(root["ResourceDict"]);
-            Assert.IsType<Dictionary<string, object?>>(root["DocumentResources"]);
-
-            Assert.Equal(1, typeReader.U16());
-            Assert.Equal(16u, typeReader.U32());
-            PsdDescriptor.Read(typeReader);
-            Assert.Equal(16, typeReader.Remaining);
-            Assert.Equal([0, 0, 0, 0], Enumerable.Range(0, 4).Select(_ => typeReader.I32()).ToArray());
-
             using var back = new Opened(PsdImport.Read(psd, ["Malgun Gothic"]));
             ImageLayer layer = back.Document.Layers.Single();
             Assert.True(layer.IsLiveText);

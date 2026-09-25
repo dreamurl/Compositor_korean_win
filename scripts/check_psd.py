@@ -38,6 +38,18 @@ def walk(layers, depth=0):
             yield from walk(layer, depth + 1)
 
 
+def engine_key(key):
+    """The engine-data parser wraps dictionary names in Property objects."""
+    return getattr(key, "value", key)
+
+
+def engine_get(mapping, name):
+    for key, value in mapping.items():
+        if engine_key(key) == name:
+            return value
+    return None
+
+
 def check(path: Path):
     collect = Collect()
     logging.getLogger("psd_tools").addHandler(collect)
@@ -127,8 +139,9 @@ def main(folder: str):
         elif type_layers[0].text.rstrip("\r") != "편집 가능한 글자":
             failures.append(f"editable-text.psd: type text was {type_layers[0].text!r}")
         else:
-            # Adobe specifies four 8-byte bounds at the end of TySh. psd-tools models them as
-            # four integers, so merely opening the file did not catch our former 16-byte tail.
+            # Photoshop 2025 ends TySh with four signed 32-bit bounds. The warp descriptor ends in
+            # its Hrzn enum immediately before those 16 zero bytes. This catches the former writer,
+            # which incorrectly appended four doubles and therefore had another 16 zero bytes.
             raw = (Path(folder) / "editable-text.psd").read_bytes()
             marker = raw.find(b"8BIMTySh")
             if marker < 0:
@@ -136,10 +149,32 @@ def main(folder: str):
             else:
                 length = struct.unpack(">I", raw[marker + 8 : marker + 12])[0]
                 block = raw[marker + 12 : marker + 12 + length]
-                if len(block) != length or len(block) < 32 or block[-32:] != bytes(32):
-                    failures.append("editable-text.psd: TySh does not end in four 8-byte bounds")
+                if len(block) != length or len(block) < 20 or block[-20:-16] != b"Hrzn" or block[-16:] != bytes(16):
+                    failures.append("editable-text.psd: TySh does not end in four 4-byte bounds")
 
             setting = type_layers[0]._record.tagged_blocks.get_data(b"TySh")
+            descriptor_keys = set(setting.text_data.keys())
+            required = {
+                b"Txt ", b"textGridding", b"Ornt", b"AntA", b"TxMg", b"bounds",
+                b"boundingBox", b"TextIndex", b"EngineData",
+            }
+            missing = sorted(key.decode("latin1") for key in required - descriptor_keys)
+            if missing:
+                failures.append(f"editable-text.psd: TySh descriptor is missing {missing}")
+
+            root = setting.text_data[b"EngineData"].value
+            root_keys = {engine_key(key) for key in root.keys()}
+            for name in ("EngineDict", "ResourceDict", "DocumentResources"):
+                if name not in root_keys:
+                    failures.append(f"editable-text.psd: EngineData has no {name}")
+
+            engine = engine_get(root, "EngineDict")
+            if engine is not None:
+                for run_name in ("ParagraphRun", "StyleRun"):
+                    run = engine_get(engine, run_name)
+                    if run is None or engine_get(run, "DefaultRunData") is None:
+                        failures.append(f"editable-text.psd: {run_name} has no DefaultRunData")
+
             descriptor_text = setting.text_data[b"Txt "].value
             if descriptor_text != "편집 가능한 글자\x00":
                 failures.append(f"editable-text.psd: descriptor text was {descriptor_text!r}")
