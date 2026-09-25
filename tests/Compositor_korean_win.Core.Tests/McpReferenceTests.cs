@@ -64,29 +64,6 @@ public sealed partial class McpReferenceTests : IDisposable
         Assert.Equal(0, shown.Row(5)[30 * 4 + 3]);
     }
 
-    [Fact]
-    public void AnElementWrittenAsATransparentPngKeepsItsOutline()
-    {
-        // The guide's way of carrying an element: a PNG with the element's pixels and nothing around them.
-        Call("new_document", """{"width":40,"height":40,"background":"#FFFFFF"}""");
-        using PixelBuffer element = PixelBuffer.Allocate(20, 20);
-        for (int y = 0; y < 20; y++)
-        {
-            Span<byte> row = element.Row(y);
-            for (int x = 0; x < 10; x++)
-            {
-                row[x * 4] = 200;
-                row[x * 4 + 1] = 30;
-                row[x * 4 + 2] = 90;
-                row[x * 4 + 3] = 255;
-            }
-        }
-        Call("put_pixels", $$"""{"data":"{{Convert.ToBase64String(Png.Encode(element))}}","x":10,"y":10,"name":"element"}""");
-        PixelBuffer shown = Look("{}");
-        Assert.Equal((200, 30, 90), Pixel(shown, 12, 15));
-        Assert.Equal((255, 255, 255), Pixel(shown, 25, 15));
-    }
-
     // ---- add_path ------------------------------------------------------------------------------
 
     [Fact]

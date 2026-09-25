@@ -51,10 +51,8 @@ public sealed partial class McpTools
             "'region' picks the part of the picture (default all of it); x/y is where that part's top-left lands on the " +
             "canvas (default the region's own x/y, so a reference the canvas's size lines up). With 'layer' the pixels are " +
             "written into that layer (a blank one included), replacing what was there; without it they become a new layer. " +
-            "Transparency in the picture is kept. The way to carry an element: work out its pixels yourself, write it as a " +
-            "PNG with transparency (exact colours inside, nothing outside) and put it onto a new layer — sharper than a " +
-            "magic-wand cut-out. within_selection keeps the pixels to the current selection. For touching up use " +
-            "paint_stroke; for shapes and effects use masks, add_path, liquify and warp.",
+            "within_selection keeps them to the selection — select the element first (select magic_wand, add_path " +
+            "as=selection). For touching up use paint_stroke; for shapes and effects use masks, add_path, liquify and warp.",
             Build(With(Str("path", "The picture file."), Str("data", "The picture as base64, instead of 'path'."),
                        Object("region", "The part of the picture to copy, in its own pixels.",
                               Num("x", "Left.", true), Num("y", "Top.", true), Num("width", "Width.", true), Num("height", "Height.", true)),
