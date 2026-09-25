@@ -166,7 +166,9 @@ internal static class Program
         }
 
         Console.Error.WriteLine("Compositor was not open; starting it…");
-        Process.Start(new ProcessStartInfo(editor) { UseShellExecute = false, WorkingDirectory = AppContext.BaseDirectory });
+        // Through the shell, not CreateProcess: a child made directly inherits this command's output
+        // pipe, and the editor keeps running, so whoever reads that pipe would wait for it forever.
+        Process.Start(new ProcessStartInfo(editor) { UseShellExecute = true, WorkingDirectory = AppContext.BaseDirectory });
         for (int waited = 0; waited < 60; waited++)
         {
             if (Connect(1000) is NamedPipeClientStream pipe) return pipe;
