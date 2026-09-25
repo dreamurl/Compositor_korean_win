@@ -140,8 +140,9 @@ def main(folder: str):
             failures.append(f"editable-text.psd: type text was {type_layers[0].text!r}")
         else:
             # Photoshop 2025 ends TySh with four signed 32-bit bounds. The warp descriptor ends in
-            # its Hrzn enum immediately before those 16 zero bytes. This catches the former writer,
-            # which incorrectly appended four doubles and therefore had another 16 zero bytes.
+            # its Hrzn enum immediately before those 16 zero bytes and an optional alignment byte.
+            # This catches the former writer, which incorrectly appended four doubles and therefore
+            # had another 16 zero bytes.
             raw = (Path(folder) / "editable-text.psd").read_bytes()
             marker = raw.find(b"8BIMTySh")
             if marker < 0:
@@ -149,7 +150,9 @@ def main(folder: str):
             else:
                 length = struct.unpack(">I", raw[marker + 8 : marker + 12])[0]
                 block = raw[marker + 12 : marker + 12 + length]
-                if len(block) != length or len(block) < 20 or block[-20:-16] != b"Hrzn" or block[-16:] != bytes(16):
+                last_enum = block.rfind(b"Hrzn")
+                tail = block[last_enum + 4 :] if last_enum >= 0 else b""
+                if len(block) != length or len(tail) not in (16, 17) or tail != bytes(len(tail)):
                     failures.append("editable-text.psd: TySh does not end in four 4-byte bounds")
 
             setting = type_layers[0]._record.tagged_blocks.get_data(b"TySh")
