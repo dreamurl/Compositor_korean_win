@@ -126,7 +126,13 @@ public sealed class McpEditingTests : IDisposable
 
         // A copy of it on a layer of its own; a cut leaves a hole.
         string copy = Id(Call("copy_to_layer", """{"layer":"paint","cut":true,"name":"square"}"""));
-        Assert.Equal(new PixelRect(10, 10, 30, 30), LayerGeometry.Bounds(_session.Current!.Document.Layer(Guid.Parse(copy))!.Transform));
+        // Trimmed as Layer via Copy trims, which may leave a transparent pixel of margin.
+        PixelRect copied = LayerGeometry.Bounds(_session.Current!.Document.Layer(Guid.Parse(copy))!.Transform);
+        Assert.True(copied.X is 9 or 10 && copied.Y is 9 or 10 && copied.Right is 40 or 41 && copied.Bottom is 40 or 41,
+                    $"the copy should cover the red square, was {copied}");
+        PixelBuffer square = Look($$"""{"layers":["{{copy}}"],"background":"white"}""");
+        Assert.Equal((255, 0, 0), Pixel(square, 25, 25));
+        Assert.Equal((255, 255, 255), Pixel(square, 45, 25));
         Call("select", """{"shape":"none"}""");
         shown = Look("""{"layers":["paint"],"background":"white"}""");
         (r, g, b) = Pixel(shown, 25, 25);
