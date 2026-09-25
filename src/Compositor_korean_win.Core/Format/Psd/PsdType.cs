@@ -415,17 +415,18 @@ internal static class EngineData
     {
         var output = new EngineDataWriter();
         string length = words.Length.ToString(CultureInfo.InvariantCulture);
-        string size = Number(text.Size);
-        string tracking = Number(text.Tracking);
-        string leading = Number(text.Size * text.Leading);
-        string autoLeading = Number(text.Leading);
+        string size = Real(text.Size);
+        // Photoshop writes tracking as a whole number of thousandths of an em.
+        string tracking = ((int)Math.Round(text.Tracking)).ToString(CultureInfo.InvariantCulture);
+        string leading = Real(text.Size * text.Leading);
+        string autoLeading = Real(text.Leading);
         string justification = text.Align switch
         {
             TextAlign.Right => "1",
             TextAlign.Center => "2",
             _ => "0",
         };
-        string red = Number(text.Red), green = Number(text.Green), blue = Number(text.Blue);
+        string red = Real(text.Red), green = Real(text.Green), blue = Real(text.Blue);
 
         output.Ascii("<< /EngineDict << /Editor << /Text ");
         output.Utf16(words);
@@ -441,19 +442,19 @@ internal static class EngineData
         output.Ascii("/RunArray [ << /StyleSheet << /StyleSheetData << ");
         output.Ascii($"/Font 0 /FontSize {size} /FauxBold {(text.Weight >= 600 ? "true" : "false")} ");
         output.Ascii($"/FauxItalic {(text.Italic ? "true" : "false")} /AutoLeading false /Leading {leading} ");
-        output.Ascii($"/HorizontalScale 1 /VerticalScale 1 /Tracking {tracking} /AutoKerning true /Kerning 0 ");
-        output.Ascii("/BaselineShift 0 /FontCaps 0 /FontBaseline 0 /Underline false /Strikethrough false ");
-        output.Ascii("/Ligatures true /DLigatures false /BaselineDirection 2 /Tsume 0 /StyleRunAlignment 2 /Language 0 /NoBreak false ");
-        output.Ascii($"/FillColor << /Type 1 /Values [ 1 {red} {green} {blue} ] >> ");
-        output.Ascii("/StrokeColor << /Type 1 /Values [ 1 0 0 0 ] >> /YUnderline 1 /HindiNumbers false /Kashida 1 >> >> >> ] /RunLengthArray [ ");
+        output.Ascii($"/HorizontalScale 1.0 /VerticalScale 1.0 /Tracking {tracking} /AutoKerning true /Kerning 0 ");
+        output.Ascii("/BaselineShift 0.0 /FontCaps 0 /FontBaseline 0 /Underline false /Strikethrough false ");
+        output.Ascii("/Ligatures true /DLigatures false /BaselineDirection 2 /Tsume 0.0 /StyleRunAlignment 2 /Language 0 /NoBreak false ");
+        output.Ascii($"/FillColor << /Type 1 /Values [ 1.0 {red} {green} {blue} ] >> ");
+        output.Ascii("/StrokeColor << /Type 1 /Values [ 1.0 0.0 0.0 0.0 ] >> /YUnderline 1 /HindiNumbers false /Kashida 1 >> >> >> ] /RunLengthArray [ ");
         output.Ascii(length);
-        output.Ascii(" ] /IsJoinable 2 >> /GridInfo << /GridIsOn false /ShowGrid false /GridSize 18 /GridLeading 22 ");
-        output.Ascii("/GridColor << /Type 1 /Values [ 0 0 0 1 ] >> /GridLeadingFillColor << /Type 1 /Values [ 0 0 0 1 ] >> ");
+        output.Ascii(" ] /IsJoinable 2 >> /GridInfo << /GridIsOn false /ShowGrid false /GridSize 18.0 /GridLeading 22.0 ");
+        output.Ascii("/GridColor << /Type 1 /Values [ 0.0 0.0 0.0 1.0 ] >> /GridLeadingFillColor << /Type 1 /Values [ 0.0 0.0 0.0 1.0 ] >> ");
         output.Ascii("/AlignLineHeightToGridFlags false >> /AntiAlias 1 ");
         output.Ascii("/UseFractionalGlyphWidths true /Rendered << /Version 1 /Shapes << /WritingDirection 0 /Children [ ");
-        output.Ascii("<< /ShapeType 0 /Procession 0 /Lines << /WritingDirection 0 >> /Cookie << /Photoshop << /ShapeType 0 ");
-        output.Ascii("/PointBase [ 0 0 ] /Base << /ShapeType 0 /TransformPoint0 [ 1 0 ] /TransformPoint1 [ 0 1 ] ");
-        output.Ascii("/TransformPoint2 [ 0 0 ] >> >> >> >> ] >> >> >> ");
+        output.Ascii("<< /ShapeType 0 /Procession 0 /Lines << /WritingDirection 0 /Children [ ] >> /Cookie << /Photoshop << /ShapeType 0 ");
+        output.Ascii("/PointBase [ 0.0 0.0 ] /Base << /ShapeType 0 /TransformPoint0 [ 1.0 0.0 ] /TransformPoint1 [ 0.0 1.0 ] ");
+        output.Ascii("/TransformPoint2 [ 0.0 0.0 ] >> >> >> >> ] >> >> >> ");
 
         output.Ascii("/ResourceDict ");
         WriteResources(output, postScriptName);
@@ -461,19 +462,36 @@ internal static class EngineData
         WriteResources(output, postScriptName);
         output.Ascii(" >>");
         return output.ToArray();
+    }
 
-        static string Number(double value) => value.ToString("R", CultureInfo.InvariantCulture);
+    /// <summary>A real number the way Photoshop's text engine writes one: <c>0.0</c>, <c>1.0</c>, <c>.8</c>, <c>57.6</c>.</summary>
+    /// <remarks>
+    /// Photoshop refuses the whole type layer, rasterizing it with a generic "could not read" warning,
+    /// when a number carries a round-trip mantissa such as <c>57.599999999999994</c> (48 × 1.2).
+    /// Bisecting a Photoshop-written EngineData one value at a time showed that this alone flips the
+    /// layer from editable to rasterized, while <c>57.6</c> in the same place is accepted. So reals are
+    /// cut to five decimals and always keep a decimal point, and a leading zero is dropped as
+    /// Photoshop does, since its reader tells integer and real tokens apart.
+    /// </remarks>
+    internal static string Real(double value)
+    {
+        double rounded = Math.Round(value, 5);
+        if (rounded == 0) rounded = 0; // no "-0.0"
+        string text = rounded.ToString("0.0####", CultureInfo.InvariantCulture);
+        if (text.StartsWith("0.", StringComparison.Ordinal) && text != "0.0") return text[1..];
+        if (text.StartsWith("-0.", StringComparison.Ordinal)) return "-" + text[2..];
+        return text;
     }
 
     private static void WriteAdjustments(EngineDataWriter output) =>
-        output.Ascii("/Adjustments << /Axis [ 1 0 1 ] /XY [ 0 0 ] >>");
+        output.Ascii("/Adjustments << /Axis [ 1.0 0.0 1.0 ] /XY [ 0.0 0.0 ] >>");
 
     private static void WriteParagraphProperties(
         EngineDataWriter output, string justification, string autoLeading, bool autoHyphenate, int leadingType)
     {
-        output.Ascii($"/Justification {justification} /FirstLineIndent 0 /StartIndent 0 /EndIndent 0 /SpaceBefore 0 /SpaceAfter 0 ");
+        output.Ascii($"/Justification {justification} /FirstLineIndent 0.0 /StartIndent 0.0 /EndIndent 0.0 /SpaceBefore 0.0 /SpaceAfter 0.0 ");
         output.Ascii($"/AutoHyphenate {(autoHyphenate ? "true" : "false")} /HyphenatedWordSize 6 /PreHyphen 2 /PostHyphen 2 ");
-        output.Ascii("/ConsecutiveHyphens 8 /Zone 36 /WordSpacing [ 0.8 1 1.33 ] /LetterSpacing [ 0 0 0 ] /GlyphSpacing [ 1 1 1 ] ");
+        output.Ascii("/ConsecutiveHyphens 8 /Zone 36.0 /WordSpacing [ .8 1.0 1.33 ] /LetterSpacing [ 0.0 0.0 0.0 ] /GlyphSpacing [ 1.0 1.0 1.0 ] ");
         output.Ascii($"/AutoLeading {autoLeading} /LeadingType {leadingType} /Hanging false /Burasagari false /KinsokuOrder 0 /EveryLineComposer false ");
     }
 
@@ -491,18 +509,18 @@ internal static class EngineData
         WriteParagraphProperties(output, "0", "1.2", autoHyphenate: true, leadingType: 0);
         output.Ascii(">> >> ] /StyleSheetSet [ << /Name ");
         output.Utf16("Normal RGB");
-        output.Ascii(" /StyleSheetData << /Font 0 /FontSize 12 /FauxBold false /FauxItalic false /AutoLeading true /Leading 0 ");
-        output.Ascii("/HorizontalScale 1 /VerticalScale 1 /Tracking 0 /AutoKerning true /Kerning 0 /BaselineShift 0 ");
+        output.Ascii(" /StyleSheetData << /Font 0 /FontSize 12.0 /FauxBold false /FauxItalic false /AutoLeading true /Leading 0.0 ");
+        output.Ascii("/HorizontalScale 1.0 /VerticalScale 1.0 /Tracking 0 /AutoKerning true /Kerning 0 /BaselineShift 0.0 ");
         output.Ascii("/FontCaps 0 /FontBaseline 0 /Underline false /Strikethrough false /Ligatures true /DLigatures false ");
-        output.Ascii("/BaselineDirection 2 /Tsume 0 /StyleRunAlignment 2 /Language 0 /NoBreak false ");
-        output.Ascii("/FillColor << /Type 1 /Values [ 1 0 0 0 ] >> /StrokeColor << /Type 1 /Values [ 1 0 0 0 ] >> ");
-        output.Ascii("/FillFlag true /StrokeFlag false /FillFirst true /YUnderline 1 /OutlineWidth 1 /CharacterDirection 0 ");
+        output.Ascii("/BaselineDirection 2 /Tsume 0.0 /StyleRunAlignment 2 /Language 0 /NoBreak false ");
+        output.Ascii("/FillColor << /Type 1 /Values [ 1.0 0.0 0.0 0.0 ] >> /StrokeColor << /Type 1 /Values [ 1.0 0.0 0.0 0.0 ] >> ");
+        output.Ascii("/FillFlag true /StrokeFlag false /FillFirst true /YUnderline 1 /OutlineWidth 1.0 /CharacterDirection 0 ");
         output.Ascii("/HindiNumbers false /Kashida 1 /DiacriticPos 2 >> >> ] /FontSet [ << /Name ");
         output.Utf16(postScriptName);
         output.Ascii(" /Script 0 /FontType 1 /Synthetic 0 >> << /Name ");
         output.Utf16("AdobeInvisFont");
-        output.Ascii(" /Script 0 /FontType 0 /Synthetic 0 >> ] /SuperscriptSize 0.583 /SuperscriptPosition 0.333 ");
-        output.Ascii("/SubscriptSize 0.583 /SubscriptPosition 0.333 /SmallCapSize 0.7 >>");
+        output.Ascii(" /Script 0 /FontType 0 /Synthetic 0 >> ] /SuperscriptSize .583 /SuperscriptPosition .333 ");
+        output.Ascii("/SubscriptSize .583 /SubscriptPosition .333 /SmallCapSize .7 >>");
     }
 
     public static object? Parse(ReadOnlySpan<byte> data)

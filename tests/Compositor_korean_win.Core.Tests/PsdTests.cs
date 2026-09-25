@@ -457,6 +457,48 @@ public sealed class PsdTests
         }
     }
 
+    [Fact]
+    public void TypeLayerNumbersAreWrittenTheWayPhotoshopReadsThem()
+    {
+        // 48 × 1.2 is 57.599999999999994 in doubles. Photoshop 2025 rasterizes the whole type
+        // layer when EngineData carries that round-trip mantissa and accepts 57.6 in its place;
+        // this was found by bisecting a Photoshop-written EngineData one value at a time.
+        PixelBuffer pixels = RenderFixture.Solid(48, 24, 0, 0, 0);
+        CanvasDocument document = ProjectFixture.Document(new ImageLayer
+        {
+            Id = Guid.NewGuid(),
+            Name = "행간",
+            Transform = new LayerTransform(new Point(8, 6), new Size(48, 24)),
+            Image = pixels,
+            Text = new LayerText
+            {
+                Text = "Hello",
+                Font = "Arial",
+                Size = 48,
+                Leading = 1.2,
+                Tracking = 12.4,
+                Red = 1.0 / 3,
+                AnchorX = 24,
+                AnchorY = 18,
+                Rendered = pixels,
+            },
+        });
+
+        try
+        {
+            string engine = System.Text.Encoding.Latin1.GetString(Export(document, "photoshop-numbers.psd", out _));
+            Assert.Contains("/FontSize 48.0 ", engine, StringComparison.Ordinal);
+            Assert.Contains("/Leading 57.6 ", engine, StringComparison.Ordinal);
+            Assert.Contains("/Tracking 12 ", engine, StringComparison.Ordinal);
+            Assert.Contains("/Values [ 1.0 .33333 0.0 0.0 ]", engine, StringComparison.Ordinal);
+            Assert.DoesNotContain("57.599", engine, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Release(document);
+        }
+    }
+
     [Theory]
     [MemberData(nameof(Everything))]
     public void PhotoshopsFilesSurviveGoingOutAgain(string name)
