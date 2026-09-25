@@ -28,6 +28,11 @@
     <TrimMode>full</TrimMode>
     <IlcOptimizationPreference>Size</IlcOptimizationPreference>
     <IlcFoldIdenticalMethodBodies>true</IlcFoldIdenticalMethodBodies>
+    <!-- NativeAOT on Windows defaults to the OS thread pool; the tests and every JIT run use the
+         portable one. A dump of a distortion drag stuck forever showed the UI thread waiting in
+         QuadWarp's Parallel.For with its replica never run: no managed worker anywhere, only idle
+         OS pool threads. Using the same pool the tests exercise removes that divergence. -->
+    <UseWindowsThreadPool>false</UseWindowsThreadPool>
   </PropertyGroup>
 
   <ItemGroup>
