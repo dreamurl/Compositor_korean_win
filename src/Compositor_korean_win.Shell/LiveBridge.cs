@@ -127,7 +127,7 @@ internal sealed class LiveBridge : IDisposable
                 while (!_stop.IsCancellationRequested && await reader.ReadLineAsync(_stop.Token) is string line)
                 {
                     // A client that wrote a BOM before its first line still means the JSON after it.
-                    line = line.TrimStart('﻿');
+                    line = line.TrimStart((char)0xFEFF);
                     if (string.IsNullOrWhiteSpace(line)) continue;
 
                     var pending = new Pending(line, new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously));
