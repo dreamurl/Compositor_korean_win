@@ -53,6 +53,18 @@ public sealed class LiveRequestsTests : IDisposable
     }
 
     [Fact]
+    public void OnlyTheNewestRendersAreKept()
+    {
+        Send("""{"tool":"new_document","arguments":{"width":16,"height":16}}""").Dispose();
+        for (int i = 0; i < LiveRequests.ImagesKept + 5; i++) Send("""{"tool":"render"}""").Dispose();
+
+        Assert.Equal(LiveRequests.ImagesKept, Directory.GetFiles(_images, "render-*").Length);
+
+        LiveRequests.Prune(_images, keep: 0);
+        Assert.Empty(Directory.GetFiles(_images, "render-*"));
+    }
+
+    [Fact]
     public void AFailingToolSaysSoWithItsReason()
     {
         using JsonDocument failed = Send("""{"tool":"get_document"}""");

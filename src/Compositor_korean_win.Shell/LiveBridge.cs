@@ -63,6 +63,8 @@ internal sealed class LiveBridge : IDisposable
         _session = new EditorSession(_services, ownsPixels: false);
         AiRules rules = Rules;
         rules.Ensure();
+        // What an earlier run rendered is of no use to this one.
+        LiveRequests.Prune(_images, keep: 0);
         _server = new McpServer(new McpTools(_session), Updates.Version, rules);
         _ = Task.Run(() => Listen(first));
     }

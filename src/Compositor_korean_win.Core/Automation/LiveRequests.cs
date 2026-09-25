@@ -28,6 +28,12 @@ public static class LiveRequests
     /// <summary>The pipe the running editor listens on: <c>\\.\pipe\compositor-korean-win</c>.</summary>
     public const string PipeName = "compositor-korean-win";
 
+    /// <summary>
+    /// How many rendered images the folder keeps. A model looks at the one it just asked for; a
+    /// long session renders hundreds, so older ones go as new ones arrive rather than piling up.
+    /// </summary>
+    public const int ImagesKept = 20;
+
     /// <summary>The tool that answers with this guide rather than going to the MCP server.</summary>
     public const string GuideTool = "guide";
 
@@ -271,8 +277,32 @@ public static class LiveRequests
                 images.Add(path);
             }
         }
+        if (images.Count > 0) Prune(imageFolder, ImagesKept);
         bool isError = result.TryGetProperty("isError", out JsonElement flag) && flag.ValueKind == JsonValueKind.True;
         return Simple(!isError, text.ToString(), images);
+    }
+
+    /// <summary>Deletes all but the <paramref name="keep"/> newest images in the folder; with 0, all of them.</summary>
+    public static void Prune(string imageFolder, int keep)
+    {
+        if (!Directory.Exists(imageFolder)) return;
+        IEnumerable<FileInfo> stale = new DirectoryInfo(imageFolder).EnumerateFiles("render-*")
+            .OrderByDescending(file => file.CreationTimeUtc).ThenByDescending(file => file.Name, StringComparer.Ordinal)
+            .Skip(keep);
+        foreach (FileInfo file in stale)
+        {
+            try
+            {
+                file.Delete();
+            }
+            catch (IOException)
+            {
+                // Open in a viewer: it goes on a later pass.
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
     }
 
     private static string Simple(bool ok, string text, IReadOnlyList<string> images)
