@@ -240,6 +240,9 @@ public static class TextRuns
         }
         if (open is not null) runs.Add(open);
 
+        // One run over every letter is simply the layer's style, as selecting all is in Photoshop.
+        if (runs is [TextRun only] && only.Start == 0 && only.Length == styles.Count) return only.Over(plain);
+
         return plain with { Runs = runs.Count == 0 ? null : runs };
     }
 
