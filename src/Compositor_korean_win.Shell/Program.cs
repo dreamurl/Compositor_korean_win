@@ -15,9 +15,10 @@ internal static class Program
             if (args.Contains("--selftest"))
                 return SelfTest.Run(image, ValueOf(args, "--report"));
 
-            // A model's tools over standard input and output, with no window (docs/progress.md 15).
+            // A model's tools over standard input and output (docs/progress.md 15): passed on to an
+            // open window when there is one (25), otherwise run here with no window.
             if (args.Contains("--mcp"))
-                return McpHost.Run();
+                return McpHost.Run(headless: args.Contains("--headless"));
 
             return RunWindow(image);
         }
@@ -56,6 +57,10 @@ internal static class Program
         window.OleFilesDropped = (paths, destination) => files.Drop(paths, destination);
         window.ImageDataDropped = (data, png, name, destination) => files.DropImage(data, png, destination, name);
         window.EnableOleDrops();
+
+        // Tools from any assistant on this machine, over a named pipe, with nothing to register.
+        using LiveBridge? bridge = LiveBridge.Start(window.Handle, canvas);
+        window.Bridge = bridge;
 
         window.Render();
 

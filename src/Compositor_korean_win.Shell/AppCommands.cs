@@ -268,6 +268,15 @@ internal static class AppCommands
                                   Localizer.Text(TextKey.AppTitle), MB_OK | MB_ICONINFORMATION),
                 Interactive: true),
             new(CommandIds.CheckUpdates, TextKey.CommandCheckUpdates, () => Updates.Check(owner), Interactive: true),
+            new(CommandIds.CopyAiGuide, TextKey.CommandCopyAiGuide, () =>
+            {
+                // What a person pastes into an assistant: nothing to install or register, only the
+                // way to reach this window (LiveRequests) and a first call that explains the rest.
+                string guide = Localizer.Text(TextKey.AiGuideIntro) + "\n\n```powershell\n" + LiveRequests.PowerShellFunction
+                               + "\n```\n\n" + Localizer.Text(TextKey.AiGuideAsk) + "\n";
+                if (Clipboard.PutText(owner, guide))
+                    MessageBoxW(owner, Localizer.Text(TextKey.AiGuideCopied), Localizer.Text(TextKey.AppTitle), MB_OK | MB_ICONINFORMATION);
+            }, Interactive: true),
         };
 
         // Image › Adjustments: run over the chosen layer's pixels. Photoshop's keys for the three
@@ -428,7 +437,8 @@ internal static class AppCommands
                 Item(CommandIds.PixelGrid), Item(CommandIds.TransformControls), MenuEntry.Line,
                 Item(CommandIds.NextDocument), Item(CommandIds.PreviousDocument),
             ]),
-            new(TextKey.MenuHelp, [Item(CommandIds.CheckUpdates), MenuEntry.Line, Item(CommandIds.About)]),
+            new(TextKey.MenuHelp, [Item(CommandIds.CopyAiGuide), MenuEntry.Line, Item(CommandIds.CheckUpdates), MenuEntry.Line,
+                                   Item(CommandIds.About)]),
         };
 
         return (commands, layout);

@@ -374,6 +374,10 @@ public enum TextKey
     // The version, and Help > Check for Updates.
     AboutVersion,
     CommandCheckUpdates,
+    CommandCopyAiGuide,
+    AiGuideCopied,
+    AiGuideIntro,
+    AiGuideAsk,
     UpdateAvailable,
     UpdateLatest,
     UpdateFailed,
@@ -900,6 +904,23 @@ public static class TextTable
         (TextKey.LabelShiftEdge, "Shift Edge", "가장자리 이동"),
         (TextKey.AboutVersion, "Version {0}", "버전 {0}"),
         (TextKey.CommandCheckUpdates, "Check for &Updates…", "업데이트 확인(&U)…"),
+        (TextKey.CommandCopyAiGuide, "Copy &AI Instructions", "AI 작업 안내 복사(&I)"),
+        (TextKey.AiGuideCopied,
+            "Instructions for an AI assistant are on the clipboard. Paste them into Claude, Codex or any assistant "
+            + "that can run PowerShell on this PC, add what you want made, and it will work in this window while "
+            + "Compositor stays open.",
+            "AI에게 줄 안내를 클립보드에 복사했습니다. 이 PC에서 PowerShell을 실행할 수 있는 AI(Claude, Codex 등)에게 "
+            + "붙여넣고 원하는 작업을 적어 주세요. Compositor가 켜져 있는 동안 이 창에서 바로 작업합니다."),
+        (TextKey.AiGuideIntro,
+            "Compositor (an image editor) is open on this PC. You can work in its window directly: define this "
+            + "PowerShell function, then send it one JSON line per tool call.",
+            "Compositor(이미지 편집기)가 이 PC에 열려 있습니다. 아래 PowerShell 함수를 정의하면 JSON 한 줄씩 "
+            + "보내서 열린 창에서 직접 작업할 수 있습니다."),
+        (TextKey.AiGuideAsk,
+            "First run  Compositor '{\"tool\":\"guide\"}'  to read how it works and every tool, then do what I ask "
+            + "below. Look at your work with render (it answers with a PNG path to open). My request:",
+            "먼저  Compositor '{\"tool\":\"guide\"}'  를 실행해 사용법과 도구 목록을 읽은 뒤, 아래 요청대로 "
+            + "작업해 주세요. 결과는 render로 확인하세요(PNG 파일 경로를 알려 줍니다). 요청:"),
         (TextKey.UpdateAvailable, "Version {0} is available (you have {1}). Open the download page?", "새 버전 {0}이(가) 나왔습니다(현재 {1}). 다운로드 페이지를 열까요?"),
         (TextKey.UpdateLatest, "You have the latest version ({0}).", "최신 버전입니다({0})."),
         (TextKey.UpdateFailed, "Could not check for updates: {0}", "업데이트를 확인하지 못했습니다: {0}"),

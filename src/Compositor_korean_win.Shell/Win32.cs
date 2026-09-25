@@ -403,6 +403,15 @@ internal static unsafe partial class Win32
     [LibraryImport("user32.dll")]
     internal static partial nuint SetTimer(nint hwnd, nuint id, uint milliseconds, nint callback);
 
+    internal const uint WM_APP = 0x8000;
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool PostMessageW(nint hwnd, uint message, nuint wParam, nint lParam);
+
+    [LibraryImport("user32.dll")]
+    internal static partial nint GetCapture();
+
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool KillTimer(nint hwnd, nuint id);

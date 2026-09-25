@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Runtime.InteropServices;
+using System.Text;
 using Compositor_korean_win.Core;
 using static Compositor_korean_win.Shell.Win32;
 
@@ -24,6 +25,7 @@ internal sealed unsafe class Clipboard(nint owner)
 {
     private const uint CF_DIB = 8;
     private const uint GMEM_MOVEABLE = 0x0002;
+    private const uint CF_UNICODETEXT = 13;
 
     private static readonly uint PngFormat = RegisterClipboardFormatW("PNG");
 
@@ -83,6 +85,23 @@ internal sealed unsafe class Clipboard(nint owner)
         }
 
         return dib is not null && FromDib(dib) is PixelBuffer pixels ? (pixels, placement) : null;
+    }
+
+    /// <summary>Puts text on the clipboard. False when the clipboard could not be opened.</summary>
+    public static bool PutText(nint owner, string text)
+    {
+        if (!OpenClipboard(owner)) return false;
+        try
+        {
+            EmptyClipboard();
+            // CF_UNICODETEXT: UTF-16 with a terminating null, and Windows line breaks.
+            Give(CF_UNICODETEXT, Encoding.Unicode.GetBytes(text.Replace("\r\n", "\n").Replace("\n", "\r\n") + "\0"));
+            return true;
+        }
+        finally
+        {
+            CloseClipboard();
+        }
     }
 
     /// <summary>Whether the clipboard holds anything this can paste.</summary>

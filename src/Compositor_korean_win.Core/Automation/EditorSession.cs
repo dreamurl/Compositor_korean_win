@@ -14,17 +14,25 @@ namespace Compositor_korean_win.Core;
 /// document take one of those names, or act on the current one — the last opened or selected —
 /// when none is given, which is what a model working on one picture wants.
 /// </para>
+/// <para>
+/// A session that works on the open window's documents (<see cref="LiveRequests"/>) is made with
+/// <c>ownsPixels</c> false: the window's own history keeps those pixels and frees them, and a second
+/// owner would free them under it.
+/// </para>
 /// </remarks>
-public sealed class EditorSession(IEditorServices services) : IDisposable
+public sealed class EditorSession(IEditorServices services, bool ownsPixels = true) : IDisposable
 {
     public sealed class Open
     {
         public required string Id { get; init; }
         public required CanvasDocument Document { get; set; }
-        public DocumentHistory History { get; } = new(ownsPixels: true);
+        public required DocumentHistory History { get; init; }
         public string? Path { get; set; }
         public string Title { get; set; } = "";
         public Guid? Active { get; set; }
+
+        /// <summary>Whatever the host ties this document to — the window's tab, for a live session.</summary>
+        public object? Tag { get; set; }
     }
 
     private readonly Dictionary<string, Open> _open = [];
@@ -43,6 +51,7 @@ public sealed class EditorSession(IEditorServices services) : IDisposable
         {
             Id = $"doc{_next++}",
             Document = document,
+            History = new DocumentHistory(ownsPixels: ownsPixels),
             Path = path,
             Title = title,
             Active = document.Layers.Count > 0 ? document.Layers[^1].Id : null,

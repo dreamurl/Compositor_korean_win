@@ -64,6 +64,9 @@ internal sealed unsafe class MainWindow : IDisposable
     /// <summary>The canvas this window shows, once one has been opened.</summary>
     public CanvasView? Canvas { get; set; }
 
+    /// <summary>The automation pipe, when this window has it (<see cref="LiveBridge"/>).</summary>
+    public LiveBridge? Bridge { get; set; }
+
     /// <summary>The menu bar, and through it every command and its shortcut.</summary>
     public MenuBar? Menu { get; set; }
 
@@ -568,6 +571,15 @@ internal sealed unsafe class MainWindow : IDisposable
                         KillTimer(hwnd, AutoScrollTimer);
                 });
                 window.AfterInput();
+                break;
+
+            case LiveBridge.Message:
+                window?.Guarded(() => window.Bridge?.Drain());
+                break;
+
+            case WM_TIMER when (nuint)wParam == LiveBridge.RetryTimer:
+                if (window?.Bridge is null) KillTimer(hwnd, LiveBridge.RetryTimer);
+                else window.Guarded(window.Bridge.Drain);
                 break;
 
             case WM_TIMER when (nuint)wParam == TooltipTimer:

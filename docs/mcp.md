@@ -1,10 +1,39 @@
-# MCP 서버 — AI가 이 편집기를 쓰게 하기
+# AI가 이 편집기를 쓰게 하기
 
-`Compositor_korean_win.exe --mcp`로 실행하면 창 없이 **MCP(Model Context Protocol) 서버**로 동작한다.
-Claude Code, Claude Desktop, Codex CLI처럼 MCP를 쓰는 AI 도구가 이 편집기의 기능을 도구로 불러서
-레이어 문서를 만들고, 결과를 이미지로 보고, PSD·프로젝트·PNG로 저장할 수 있다.
+AI(Claude, Codex 등)가 이 편집기의 기능을 도구로 불러서 레이어 문서를 만들고, 결과를 이미지로 보고,
+PSD·프로젝트·PNG로 저장할 수 있다. 방법은 두 가지다.
 
-설계와 검증 기록은 [`progress.md`](progress.md) 15절에 있다.
+- **등록 없이, 열린 창에서 (권장)** — Compositor를 켜 두고 AI에게 안내문을 붙여넣기만 하면 된다.
+  AI의 작업이 화면에 바로 나타나고, 한 번의 도구 호출이 실행 취소 한 단계가 된다. 0절.
+- **MCP 서버로 등록** — AI 도구의 설정에 등록해 두고 쓴다. 1절. 창이 열려 있으면 이 경우에도
+  작업이 그 창으로 전달된다.
+
+설계와 검증 기록은 [`progress.md`](progress.md) 15절(MCP)과 25절(열린 창 연결)에 있다.
+
+## 0. 등록 없이 쓰기 — 열린 창에 직접
+
+1. Compositor를 켠다.
+2. 메뉴 **도움말 › AI 작업 안내 복사**를 누른다. 안내문이 클립보드에 들어간다.
+3. PowerShell을 실행할 수 있는 AI(Claude Code, Codex, Claude 데스크톱의 코드 기능 등)에게 붙여넣고,
+   끝에 원하는 작업을 적는다. 예: "1080×1350 포스터를 만들어 줘".
+
+설치 경로나 설정 파일은 필요 없다. 프로그램을 다른 폴더로 옮겨도 그대로 된다.
+
+**어떻게 연결되나.** 열린 창은 현재 사용자만 접근할 수 있는 로컬 통로
+`\\.\pipe\compositor-korean-win`(윈도우 named pipe)을 연다. AI는 안내문의 PowerShell 함수로 이 통로에
+JSON 한 줄을 보내고 한 줄을 받는다. 마우스·키보드를 쓰지 않으며, 사람이 드래그·붓질·텍스트 입력 중일
+때는 끝날 때까지 기다렸다가 적용한다.
+
+```powershell
+function Compositor([string]$json) { ... }   # 안내문에 들어 있는 함수
+Compositor '{"tool":"guide"}'                 # 사용법과 전체 도구 목록
+Compositor '{"tool":"new_document","arguments":{"width":1080,"height":1350}}'
+Compositor '{"tool":"render"}'                # 결과를 PNG 파일로 저장하고 경로를 알려 준다
+```
+
+답은 `{"ok": true|false, "text": "...", "images": ["...png"]}` 형태다. 도구는 창에 보이는 문서에
+작동하고, `new_document`·`open_document`는 새 탭을 연다. `undo`·`redo`는 창의 실행 취소 기록을 쓴다.
+창이 두 개 열려 있으면 먼저 연 창이 통로를 갖는다.
 
 ## 1. 등록하기
 

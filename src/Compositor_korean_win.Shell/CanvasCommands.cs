@@ -212,6 +212,27 @@ internal sealed partial class CanvasView
         NeedsRedraw = true;
     }
 
+    /// <summary>
+    /// A document a tool made from this one, laid down as one undo step named after the tool
+    /// (<see cref="LiveBridge"/>). Nothing happens while an edit of the person's own is half done.
+    /// </summary>
+    public void ApplyAutomation(string name, CanvasDocument next, Guid? active)
+    {
+        if (_document is null || !CanEdit || ReferenceEquals(next, _document)) return;
+
+        _history.Begin(name, _document, Primary);
+        _document = next;
+        if (active is Guid id && next.Layer(id) is not null)
+        {
+            _chosen.Clear();
+            _chosen.Add(id);
+        }
+        _chosen.RemoveWhere(each => next.Layer(each) is null);
+        if (_chosen.Count == 0 && next.Layers.Count > 0) _chosen.Add(next.Layers[^1].Id);
+        _history.End(_document, Primary);
+        NeedsRedraw = true;
+    }
+
     public void AddLayer() =>
         Edit(TextKey.CommandNewLayer, document => LayerCommands.AddBlankLayer(document, Primary) is var (next, id)
             ? (next, id) : null);

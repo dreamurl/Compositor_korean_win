@@ -167,6 +167,56 @@ jobs:
           python scripts/check_psd.py build/mcp-poster
           if ($LASTEXITCODE -ne 0) { throw "psd-tools could not read the MCP poster" }
 
+      # The open window's pipe (docs/progress.md 25): start the editor as a person would, then work
+      # in it from PowerShell with the function the Help menu hands out, and through --mcp, which
+      # has to find the window and relay to it rather than start a windowless server.
+      - name: Work in the open window through its pipe
+        shell: pwsh
+        run: |
+          function Compositor([string]$json) { $p = [IO.Pipes.NamedPipeClientStream]::new('.', 'compositor-korean-win', 'InOut'); try { $p.Connect(5000); $e = [Text.UTF8Encoding]::new($false); $w = [IO.StreamWriter]::new($p, $e); $r = [IO.StreamReader]::new($p, $e); $w.WriteLine($json); $w.Flush(); $r.ReadLine() } finally { $p.Dispose() } }
+          function Call([string]$json) {
+            $answer = Compositor $json | ConvertFrom-Json
+            if (-not $answer.ok) { throw "$json failed: $($answer.text)" }
+            return $answer
+          }
+
+          $window = Start-Process -FilePath "build/publish/Compositor_korean_win.exe" -PassThru
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 60 -and -not $ready; $i++) {
+              try { $null = Compositor '{"tool":"guide"}'; $ready = $true } catch { Start-Sleep -Milliseconds 500 }
+            }
+            if (-not $ready) { throw "the window never opened its pipe" }
+
+            $guide = Call '{"tool":"guide"}'
+            if ($guide.text -notmatch 'add_text') { throw "the guide does not list the tools" }
+
+            $before = Call '{"tool":"get_document"}'
+            $added = Call '{"tool":"add_text","arguments":{"text":"파이프","x":200,"y":300,"size":120,"color":"#E02020"}}'
+            $shown = Call '{"tool":"render"}'
+            if (-not (Test-Path $shown.images[0])) { throw "render did not write its PNG" }
+            $after = Call '{"tool":"get_document"}'
+            if ($after.text -notmatch '파이프') { throw "the text did not reach the window's document: $($after.text)" }
+
+            $undone = Call '{"tool":"undo"}'
+            if ($undone.text -notmatch 'Undid 1') { throw "undo did not go to the window's history: $($undone.text)" }
+            $back = Call '{"tool":"get_document"}'
+            if ($back.text -match '파이프') { throw "undo left the text in place" }
+
+            # --mcp relays to the window: the document it reports is the window's, not a new one.
+            $relay = python -c "import subprocess,json,sys; p=subprocess.run(['build/publish/Compositor_korean_win.exe','--mcp'],input=json.dumps({'jsonrpc':'2.0','id':1,'method':'tools/call','params':{'name':'get_document','arguments':{}}})+'\n',capture_output=True,text=True,encoding='utf-8',timeout=60); print(p.stdout.strip()); print('STDERR:'+p.stderr.strip())"
+            if ($LASTEXITCODE -ne 0) { throw "the --mcp relay did not run" }
+            $relayText = $relay -join "`n"
+            if ($relayText -notmatch 'working in the open window') { throw "--mcp did not find the window: $relayText" }
+            if ($relayText -match 'No document is open') { throw "--mcp answered from a server of its own: $relayText" }
+
+            "## 열린 창 연결" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+            "- 파이프로 안내·문서 조회·텍스트 추가·렌더·실행 취소, `--mcp` 중계 모두 통과" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          }
+          finally {
+            if (-not $window.HasExited) { Stop-Process -Id $window.Id -Force }
+          }
+
       # A run started by hand also puts the poster on the mcp-results branch, where it can be looked
       # at without downloading artifacts.
       - name: Publish the poster for review
